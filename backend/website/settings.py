@@ -24,14 +24,18 @@ SECRET_KEY = "django-insecure-n(^lol5ddh^se!a+toh+992r4$n^gg*my*ihzwldhcwt7umiuy
 FLY_APP_NAME = os.environ.get("FLY_APP_NAME")
 DEBUG = FLY_APP_NAME is None
 ALLOWED_HOSTS = [
+    "localhost",
     "127.0.0.1",
     f"{FLY_APP_NAME}.fly.dev",
     "brackets.win",
 ]
 CORS_ALLOWED_ORIGINS = [
-    "http://127.0.0.1",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
     "https://brackets.win"
 ]
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
