@@ -25,7 +25,8 @@ FLY_APP_NAME = os.environ.get("FLY_APP_NAME")
 DEBUG = FLY_APP_NAME is None
 ALLOWED_HOSTS = [
     "127.0.0.1",
-    f"{FLY_APP_NAME}.fly.dev"
+    f"{FLY_APP_NAME}.fly.dev",
+    "brackets.win",
 ]
 
 
