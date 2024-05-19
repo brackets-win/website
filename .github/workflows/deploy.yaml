@@ -2,7 +2,8 @@ name: Deploy
 
 on:
   push:
-    branches: [ "master" ]
+    # todo: reenable once I know this works
+    # branches: [ "master" ]
     paths:
       - backend/**
 
