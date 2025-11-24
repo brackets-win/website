@@ -1,0 +1,15 @@
+# See https://f1bonacc1.github.io/process-compose/launcher/ for docs on configuring this file
+version: "0.5"
+processes:
+  frontend:
+    command: "npm run dev"
+    working_dir: frontend
+    depends_on:
+      server:
+        condition: process_started
+  server:
+    command: "python manage.py runserver"
+    working_dir: backend
+    depends_on:
+      postgresql:
+        condition: process_healthy
