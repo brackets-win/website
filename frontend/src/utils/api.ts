@@ -1,10 +1,7 @@
-/**
- * JSON API client for the Django backend (session cookies).
- * Dev server: Vite on :5173 → API on :8000 (`credentials` required).
- */
+/** JSON API client for the Django backend (session cookies). */
 
 const apiRoot = import.meta.env.DEV
-  ? 'http://localhost:8000/brackets/api'
+  ? `${window.location.origin}/brackets/api`
   : 'https://brackets-win.fly.dev/brackets/api';
 
 export type ApiUser = { id: number; username: string };
@@ -15,6 +12,8 @@ export type BracketSummary = {
   description: string;
   created_at: string;
   randomize_seeds_per_challenge: boolean;
+  /** Single elimination: optional third-place match (semifinal losers). */
+  has_third_place_match?: boolean;
   metadata: unknown;
 };
 
@@ -46,10 +45,52 @@ export type UserBracketSummary = {
   created_at: string;
 };
 
+export type BracketStageInfo = {
+  id: number;
+  name: string;
+  order: number;
+  stage_type: string;
+  number_of_contestants: number;
+  contestants_advancing?: number | null;
+  submission_deadline: string | null;
+  points_per_correct_pick: number;
+  metadata: unknown;
+  knockout?: {
+    is_final: boolean;
+    number_of_legs: number;
+    is_third_place?: boolean;
+  };
+  group?: {
+    number_of_groups: number;
+    matches_per_contestant: number;
+    contestants_qualifying_per_group: number;
+    remaining_spots_strategy: string | null;
+  };
+};
+
+/** Group bucket for UI (even split of bracket contestants). */
+export type BracketGroupPreview = {
+  code: string;
+  stage_id: number;
+  teams: BracketContestantInfo[];
+};
+
+export type BracketDetail = BracketSummary & {
+  stages: BracketStageInfo[];
+  contestants: BracketContestantInfo[];
+  groups: BracketGroupPreview[];
+};
+
+export type UserBracketPicksMetadata = {
+  group_positions?: Record<string, Record<string, number | null | undefined>>;
+  third_place_advancers?: number[];
+};
+
 export type UserBracketDetail = UserBracketSummary & {
   bracket: BracketSummary;
   matchups_by_stage: { stage_id: number; matchups: MatchupInfo[] }[];
   score_vs_master: number | null;
+  metadata: UserBracketPicksMetadata;
 };
 
 function joinUrl(path: string): string {
@@ -89,6 +130,9 @@ async function apiFetch<T>(
   const parsed = (await res.json().catch(() => ({}))) as unknown;
 
   if (!res.ok) {
+    if (import.meta.env.DEV && (res.status === 502 || res.status === 503)) {
+      throw new ApiError('Unable to connect.', res.status, parsed);
+    }
     const msg =
       typeof parsed === 'object' &&
       parsed !== null &&
@@ -106,7 +150,7 @@ async function apiFetch<T>(
 /** Legacy ping endpoint (`POST /brackets/test`). */
 export async function testAPI(value1: number, value2: number): Promise<number> {
   const apiHost = import.meta.env.DEV
-    ? 'http://localhost:8000'
+    ? window.location.origin
     : 'https://brackets-win.fly.dev';
   const res = await fetch(`${apiHost}/brackets/test`, {
     method: 'POST',
@@ -142,7 +186,7 @@ export async function listBrackets(): Promise<{ brackets: BracketSummary[] }> {
 
 export async function getBracket(
   bracketId: number,
-): Promise<{ bracket: BracketSummary & { stages: unknown[]; contestants: BracketContestantInfo[] } }> {
+): Promise<{ bracket: BracketDetail }> {
   return apiFetch('GET', `brackets/${bracketId}`);
 }
 
@@ -164,6 +208,19 @@ export async function getUserBracket(
   userBracketId: number,
 ): Promise<{ user_bracket: UserBracketDetail }> {
   return apiFetch('GET', `user-brackets/${userBracketId}`);
+}
+
+export async function patchUserBracketMetadata(
+  userBracketId: number,
+  body: {
+    group_positions?: Record<
+      string,
+      Record<string, number | null | undefined>
+    >;
+    third_place_advancers?: number[];
+  },
+): Promise<{ user_bracket: UserBracketDetail }> {
+  return apiFetch('PATCH', `user-brackets/${userBracketId}`, body);
 }
 
 export async function patchMatchupWinner(

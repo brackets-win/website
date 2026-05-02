@@ -11,6 +11,8 @@ class Bracket(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     # If True, each challenge will randomize seeds; if False, all challenges use the same seeds
     randomize_seeds_per_challenge = models.BooleanField(default=False)
+    # Single-elim brackets: optional third-place match (losers of the semifinals).
+    has_third_place_match = models.BooleanField(default=False)
     # Store bracket-specific metadata (e.g., World Cup third-place combinations)
     metadata = models.JSONField(null=True, blank=True)
 
@@ -42,6 +44,8 @@ class UserBracket(models.Model):
         'bracket.BracketChallenge', on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_master = models.BooleanField(default=False)
+    # User picks for group stage / WC third-place pool (JSON).
+    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [

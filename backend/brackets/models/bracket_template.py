@@ -22,7 +22,14 @@ class BracketTemplate(models.Model):
     def __str__(self):
         return self.name
 
-    def create_bracket(self, bracket_name, number_of_contestants, created_by):
+    def create_bracket(
+        self,
+        bracket_name,
+        number_of_contestants,
+        created_by,
+        *,
+        has_third_place=False,
+    ):
         """
         Create a new Bracket from this template based on template_type.
 
@@ -33,7 +40,10 @@ class BracketTemplate(models.Model):
 
         bracket = Bracket.objects.create(
             name=bracket_name,
-            created_by=created_by
+            created_by=created_by,
+            has_third_place_match=(
+                has_third_place if self.template_type == 'SINGLE_ELIM' else False
+            ),
         )
 
         if self.template_type == 'GROUP_KNOCKOUT':
@@ -129,5 +139,21 @@ class BracketTemplate(models.Model):
 
                 current_contestants //= 2
                 order += 1
+
+            if has_third_place:
+                KnockoutStage.objects.create(
+                    bracket=bracket,
+                    name='Third place',
+                    order=order,
+                    stage_type='KNOCKOUT',
+                    number_of_contestants=2,
+                    contestants_advancing=1,
+                    number_of_legs=1,
+                    has_extra_time=True,
+                    has_penalty_shootout=True,
+                    is_final=False,
+                    is_third_place=True,
+                    points_per_correct_pick=1,
+                )
 
         return bracket

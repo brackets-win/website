@@ -1,0 +1,19 @@
+---
+description: Prefer commits and pushes scoped to the current chat’s edits; avoid mixing other agents’ uncommitted work.
+alwaysApply: true
+---
+
+# Git push scope (chat-local changes)
+
+When preparing commits or `git push`, **default to shipping only work produced or explicitly directed in the current chat**, not the entire dirty working tree.
+
+- Before `git add -A` or `git commit -a`, list changed files (`git status`) and **exclude** paths that belong to another thread, another agent, or unrelated experiments—unless the user asked to bundle everything.
+- Prefer **`git add <paths>`** or **`git add -p`** so unrelated modified files stay unstaged for later commits.
+- If the branch mixes agents’ changes in the same file, use **patch staging** (`git add -p`) or **split commits** so each push matches one narrative (one chat / one task).
+- After pushing chat-scoped commits, **leave remaining edits uncommitted** (or stash with a clear message) for other owners unless the user wants a single squashed branch.
+
+When unsure, ask whether to include unchanged-by-chat files or only the paths touched this session.
+
+## Commit messages
+
+**Do not choose or invent the commit message.** The user owns it: ask for the exact subject (and body if they want one), or wait until they provide it. If they only describe intent (“commit this”), ask how they want it titled before committing.

@@ -46,8 +46,18 @@ class Matchup(models.Model):
     def get_next_matchup(self):
         """
         Get the matchup in the next stage that this matchup's winner feeds into.
-        Returns None if this is the final stage.
+        Returns None if there is no next knockout matchup (e.g. final — champions
+        are not another matchup row; optional third-place game uses loser feeds only).
         """
+        from .bracket_stage import KnockoutStage
+
+        try:
+            ks = KnockoutStage.objects.get(pk=self.stage_id)
+            if ks.is_final:
+                return None
+        except KnockoutStage.DoesNotExist:
+            pass
+
         next_stage = self.user_bracket.bracket.stages.filter(
             order=self.stage.order + 1
         ).first()

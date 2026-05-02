@@ -61,6 +61,8 @@ class KnockoutStage(BracketStage):
     has_extra_time = models.BooleanField(default=False)
     has_penalty_shootout = models.BooleanField(default=False)
     is_final = models.BooleanField(default=False)
+    # Optional third-place game: one matchup fed by semifinal losers (not winners).
+    is_third_place = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} - Knockout Stage"

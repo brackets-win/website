@@ -1,26 +1,32 @@
-import { useEffect, useState } from 'react';
-import reactLogo from './assets/react.svg';
-import viteLogo from '/vite.svg';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
-import { testAPI } from './utils/api';
+import { BracketFill } from './components/bracket/BracketFill';
 import {
   ApiError,
   authLogin,
   authMe,
   listBrackets,
+  listUserBrackets,
   type BracketSummary,
 } from './utils/api';
 
-function App() {
-  const [count, setCount] = useState(0);
-  const [value1, setValue1] = useState(0);
-  const [value2, setValue2] = useState(0);
-  const [result, setResult] = useState<number>();
+function readUbFromLocation(): number | null {
+  const q = new URLSearchParams(window.location.search).get('ub');
+  if (!q) return null;
+  const n = parseInt(q, 10);
+  return Number.isFinite(n) ? n : null;
+}
 
+function App() {
   const [me, setMe] = useState<string>('…');
   const [brackets, setBrackets] = useState<BracketSummary[]>([]);
   const [apiNote, setApiNote] = useState<string>('');
+
+  const initialUb = useMemo(() => readUbFromLocation(), []);
+  const [userBracketId, setUserBracketId] = useState<number>(
+    initialUb ?? 4,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -31,103 +37,88 @@ function App() {
         setMe(who.user ? who.user.username : '(anonymous)');
         setBrackets(list.brackets);
         setApiNote('');
+
+        if (who.user && initialUb == null) {
+          const ubs = await listUserBrackets();
+          if (cancelled) return;
+          const pick = ubs.user_brackets[0];
+          if (pick) setUserBracketId(pick.id);
+        }
       } catch (e) {
         if (cancelled) return;
         setApiNote(
-          e instanceof ApiError
-            ? e.message
-            : 'Could not reach API (is Django running on :8000?)',
+          e instanceof ApiError ? e.message : 'Unable to connect.',
         );
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  async function getResult() {
-    setResult(await testAPI(value1, value2));
-  }
+  }, [initialUb]);
 
   async function loginDemo() {
     try {
       const { user } = await authLogin('player', 'demo');
       setMe(user.username);
-      const list = await listBrackets();
+      const [list, ubs] = await Promise.all([
+        listBrackets(),
+        listUserBrackets(),
+      ]);
       setBrackets(list.brackets);
+      const pick = ubs.user_brackets[0];
+      if (pick) setUserBracketId(pick.id);
       setApiNote('');
     } catch (e) {
-      setApiNote(
-        e instanceof ApiError
-          ? e.message
-          : 'Login failed — run: python manage.py seed_demo_bracket',
-      );
+      if (e instanceof ApiError) {
+        setApiNote(e.message);
+      } else if (e instanceof TypeError) {
+        setApiNote('Unable to connect.');
+      } else {
+        setApiNote(e instanceof Error ? e.message : 'Login failed.');
+      }
     }
   }
 
   return (
-    <>
-      <div>
-        <a href="https://vitejs.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-
-      <section style={{ textAlign: 'left', maxWidth: 480, margin: '0 auto' }}>
-        <h2>API</h2>
-        <p>
+    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1rem' }}>
+      <header style={{ marginBottom: '1.25rem' }}>
+        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem' }}>
+          Brackets
+        </h1>
+        <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.85 }}>
           Session: <strong>{me}</strong>
-        </p>
-        <p>
-          Brackets:{' '}
-          <strong>
-            {brackets.map((b) => b.name).join(', ') || '(none)'}
-          </strong>
+          {brackets.length > 0
+            ? ` · ${brackets.map((b) => b.name).join(', ')}`
+            : ''}
         </p>
         {apiNote ? (
-          <p style={{ color: 'coral' }}>{apiNote}</p>
+          <p style={{ color: '#c43333', marginTop: '0.5rem' }}>{apiNote}</p>
         ) : null}
-        <button type="button" onClick={loginDemo}>
-          Log in as player/demo
-        </button>
-        <p style={{ fontSize: 12, opacity: 0.85 }}>
-          Requires backend with{' '}
-          <code>python manage.py seed_demo_bracket</code> and{' '}
-          <code>runserver</code>.
-        </p>
-      </section>
+        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" onClick={loginDemo}>
+            Log in as player/demo
+          </button>
+          <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.9rem' }}>
+            User bracket id
+            <input
+              type="number"
+              min={1}
+              value={userBracketId}
+              onChange={(e) =>
+                setUserBracketId(parseInt(e.target.value, 10) || 1)
+              }
+              style={{ width: 72 }}
+            />
+          </label>
+        </div>
+      </header>
 
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-
-      <input
-        type="number"
-        value={value1}
-        onChange={(event) => setValue1(parseInt(event.currentTarget.value, 10))}
-      />
-      +
-      <input
-        type="number"
-        value={value2}
-        onChange={(event) => setValue2(parseInt(event.currentTarget.value, 10))}
-      />
-      ={result ?? '?'}
-      <br />
-      <button onClick={getResult}>Calculate (legacy /brackets/test)</button>
-    </>
+      {me !== '(anonymous)' && me !== '…' ? (
+        <BracketFill userBracketId={userBracketId} />
+      ) : (
+        <p style={{ fontSize: '0.9rem', color: '#5c6470' }}>Log in to view your bracket.</p>
+      )}
+    </div>
   );
 }
 

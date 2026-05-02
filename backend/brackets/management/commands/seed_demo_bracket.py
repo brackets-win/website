@@ -2,8 +2,8 @@
 Create a small single-elimination bracket with 8 seeded teams for local API/UI testing.
 
 Usage:
-  python manage.py seed_demo_bracket
-  python manage.py seed_demo_bracket --password secret  # set demo user password
+  poetry run python manage.py seed_demo_bracket
+  poetry run python manage.py seed_demo_bracket --password secret
 """
 from django.core.management.base import BaseCommand
 
@@ -62,6 +62,7 @@ class Command(BaseCommand):
             bracket_name="Demo 8-team bracket",
             number_of_contestants=8,
             created_by=owner,
+            has_third_place=True,
         )
 
         team_names = [

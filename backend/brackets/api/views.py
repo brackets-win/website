@@ -11,8 +11,13 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from brackets.models import Bracket, Matchup, UserBracket
-from brackets.utils.knockout_tree import ensure_full_knockout_matchups
+from brackets.models import Bracket, BracketStage, Matchup, UserBracket
+from brackets.utils.knockout_rebuild import (
+    clear_matchup_winner_and_downstream,
+    rebuild_knockout_from_first_round,
+)
+from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
+from brackets.utils.user_bracket_picks import merge_and_validate_user_bracket_metadata
 
 from . import serializers
 
@@ -136,7 +141,7 @@ def user_brackets_list_create(request: HttpRequest) -> JsonResponse:
             return _json_error("Could not create or resolve user bracket", 409)
 
     try:
-        ensure_full_knockout_matchups(ub)
+        ensure_knockout_structure_for_user_bracket(ub)
     except ValueError as e:
         return _json_error(str(e), 400)
 
@@ -146,7 +151,7 @@ def user_brackets_list_create(request: HttpRequest) -> JsonResponse:
     )
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "PATCH"])
 def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonResponse:
     user = _require_user(request)
     if user is None:
@@ -155,6 +160,22 @@ def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonRespo
     ub = get_object_or_404(UserBracket, pk=user_bracket_id)
     if ub.user_id != user.id:
         return _json_error("Forbidden", 403)
+
+    if request.method == "PATCH":
+        if ub.is_master:
+            return _json_error("Cannot edit master bracket via this API", 403)
+        try:
+            body = _parse_json(request)
+        except json.JSONDecodeError:
+            return _json_error("Invalid JSON body", 400)
+        try:
+            ub.metadata = merge_and_validate_user_bracket_metadata(
+                ub.bracket, ub.metadata, body
+            )
+            ub.save(update_fields=["metadata"])
+        except ValueError as e:
+            return _json_error(str(e), 400)
+        return JsonResponse({"user_bracket": serializers.user_bracket_detail(ub)})
 
     return JsonResponse({"user_bracket": serializers.user_bracket_detail(ub)})
 
@@ -179,8 +200,17 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
 
     winner_id = body.get("winner_id")
     if winner_id is None:
-        m.winner = None
-        m.save()
+        first_ko = (
+            ub.bracket.stages.filter(stage_type=BracketStage.StageType.KNOCKOUT)
+            .order_by("order")
+            .first()
+        )
+        if first_ko and m.stage_id == first_ko.id:
+            m.winner = None
+            m.save()
+            rebuild_knockout_from_first_round(ub)
+        else:
+            clear_matchup_winner_and_downstream(m)
         m.refresh_from_db()
         return JsonResponse({"matchup": serializers.matchup_public(m)})
 

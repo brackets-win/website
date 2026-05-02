@@ -8,7 +8,7 @@ processes:
       server:
         condition: process_started
   server:
-    command: "python manage.py runserver"
+    command: "python3 manage.py runserver"
     working_dir: backend
     depends_on:
       postgresql:

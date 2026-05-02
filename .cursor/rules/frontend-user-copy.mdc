@@ -1,0 +1,23 @@
+---
+description: Keep product UI copy minimal—no dev trivia or agent Q&A in the frontend
+alwaysApply: true
+---
+
+# Frontend copy (users, not developers)
+
+The UI is for **end users**. Do **not** ship explanatory text that answers implementation questions, documents data sources, or teaches developers how to run the stack.
+
+**Avoid in components users see**
+
+- Dev banners, “this proxies to…”, migrate/seed/runserver instructions, folder paths
+- Phrases like “values are not hardcoded”, “from the API/database”, “BracketStage.name”, architecture footnotes
+- Long tips below headers unless they are **short, actionable user guidance** (and rare)
+- `import.meta.env.DEV` blocks that explain Cursor/Vite workflows to humans viewing localhost
+
+**Prefer**
+
+- Short errors: “Unable to connect.” / message from `ApiError` when it’s already user-safe
+- Minimal empty states and labels; round names stay whatever the backend sends—no meta-commentary
+- Put setup notes, data-flow explanations, and debugging steps in **README**, internal docs, or chat—not in `App.tsx` / bracket UI
+
+When unsure, treat copy as **production-facing**.
