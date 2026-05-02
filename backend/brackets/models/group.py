@@ -4,12 +4,17 @@ from django.db import models
 class Group(models.Model):
     bracket = models.ForeignKey(
         'bracket.Bracket', on_delete=models.CASCADE)
+    stage = models.ForeignKey(
+        'bracket.BracketStage',
+        on_delete=models.CASCADE,
+        related_name='group_set',
+    )
     name = models.CharField(max_length=100)
     order = models.PositiveIntegerField()
 
     class Meta:
         ordering = ['order']
-        unique_together = ['bracket', 'order']
+        unique_together = ['stage', 'order']
 
     @property
     def code(self):
@@ -41,7 +46,7 @@ class Group(models.Model):
 class GroupMembership(models.Model):
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     contestant = models.ForeignKey(
-        'contestant.BracketContestant', on_delete=models.CASCADE)
+        'bracket.BracketContestant', on_delete=models.CASCADE)
     # 1st, 2nd, 3rd, etc.
     final_position = models.PositiveIntegerField(null=True, blank=True)
 

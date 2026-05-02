@@ -16,7 +16,7 @@ class BracketChallenge(models.Model):
     instance_type = models.CharField(
         max_length=20, choices=INSTANCE_TYPE_CHOICES, default='CHALLENGE')
     created_by = models.ForeignKey(
-        'user.User', on_delete=models.CASCADE, related_name='challenges_created')
+        'bracket.User', on_delete=models.CASCADE, related_name='challenges_created')
     created_at = models.DateTimeField(auto_now_add=True)
     is_public = models.BooleanField(default=False)
     join_code = models.CharField(
@@ -35,7 +35,7 @@ class ChallengeParticipant(models.Model):
     Represents a user's participation in a bracket challenge.
     """
     challenge = models.ForeignKey(BracketChallenge, on_delete=models.CASCADE)
-    user = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    user = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

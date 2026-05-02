@@ -6,13 +6,13 @@ class Matchup(models.Model):
     user_bracket = models.ForeignKey(
         'bracket.UserBracket', on_delete=models.CASCADE)
     stage = models.ForeignKey(
-        'bracket_stage.BracketStage', on_delete=models.CASCADE)
+        'bracket.BracketStage', on_delete=models.CASCADE)
     position = models.PositiveIntegerField()
     contestant1 = models.ForeignKey(
-        'contestant.BracketContestant', related_name='matchup_contestant1', on_delete=models.CASCADE, null=True, blank=True)
+        'bracket.BracketContestant', related_name='matchup_contestant1', on_delete=models.CASCADE, null=True, blank=True)
     contestant2 = models.ForeignKey(
-        'contestant.BracketContestant', related_name='matchup_contestant2', on_delete=models.CASCADE, null=True, blank=True)
-    winner = models.ForeignKey('contestant.BracketContestant', related_name='matchup_winner',
+        'bracket.BracketContestant', related_name='matchup_contestant2', on_delete=models.CASCADE, null=True, blank=True)
+    winner = models.ForeignKey('bracket.BracketContestant', related_name='matchup_winner',
                                on_delete=models.SET_NULL, null=True, blank=True)
 
     # Source tracking for contestants (enables third place matches, double elimination, etc.)
@@ -173,9 +173,9 @@ class Matchup(models.Model):
 
 class UserPick(models.Model):
     matchup = models.ForeignKey(Matchup, on_delete=models.CASCADE)
-    user = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    user = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     selected_contestant = models.ForeignKey(
-        'contestant.BracketContestant', on_delete=models.CASCADE)
+        'bracket.BracketContestant', on_delete=models.CASCADE)
 
     def __str__(self):
         return f"{self.user.username} picked {self.selected_contestant}"

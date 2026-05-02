@@ -15,7 +15,7 @@ class BracketTemplate(models.Model):
     template_type = models.CharField(
         max_length=20, choices=TEMPLATE_TYPE_CHOICES)
     description = models.TextField(blank=True)
-    created_by = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    created_by = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     is_system = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

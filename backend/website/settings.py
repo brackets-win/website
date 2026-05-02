@@ -26,6 +26,7 @@ DEBUG = FLY_APP_NAME is None
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
+    "testserver",
     f"{FLY_APP_NAME}.fly.dev",
     "brackets.win",
 ]
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "brackets.apps.BracketsConfig",
 ]
 
 MIDDLEWARE = [
@@ -143,3 +145,5 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTH_USER_MODEL = "bracket.User"

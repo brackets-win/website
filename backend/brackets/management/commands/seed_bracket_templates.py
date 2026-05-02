@@ -9,7 +9,7 @@ class Command(BaseCommand):
         # Get or create system user
         system_user, _ = User.objects.get_or_create(
             username='system',
-            defaults={'email': 'system@brackets.win', 'is_admin': True}
+            defaults={'email': 'system@brackets.win', 'is_staff': True},
         )
 
         # 1. Group + Knockout Template

@@ -190,14 +190,17 @@ def distribute_contestants_to_groups(
     return memberships
 
 
-def seed_knockout_matchups(bracket, knockout_stage):
+def seed_knockout_matchups(user_bracket, knockout_stage):
     """
-    Create knockout matchups based on standard bracket seeding (1 vs 32, 2 vs 31, etc.).
+    Create matchups for one knockout stage only (first round with seeds).
+
+    Prefer ``ensure_full_knockout_matchups`` for a complete tree.
 
     Returns list of created Matchup objects.
     """
     from brackets.models import BracketContestant, Matchup
 
+    bracket = user_bracket.bracket
     contestants = list(BracketContestant.objects.filter(
         bracket=bracket
     ).order_by('seed'))
@@ -210,12 +213,10 @@ def seed_knockout_matchups(bracket, knockout_stage):
             f"knockout stage requirement ({knockout_stage.number_of_contestants})"
         )
 
-    # Standard bracket seeding pairs
     matchups = []
     num_matchups = num_contestants // 2
 
     for position in range(1, num_matchups + 1):
-        # Calculate seed pairings (1 vs 32, 2 vs 31, etc.)
         seed1 = position
         seed2 = num_contestants - position + 1
 
@@ -223,6 +224,7 @@ def seed_knockout_matchups(bracket, knockout_stage):
         contestant2 = contestants[seed2 - 1]
 
         matchup = Matchup.objects.create(
+            user_bracket=user_bracket,
             stage=knockout_stage,
             position=position,
             contestant1=contestant1,

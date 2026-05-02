@@ -7,7 +7,7 @@ from .group import GroupMembership
 class Bracket(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    created_by = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    created_by = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     # If True, each challenge will randomize seeds; if False, all challenges use the same seeds
     randomize_seeds_per_challenge = models.BooleanField(default=False)
@@ -37,9 +37,9 @@ class Bracket(models.Model):
 
 class UserBracket(models.Model):
     bracket = models.ForeignKey(Bracket, on_delete=models.CASCADE)
-    user = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    user = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     challenge = models.ForeignKey(
-        'bracket_challenge.BracketChallenge', on_delete=models.CASCADE, null=True, blank=True)
+        'bracket.BracketChallenge', on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_master = models.BooleanField(default=False)
 
@@ -169,33 +169,7 @@ class UserBracket(models.Model):
             score += len(correct_predictions) * \
                 knockout_stage.points_per_correct_pick
 
-        # Score group stages: exact placement within groups
-        for stage in self.bracket.stages.filter(stage_type='GROUP'):
-            group_stage = GroupStage.objects.get(pk=stage.pk)
-
-            # Get all groups for this stage
-            groups = stage.group_set.all()
-            for group in groups:
-                # Compare each contestant's final position
-                user_memberships = GroupMembership.objects.filter(
-                    group__bracket=self,
-                    group__order=group.order,
-                    group__stage=stage
-                )
-                master_memberships = GroupMembership.objects.filter(
-                    group__bracket=master,
-                    group__order=group.order,
-                    group__stage=stage
-                )
-
-                # Count exact placement matches
-                for user_mem in user_memberships:
-                    master_mem = master_memberships.filter(
-                        contestant=user_mem.contestant,
-                        final_position=user_mem.final_position
-                    ).first()
-
-                    if master_mem:
-                        score += group_stage.points_per_correct_pick
+        # Group-stage scoring needs per-user placement picks (GroupMembership is bracket-wide).
+        # TODO: score group stages once user-specific predictions exist.
 
         return score
