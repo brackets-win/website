@@ -12,6 +12,7 @@ type Meta = {
 };
 
 const ORD = ['1', '2', '3'] as const;
+const WC_GROUPS_PER_SHELF = 3;
 
 type DragPayload = {
   contestantId: number;
@@ -44,6 +45,14 @@ function stripContestant(
   return { gp: nextGp, tp: tp.filter((x) => x !== ids) };
 }
 
+function chunkGroups<T>(items: T[], size: number): T[][] {
+  const shelves: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    shelves.push(items.slice(i, i + size));
+  }
+  return shelves;
+}
+
 type Props = {
   userBracketId: number;
   groups: BracketGroupPreview[];
@@ -51,6 +60,7 @@ type Props = {
   isWorldCup: boolean;
   initialMetadata: Meta;
   busy: boolean;
+  readOnly?: boolean;
   onSaved: () => Promise<void>;
   onError: (msg: string) => void;
   setBusy: (b: boolean) => void;
@@ -63,6 +73,7 @@ export function GroupStagePanel({
   isWorldCup,
   initialMetadata,
   busy,
+  readOnly = false,
   onSaved,
   onError,
   setBusy,
@@ -88,8 +99,17 @@ export function GroupStagePanel({
     return m;
   }, [groups]);
 
+  const shelves = useMemo(
+    () =>
+      isWorldCup
+        ? chunkGroups(groups, WC_GROUPS_PER_SHELF)
+        : [groups],
+    [groups, isWorldCup],
+  );
+
   const save = useCallback(
     async (nextGp: Meta['group_positions'], nextTp: number[]) => {
+      if (readOnly) return;
       setBusy(true);
       onError('');
       try {
@@ -108,11 +128,12 @@ export function GroupStagePanel({
         setBusy(false);
       }
     },
-    [userBracketId, isWorldCup, onSaved, onError, setBusy],
+    [userBracketId, isWorldCup, onSaved, onError, setBusy, readOnly],
   );
 
   const onDragStart = useCallback(
     (e: React.DragEvent, payload: DragPayload) => {
+      if (readOnly) return;
       e.dataTransfer.setData('application/json', JSON.stringify(payload));
       e.dataTransfer.effectAllowed = 'move';
     },
@@ -200,141 +221,156 @@ export function GroupStagePanel({
   const labelForSlot = (i: number) =>
     i === 0 ? '1st' : i === 1 ? '2nd' : '3rd';
 
-  return (
-    <div className="bf-g">
-      <p className="bf-g-hint">
-        Drag teams into group finishing order ({numSlots} slots per group).
-      </p>
+  const renderGroupCard = (g: BracketGroupPreview) => {
+    const positions = gp[g.code] ?? {};
+    const taken = new Set<number>();
+    for (let i = 0; i < numSlots; i++) {
+      const k = ORD[i];
+      const id = positions[k];
+      if (id != null) taken.add(id);
+    }
+    const poolTeams = g.teams.filter((t) => !taken.has(t.id));
 
-      <div className="bf-g-grid">
-        {groups.map((g) => {
-          const positions = gp[g.code] ?? {};
-          const taken = new Set<number>();
-          for (let i = 0; i < numSlots; i++) {
+    return (
+      <div
+        key={g.code}
+        className={isWorldCup ? 'bf-g-card bf-g-card--wc' : 'bf-g-card'}
+      >
+        <div className="bf-g-card-head">Group {g.code}</div>
+        <div className="bf-g-slots">
+          {Array.from({ length: numSlots }, (_, i) => {
             const k = ORD[i];
-            const id = positions[k];
-            if (id != null) taken.add(id);
-          }
-          const poolTeams = g.teams.filter((t) => !taken.has(t.id));
-
-          return (
-            <div key={g.code} className="bf-g-card">
-              <div className="bf-g-card-head">Group {g.code}</div>
-              <div className="bf-g-slots">
-                {Array.from({ length: numSlots }, (_, i) => {
-                  const k = ORD[i];
-                  const cid = positions[k] ?? null;
-                  const c = cid != null ? byId.get(cid) : null;
-                  return (
-                    <div
-                      key={k}
-                      className="bf-g-slot"
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => onDropSlot(e, g.code, k)}
-                    >
-                      <span className="bf-g-slot-label">{labelForSlot(i)}</span>
-                      {c ? (
-                        <button
-                          type="button"
-                          draggable={!busy}
-                          className="bf-chip bf-g-chip"
-                          onDragStart={(e) =>
-                            onDragStart(e, {
-                              contestantId: c.id,
-                              from: { type: 'slot', groupCode: g.code, slot: k },
-                            })
-                          }
-                          disabled={busy}
-                        >
-                          {c.display_name}
-                          {c.seed != null ? (
-                            <span className="bf-g-seed">#{c.seed}</span>
-                          ) : null}
-                        </button>
-                      ) : (
-                        <span className="bf-slot bf-slot--empty bf-g-placeholder">
-                          Drop here
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+            const cid = positions[k] ?? null;
+            const c = cid != null ? byId.get(cid) : null;
+            return (
               <div
-                className="bf-g-pool"
+                key={k}
+                className="bf-g-slot"
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => onDropPool(e, g.code)}
+                onDrop={(e) => onDropSlot(e, g.code, k)}
               >
-                <span className="bf-g-pool-label">Unassigned</span>
-                <div className="bf-g-pool-chips">
-                  {poolTeams.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      draggable={!busy}
-                      className="bf-chip bf-g-chip bf-g-chip--muted"
-                      onDragStart={(e) =>
-                        onDragStart(e, {
-                          contestantId: t.id,
-                          from: { type: 'pool', groupCode: g.code },
-                        })
-                      }
-                      disabled={busy}
-                    >
-                      {t.display_name}
-                      {t.seed != null ? (
-                        <span className="bf-g-seed">#{t.seed}</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
+                <span className="bf-g-slot-label">{labelForSlot(i)}</span>
+                {c ? (
+                  <button
+                    type="button"
+                    draggable={!busy}
+                    className="bf-chip bf-g-chip"
+                    onDragStart={(e) =>
+                      onDragStart(e, {
+                        contestantId: c.id,
+                        from: { type: 'slot', groupCode: g.code, slot: k },
+                      })
+                    }
+                    disabled={busy}
+                  >
+                    {c.display_name}
+                    {c.seed != null ? (
+                      <span className="bf-g-seed">#{c.seed}</span>
+                    ) : null}
+                  </button>
+                ) : (
+                  <span className="bf-slot bf-slot--empty bf-g-placeholder">
+                    Drop here
+                  </span>
+                )}
               </div>
+            );
+          })}
+        </div>
+        <div
+          className="bf-g-pool"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => onDropPool(e, g.code)}
+        >
+          <span className="bf-g-pool-label">Unassigned</span>
+          <div className="bf-g-pool-chips">
+            {poolTeams.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                draggable={!busy}
+                className="bf-chip bf-g-chip bf-g-chip--muted"
+                onDragStart={(e) =>
+                  onDragStart(e, {
+                    contestantId: t.id,
+                    from: { type: 'pool', groupCode: g.code },
+                  })
+                }
+                disabled={busy}
+              >
+                {t.display_name}
+                {t.seed != null ? (
+                  <span className="bf-g-seed">#{t.seed}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const thirdPlaceRail = isWorldCup ? (
+    <aside className="bf-g-third-rail" aria-label="Third-place qualifiers">
+      <p className="bf-g-third-rail-head">Best 3rd place</p>
+      <p className="bf-g-third-rail-sub">Pick 8 to advance</p>
+      <div className="bf-g-third-rail-slots">
+        {Array.from({ length: 8 }, (_, index) => {
+          const id = tp[index];
+          const c = id != null ? byId.get(id) : null;
+          return (
+            <div
+              key={index}
+              className="bf-g-third-cell bf-g-third-cell--rail"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => onDropThirdSlot(e, index)}
+            >
+              <span className="bf-g-third-idx">{index + 1}</span>
+              {c ? (
+                <div className="bf-g-third-pill">
+                  <span>{c.display_name}</span>
+                  <button
+                    type="button"
+                    className="bf-pick-clear"
+                    disabled={busy}
+                    onClick={() => void removeFromThird(c.id)}
+                    aria-label="Remove from list"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <span className="bf-g-third-empty">Drop 3rd</span>
+              )}
             </div>
           );
         })}
       </div>
+    </aside>
+  ) : null;
 
-      {isWorldCup ? (
-        <div className="bf-g-third">
-          <div className="bf-g-third-head">Third-place qualifiers (pick 8)</div>
-          <p className="bf-g-third-sub">
-            Drag from a group’s 3rd slot into the advancing list. One team per
-            group — no duplicates.
-          </p>
-          <div className="bf-g-third-slots">
-            {Array.from({ length: 8 }, (_, index) => {
-              const id = tp[index];
-              const c = id != null ? byId.get(id) : null;
-              return (
-                <div
-                  key={index}
-                  className="bf-g-third-cell"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => onDropThirdSlot(e, index)}
-                >
-                  <span className="bf-g-third-idx">{index + 1}</span>
-                  {c ? (
-                    <div className="bf-g-third-pill">
-                      <span>{c.display_name}</span>
-                      <button
-                        type="button"
-                        className="bf-pick-clear"
-                        disabled={busy}
-                        onClick={() => void removeFromThird(c.id)}
-                        aria-label="Remove from list"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="bf-g-third-empty">Drop 3rd-place team</span>
-                  )}
-                </div>
-              );
-            })}
+  const groupBody = isWorldCup ? (
+    <div className="bf-g-wc-body">
+      <div className="bf-g-shelves">
+        {shelves.map((shelf, shelfIdx) => (
+          <div key={shelfIdx} className="bf-g-shelf">
+            {shelf.map((g) => renderGroupCard(g))}
           </div>
-        </div>
-      ) : null}
+        ))}
+      </div>
+      {thirdPlaceRail}
+    </div>
+  ) : (
+    <div className="bf-g-grid">{groups.map((g) => renderGroupCard(g))}</div>
+  );
+
+  return (
+    <div className={isWorldCup ? 'bf-g bf-g--wc' : 'bf-g'}>
+      <p className="bf-g-hint">
+        Drag teams into finishing order ({numSlots} per group
+        {isWorldCup ? ', then choose 8 third-place teams' : ''}).
+      </p>
+      {groupBody}
     </div>
   );
 }

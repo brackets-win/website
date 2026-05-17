@@ -4,7 +4,7 @@
   --bf-border: #d8dde3;
   --bf-text: #1a1d21;
   --bf-muted: #5c6470;
-  --bf-accent: #3b5bfd;
+  --bf-accent: #5243d9;
   --bf-line: #c5cdd8;
   --bf-radius: 10px;
   --bf-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
@@ -200,6 +200,14 @@
   margin-top: 0.15rem;
 }
 
+.bf-submit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .bf-champion-placeholder {
   font-size: 0.78rem;
   color: var(--bf-muted);
@@ -351,6 +359,42 @@
   color: var(--bf-text);
   border-color: rgba(59, 91, 253, 0.45);
   box-shadow: var(--bf-shadow);
+}
+
+/* Phase carousel: group stage ↔ knockout */
+.bf-phase-viewport {
+  overflow: hidden;
+  margin: 0 -0.25rem;
+}
+
+.bf-phase-track {
+  display: flex;
+  width: 200%;
+  transition: transform 0.42s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.bf-phase-track[data-active='knockout'] {
+  transform: translateX(-50%);
+}
+
+.bf-phase-panel {
+  flex: 0 0 50%;
+  width: 50%;
+  min-width: 0;
+  padding: 0 0.25rem;
+  box-sizing: border-box;
+}
+
+.bf-phase-panel[data-inert] {
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bf-phase-track {
+    transition: none;
+  }
 }
 
 .bf-knockout-placeholder {
@@ -508,4 +552,113 @@
 .bf-g-third-empty {
   font-size: 0.8rem;
   color: var(--bf-muted);
+}
+
+/* World Cup: shelves (3 groups × 4 rows) + third-place rail */
+.bf-g--wc .bf-g-hint {
+  margin-bottom: 0.75rem;
+}
+
+.bf-g-wc-body {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  min-width: min-content;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bf-g-shelves {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.bf-g-shelf {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  gap: 0.65rem;
+}
+
+.bf-g-card--wc {
+  padding: 0.55rem 0.65rem;
+}
+
+.bf-g-card--wc .bf-g-pool {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+}
+
+.bf-g-card--wc .bf-g-slot {
+  min-height: 2rem;
+}
+
+.bf-g-third-rail {
+  flex: 0 0 168px;
+  position: sticky;
+  top: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--bf-surface);
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius);
+  box-shadow: var(--bf-shadow);
+}
+
+.bf-g-third-rail-head {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--bf-muted);
+  margin: 0 0 0.2rem;
+}
+
+.bf-g-third-rail-sub {
+  font-size: 0.78rem;
+  color: var(--bf-muted);
+  margin: 0 0 0.55rem;
+}
+
+.bf-g-third-rail-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bf-g-third-cell--rail {
+  min-height: 2.15rem;
+}
+
+.bf-phase-viewport .bf-scroll {
+  margin: 0 -0.25rem;
+}
+
+@media (max-width: 1100px) {
+  .bf-g-wc-body {
+    flex-direction: column;
+  }
+
+  .bf-g-third-rail {
+    flex: 1 1 auto;
+    width: 100%;
+    position: static;
+  }
+
+  .bf-g-third-rail-slots {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .bf-g-shelf {
+    grid-template-columns: 1fr;
+  }
+
+  .bf-g-third-rail-slots {
+    grid-template-columns: 1fr;
+  }
 }

@@ -6,25 +6,37 @@ from typing import Any
 
 from brackets.models import (
     Bracket,
+    BracketChallenge,
     BracketContestant,
     BracketStage,
+    BracketTemplate,
+    Contestant,
     GroupStage,
     KnockoutStage,
     Matchup,
     UserBracket,
 )
+from brackets.utils.bracket_completeness import user_bracket_is_complete
+from brackets.utils.challenge_deadline import deadline_passed
 
 
 def contestant_public(bc: BracketContestant) -> dict[str, Any]:
     name = bc.name_override or (
         bc.contestant.name if bc.contestant else f"Contestant {bc.id}"
     )
+    img: str | None = None
+    c = bc.contestant
+    if c:
+        if getattr(c, "photo", None) and c.photo:
+            img = c.photo.url
+        elif c.image_url:
+            img = c.image_url
     return {
         "id": bc.id,
         "display_name": name,
         "seed": bc.seed,
         "contestant_id": bc.contestant_id,
-        "image_url": bc.contestant.image_url if bc.contestant else None,
+        "image_url": img,
     }
 
 
@@ -111,11 +123,20 @@ def matchup_public(m: Matchup) -> dict[str, Any]:
     }
 
 
-def bracket_summary(b: Bracket) -> dict[str, Any]:
+def bracket_image_url(b: Bracket, request=None) -> str | None:
+    if not b.image:
+        return None
+    url = b.image.url
+    return request.build_absolute_uri(url) if request is not None else url
+
+
+def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
     return {
         "id": b.id,
+        "identifier": b.identifier,
         "name": b.name,
         "description": b.description,
+        "image_url": bracket_image_url(b, request),
         "created_at": b.created_at.isoformat(),
         "randomize_seeds_per_challenge": b.randomize_seeds_per_challenge,
         "has_third_place_match": b.has_third_place_match,
@@ -123,19 +144,29 @@ def bracket_summary(b: Bracket) -> dict[str, Any]:
     }
 
 
-def bracket_detail(b: Bracket) -> dict[str, Any]:
+def bracket_detail(
+    b: Bracket, *, master_user_bracket_id: int | None = None, request=None
+) -> dict[str, Any]:
     stages = [stage_public(s) for s in b.stages.all()]
     contestants = [
         contestant_public(bc) for bc in b.bracket_contestants.select_related("contestant")
     ]
-    out = bracket_summary(b)
+    out = bracket_summary(b, request)
     out["stages"] = stages
     out["contestants"] = contestants
     out["groups"] = bracket_groups_preview(b)
+    if master_user_bracket_id is not None:
+        out["master_user_bracket_id"] = master_user_bracket_id
     return out
 
 
 def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
+    complete, _ = user_bracket_is_complete(ub)
+    can_edit = not ub.is_master and ub.submitted_at is None
+    if can_edit and ub.challenge_id:
+        ch = ub.challenge
+        if ch and deadline_passed(ch):
+            can_edit = False
     return {
         "id": ub.id,
         "bracket_id": ub.bracket_id,
@@ -143,6 +174,11 @@ def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
         "challenge_id": ub.challenge_id,
         "is_master": ub.is_master,
         "created_at": ub.created_at.isoformat(),
+        "submitted_at": (
+            ub.submitted_at.isoformat() if ub.submitted_at else None
+        ),
+        "is_complete": complete,
+        "can_edit": can_edit,
     }
 
 
@@ -180,4 +216,93 @@ def user_bracket_detail(ub: UserBracket) -> dict[str, Any]:
 
 
 def auth_user(u) -> dict[str, Any]:
-    return {"id": u.id, "username": u.username}
+    return {"id": u.id, "username": u.username, "is_staff": bool(u.is_staff)}
+
+
+def contestant_catalog(c: Contestant, request=None) -> dict[str, Any]:
+    """Catalog row for admin/API."""
+    out: dict[str, Any] = {
+        "id": c.id,
+        "identifier": c.identifier,
+        "name": c.name,
+        "description": c.description or "",
+    }
+    if c.photo:
+        url = c.photo.url
+        out["photo_url"] = (
+            request.build_absolute_uri(url) if request is not None else url
+        )
+    else:
+        out["photo_url"] = None
+    return out
+
+
+def challenge_summary(
+    c: BracketChallenge,
+    *,
+    user_bracket_id: int | None = None,
+    user_bracket: UserBracket | None = None,
+    request=None,
+) -> dict[str, Any]:
+    passed = deadline_passed(c)
+    ub = user_bracket
+    submitted = ub is not None and ub.submitted_at is not None
+    complete = False
+    if ub is not None:
+        complete, _ = user_bracket_is_complete(ub)
+    can_join = c.instance_type == "CHALLENGE" and not passed
+    can_edit = (
+        ub is not None
+        and not submitted
+        and not passed
+        and ub.submitted_at is None
+    )
+    return {
+        "id": c.id,
+        "name": c.name,
+        "bracket_id": c.bracket_id,
+        "bracket_name": c.bracket.name,
+        "bracket_image_url": bracket_image_url(c.bracket, request),
+        "instance_type": c.instance_type,
+        "is_public": c.is_public,
+        "is_private": not c.is_public,
+        "join_code": c.join_code if not c.is_public else None,
+        "submission_deadline": (
+            c.submission_deadline.isoformat()
+            if c.submission_deadline
+            else None
+        ),
+        "deadline_passed": passed,
+        "user_bracket_id": user_bracket_id,
+        "is_submitted": submitted,
+        "is_complete": complete,
+        "can_join": can_join,
+        "can_edit_picks": can_edit,
+    }
+
+
+def leaderboard_entry(
+    *,
+    username: str,
+    user_bracket_id: int,
+    score: int | None,
+    submitted_at,
+) -> dict[str, Any]:
+    return {
+        "username": username,
+        "user_bracket_id": user_bracket_id,
+        "score": score,
+        "submitted_at": (
+            submitted_at.isoformat() if submitted_at else None
+        ),
+    }
+
+
+def bracket_template_summary(t: BracketTemplate) -> dict[str, Any]:
+    return {
+        "id": t.id,
+        "name": t.name,
+        "template_type": t.template_type,
+        "description": t.description or "",
+        "is_system": t.is_system,
+    }

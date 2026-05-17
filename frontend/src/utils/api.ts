@@ -4,12 +4,61 @@ const apiRoot = import.meta.env.DEV
   ? `${window.location.origin}/brackets/api`
   : 'https://brackets-win.fly.dev/brackets/api';
 
-export type ApiUser = { id: number; username: string };
+export type ApiUser = {
+  id: number;
+  username: string;
+  /** Staff users can access admin API routes. */
+  is_staff?: boolean;
+};
+
+export type ContestantCatalog = {
+  id: number;
+  identifier: string;
+  name: string;
+  description: string;
+  photo_url?: string | null;
+};
+
+export type ChallengeSummary = {
+  id: number;
+  name: string;
+  bracket_id: number;
+  bracket_name: string;
+  bracket_image_url?: string | null;
+  instance_type: string;
+  is_public: boolean;
+  is_private: boolean;
+  join_code: string | null;
+  submission_deadline: string | null;
+  deadline_passed: boolean;
+  user_bracket_id: number | null;
+  is_submitted: boolean;
+  is_complete: boolean;
+  can_join: boolean;
+  can_edit_picks: boolean;
+};
+
+export type LeaderboardEntry = {
+  username: string;
+  user_bracket_id: number;
+  score: number | null;
+  submitted_at: string | null;
+};
+
+export type BracketTemplateSummary = {
+  id: number;
+  name: string;
+  template_type: string;
+  description: string;
+  is_system: boolean;
+};
 
 export type BracketSummary = {
   id: number;
+  identifier: string;
   name: string;
   description: string;
+  image_url?: string | null;
   created_at: string;
   randomize_seeds_per_challenge: boolean;
   /** Single elimination: optional third-place match (semifinal losers). */
@@ -43,6 +92,9 @@ export type UserBracketSummary = {
   challenge_id: number | null;
   is_master: boolean;
   created_at: string;
+  submitted_at: string | null;
+  is_complete: boolean;
+  can_edit: boolean;
 };
 
 export type BracketStageInfo = {
@@ -79,6 +131,7 @@ export type BracketDetail = BracketSummary & {
   stages: BracketStageInfo[];
   contestants: BracketContestantInfo[];
   groups: BracketGroupPreview[];
+  master_user_bracket_id?: number | null;
 };
 
 export type UserBracketPicksMetadata = {
@@ -110,20 +163,29 @@ export class ApiError extends Error {
   }
 }
 
+function isFormData(b: unknown): b is FormData {
+  return typeof FormData !== 'undefined' && b instanceof FormData;
+}
+
 async function apiFetch<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const form = isFormData(body);
   const init: RequestInit = {
     method,
     credentials: 'include',
     headers: {
-      ...(body !== undefined
+      ...(!form && body !== undefined
         ? { 'Content-Type': 'application/json' }
         : {}),
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: form
+      ? body
+      : body !== undefined
+        ? JSON.stringify(body)
+        : undefined,
   };
 
   const res = await fetch(joinUrl(path), init);
@@ -190,6 +252,59 @@ export async function getBracket(
   return apiFetch('GET', `brackets/${bracketId}`);
 }
 
+export async function listMyChallenges(): Promise<{
+  challenges: ChallengeSummary[];
+}> {
+  return apiFetch('GET', 'challenges');
+}
+
+export async function createChallenge(body: {
+  name: string;
+  bracket_id: number;
+  is_private?: boolean;
+  submission_deadline?: string | null;
+}): Promise<{ challenge: ChallengeSummary }> {
+  return apiFetch('POST', 'challenges', body);
+}
+
+export async function listPublicChallenges(): Promise<{
+  challenges: ChallengeSummary[];
+}> {
+  return apiFetch('GET', 'challenges/public');
+}
+
+export async function getChallenge(
+  challengeId: number,
+): Promise<{ challenge: ChallengeSummary }> {
+  return apiFetch('GET', `challenges/${challengeId}`);
+}
+
+export async function getChallengeLeaderboard(challengeId: number): Promise<{
+  entries: LeaderboardEntry[];
+}> {
+  return apiFetch('GET', `challenges/${challengeId}/leaderboard`);
+}
+
+export async function joinChallenge(body: {
+  join_code?: string;
+  challenge_id?: number;
+}): Promise<{ challenge: ChallengeSummary }> {
+  if (body.challenge_id != null) {
+    return apiFetch('POST', 'challenges/join', {
+      challenge_id: body.challenge_id,
+    });
+  }
+  return apiFetch('POST', 'challenges/join', {
+    join_code: body.join_code!.trim().toUpperCase(),
+  });
+}
+
+export async function submitUserBracket(
+  userBracketId: number,
+): Promise<{ user_bracket: UserBracketDetail }> {
+  return apiFetch('POST', `user-brackets/${userBracketId}/submit`);
+}
+
 export async function listUserBrackets(params?: {
   bracket_id?: number;
 }): Promise<{ user_brackets: UserBracketSummary[] }> {
@@ -230,4 +345,77 @@ export async function patchMatchupWinner(
   return apiFetch('PATCH', `matchups/${matchupId}`, {
     winner_id: winnerId,
   });
+}
+
+export async function adminListContestants(): Promise<{
+  contestants: ContestantCatalog[];
+}> {
+  return apiFetch('GET', 'admin/contestants');
+}
+
+export async function adminUpdateContestant(
+  contestantId: number,
+  body:
+    | FormData
+    | {
+        name?: string;
+        description?: string;
+      },
+): Promise<{ contestant: ContestantCatalog }> {
+  return apiFetch('PATCH', `admin/contestants/${contestantId}`, body);
+}
+
+export async function adminDeleteContestant(
+  contestantId: number,
+): Promise<{ ok: boolean }> {
+  return apiFetch('DELETE', `admin/contestants/${contestantId}`);
+}
+
+export async function adminUpdateBracket(
+  bracketId: number,
+  body:
+    | FormData
+    | {
+        name?: string;
+        description?: string;
+      },
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('PATCH', `admin/brackets/${bracketId}`, body);
+}
+
+export async function adminDeleteBracket(
+  bracketId: number,
+): Promise<{ ok: boolean }> {
+  return apiFetch('DELETE', `admin/brackets/${bracketId}`);
+}
+
+export async function adminCreateContestant(
+  body:
+    | FormData
+    | {
+        identifier: string;
+        name: string;
+        description?: string;
+      },
+): Promise<{ contestant: ContestantCatalog }> {
+  return apiFetch('POST', 'admin/contestants', body);
+}
+
+export type BracketStructureType = 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
+
+export async function adminCreateBracket(
+  body:
+    | FormData
+    | {
+        structure: BracketStructureType;
+        identifier: string;
+        name: string;
+        description?: string;
+        number_of_contestants: number;
+        has_third_place?: boolean;
+        randomize_seeds_per_challenge?: boolean;
+        bracket_contestants?: { contestant_id: number; seed: number | null }[];
+      },
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('POST', 'admin/brackets', body);
 }

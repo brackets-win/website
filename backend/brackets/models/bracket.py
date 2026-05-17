@@ -1,12 +1,22 @@
 from django.db import models
 
 from .bracket_stage import KnockoutStage, GroupStage
+from .contestant import IDENTIFIER_VALIDATOR
 from .group import GroupMembership
 
 
 class Bracket(models.Model):
+    identifier = models.CharField(
+        max_length=64,
+        unique=True,
+        validators=[IDENTIFIER_VALIDATOR],
+        help_text="Stable key for admins (no spaces).",
+    )
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to="brackets/images/", blank=True, null=True
+    )
     created_by = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     # If True, each challenge will randomize seeds; if False, all challenges use the same seeds
@@ -43,6 +53,7 @@ class UserBracket(models.Model):
     challenge = models.ForeignKey(
         'bracket.BracketChallenge', on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
     is_master = models.BooleanField(default=False)
     # User picks for group stage / WC third-place pool (JSON).
     metadata = models.JSONField(default=dict, blank=True)

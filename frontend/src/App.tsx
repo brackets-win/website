@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import './App.css';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { BracketFill } from './components/bracket/BracketFill';
+import { AdminPanel, type AdminTab } from './components/admin/AdminPanel';
+import { LoginPage } from './components/auth/LoginPage';
+import {
+  ChallengeView,
+  type ChallengeTab,
+} from './components/challenges/ChallengeView';
+import { ChallengesPage } from './components/challenges/ChallengesPage';
+import { AppShell, type AppPage } from './components/layout/AppShell';
 import {
   ApiError,
   authLogin,
+  authLogout,
   authMe,
-  listBrackets,
   listUserBrackets,
-  type BracketSummary,
+  type ApiUser,
 } from './utils/api';
+
+import './components/admin/admin-shared.css';
 
 function readUbFromLocation(): number | null {
   const q = new URLSearchParams(window.location.search).get('ub');
@@ -18,108 +26,154 @@ function readUbFromLocation(): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function App() {
-  const [me, setMe] = useState<string>('…');
-  const [brackets, setBrackets] = useState<BracketSummary[]>([]);
-  const [apiNote, setApiNote] = useState<string>('');
+export default function App() {
+  const [sessionUser, setSessionUser] = useState<ApiUser | null | undefined>(
+    undefined,
+  );
+  const [page, setPage] = useState<AppPage>('home');
+  const [adminTab, setAdminTab] = useState<AdminTab>('contestants');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   const initialUb = useMemo(() => readUbFromLocation(), []);
-  const [userBracketId, setUserBracketId] = useState<number>(
-    initialUb ?? 4,
-  );
+  const [activeChallenge, setActiveChallenge] = useState<{
+    challengeId: number;
+    userBracketId: number;
+    initialTab?: ChallengeTab;
+  } | null>(null);
+  const [homeResetKey, setHomeResetKey] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [who, list] = await Promise.all([authMe(), listBrackets()]);
-        if (cancelled) return;
-        setMe(who.user ? who.user.username : '(anonymous)');
-        setBrackets(list.brackets);
-        setApiNote('');
+  const refreshUserBrackets = useCallback(async () => {
+    const ubs = await listUserBrackets();
+    return ubs.user_brackets;
+  }, []);
 
-        if (who.user && initialUb == null) {
-          const ubs = await listUserBrackets();
-          if (cancelled) return;
-          const pick = ubs.user_brackets[0];
-          if (pick) setUserBracketId(pick.id);
+  const loadSession = useCallback(async () => {
+    try {
+      const who = await authMe();
+      setSessionUser(who.user);
+      setAuthError('');
+      if (who.user) {
+        const ubs = await listUserBrackets();
+        if (initialUb != null) {
+          const ub = ubs.user_brackets.find((u) => u.id === initialUb);
+          if (ub?.challenge_id != null) {
+            setActiveChallenge({
+              challengeId: ub.challenge_id,
+              userBracketId: ub.id,
+            });
+            setPage('challenge');
+          }
         }
-      } catch (e) {
-        if (cancelled) return;
-        setApiNote(
-          e instanceof ApiError ? e.message : 'Unable to connect.',
-        );
+      } else {
+        setActiveChallenge(null);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    } catch (e) {
+      setSessionUser(null);
+      setAuthError(
+        e instanceof ApiError ? e.message : 'Unable to connect.',
+      );
+    }
   }, [initialUb]);
 
-  async function loginDemo() {
+  useEffect(() => {
+    void loadSession();
+  }, [loadSession]);
+
+  function navigate(next: AppPage) {
+    if (next === 'admin' && !sessionUser?.is_staff) {
+      return;
+    }
+    if (next === 'home') {
+      setActiveChallenge(null);
+      setHomeResetKey((k) => k + 1);
+    }
+    setPage(next);
+  }
+
+  async function openChallenge(
+    challengeId: number,
+    userBracketId: number,
+    initialTab?: ChallengeTab,
+  ) {
+    setActiveChallenge({ challengeId, userBracketId, initialTab });
+    setPage('challenge');
+    const params = new URLSearchParams(window.location.search);
+    params.set('ub', String(userBracketId));
+    const next = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, '', next);
+  }
+
+  async function handleLogin(username: string, password: string) {
+    setLoginBusy(true);
+    setAuthError('');
     try {
-      const { user } = await authLogin('player', 'demo');
-      setMe(user.username);
-      const [list, ubs] = await Promise.all([
-        listBrackets(),
-        listUserBrackets(),
-      ]);
-      setBrackets(list.brackets);
-      const pick = ubs.user_brackets[0];
-      if (pick) setUserBracketId(pick.id);
-      setApiNote('');
+      const { user } = await authLogin(username, password);
+      setSessionUser(user);
+      setActiveChallenge(null);
+      setPage('home');
     } catch (e) {
-      if (e instanceof ApiError) {
-        setApiNote(e.message);
-      } else if (e instanceof TypeError) {
-        setApiNote('Unable to connect.');
-      } else {
-        setApiNote(e instanceof Error ? e.message : 'Login failed.');
-      }
+      setAuthError(
+        e instanceof ApiError ? e.message : 'Sign in failed.',
+      );
+    } finally {
+      setLoginBusy(false);
     }
   }
 
-  return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1rem' }}>
-      <header style={{ marginBottom: '1.25rem' }}>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem' }}>
-          Brackets
-        </h1>
-        <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.85 }}>
-          Session: <strong>{me}</strong>
-          {brackets.length > 0
-            ? ` · ${brackets.map((b) => b.name).join(', ')}`
-            : ''}
-        </p>
-        {apiNote ? (
-          <p style={{ color: '#c43333', marginTop: '0.5rem' }}>{apiNote}</p>
-        ) : null}
-        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button type="button" onClick={loginDemo}>
-            Log in as player/demo
-          </button>
-          <label style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', fontSize: '0.9rem' }}>
-            User bracket id
-            <input
-              type="number"
-              min={1}
-              value={userBracketId}
-              onChange={(e) =>
-                setUserBracketId(parseInt(e.target.value, 10) || 1)
-              }
-              style={{ width: 72 }}
-            />
-          </label>
-        </div>
-      </header>
+  async function handleSignOut() {
+    try {
+      await authLogout();
+    } catch {
+      /* still clear local session */
+    }
+    setSessionUser(null);
+    setActiveChallenge(null);
+    setPage('home');
+  }
 
-      {me !== '(anonymous)' && me !== '…' ? (
-        <BracketFill userBracketId={userBracketId} />
-      ) : (
-        <p style={{ fontSize: '0.9rem', color: '#5c6470' }}>Log in to view your bracket.</p>
-      )}
-    </div>
+  if (sessionUser === undefined) {
+    return <div className="app-loading">Loading…</div>;
+  }
+
+  if (sessionUser === null) {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        error={authError}
+        busy={loginBusy}
+      />
+    );
+  }
+
+  return (
+    <AppShell
+      user={sessionUser}
+      page={page}
+      onNavigate={navigate}
+      onSignOut={() => void handleSignOut()}
+    >
+      {page === 'home' ? (
+        <ChallengesPage
+          key={homeResetKey}
+          onOpenChallenge={openChallenge}
+        />
+      ) : null}
+
+      {page === 'challenge' && activeChallenge != null ? (
+        <ChallengeView
+          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId}-${activeChallenge.initialTab ?? 'fill'}`}
+          challengeId={activeChallenge.challengeId}
+          userBracketId={activeChallenge.userBracketId}
+          initialTab={activeChallenge.initialTab}
+          onBack={() => navigate('home')}
+          onSubmitted={() => void refreshUserBrackets()}
+        />
+      ) : null}
+
+      {page === 'admin' && sessionUser.is_staff ? (
+        <AdminPanel tab={adminTab} onTabChange={setAdminTab} />
+      ) : null}
+    </AppShell>
   );
 }
-
-export default App;

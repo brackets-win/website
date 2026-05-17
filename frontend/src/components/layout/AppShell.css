@@ -1,0 +1,124 @@
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
+}
+
+.shell__header-inner {
+  max-width: var(--app-max);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  height: var(--app-header-h);
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.shell__logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.shell__logo-mark {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--app-accent);
+  border-radius: 8px;
+}
+
+.shell__logo-text {
+  font-weight: 700;
+  font-size: 1.875rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--app-text);
+}
+
+.shell__logo:hover .shell__logo-text {
+  color: var(--app-accent);
+}
+
+.shell__admin {
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.shell__admin--active {
+  border-color: rgba(82, 67, 217, 0.45);
+  color: var(--app-accent);
+  background: rgba(82, 67, 217, 0.08);
+}
+
+.shell__user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.shell__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--app-bg);
+  border: 1px solid var(--app-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--app-muted);
+}
+
+.shell__username {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--app-text);
+}
+
+.shell__signout {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.shell__main {
+  flex: 1;
+  max-width: var(--app-max);
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2.5rem;
+}
+
+@media (max-width: 720px) {
+  .shell__username {
+    display: none;
+  }
+
+  .shell__header-inner {
+    gap: 0.75rem;
+    padding: 0 1rem;
+  }
+
+}

@@ -12,6 +12,10 @@ const bracketsProxy = {
     target: djangoTarget,
     changeOrigin: false,
   },
+  '/media': {
+    target: djangoTarget,
+    changeOrigin: false,
+  },
 } as const
 
 // https://vitejs.dev/config/

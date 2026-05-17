@@ -46,9 +46,10 @@ class Command(BaseCommand):
 
         owner, _ = User.objects.get_or_create(
             username="demo",
-            defaults={"email": "demo@brackets.win"},
+            defaults={"email": "demo@brackets.win", "is_staff": True},
         )
         owner.set_password(password)
+        owner.is_staff = True
         owner.save()
 
         player, _ = User.objects.get_or_create(
@@ -59,9 +60,10 @@ class Command(BaseCommand):
         player.save()
 
         bracket = tpl.create_bracket(
-            bracket_name="Demo 8-team bracket",
-            number_of_contestants=8,
-            created_by=owner,
+            "demo-8-team",
+            "Demo 8-team bracket",
+            8,
+            owner,
             has_third_place=True,
         )
 
@@ -76,9 +78,10 @@ class Command(BaseCommand):
             "Hotel",
         ]
         for seed, name in enumerate(team_names, start=1):
+            ident = name.lower()
             c, _ = Contestant.objects.get_or_create(
-                name=name,
-                defaults={"created_by": owner},
+                identifier=ident,
+                defaults={"name": name, "created_by": owner},
             )
             BracketContestant.objects.update_or_create(
                 bracket=bracket,

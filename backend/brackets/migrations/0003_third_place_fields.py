@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("brackets", "0002_userbracket_metadata"),
+        ("bracket", "0002_userbracket_metadata"),
     ]
 
     operations = [

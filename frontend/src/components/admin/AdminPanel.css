@@ -1,0 +1,51 @@
+.admin-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.admin-hub__intro {
+  padding: 1.25rem 1.5rem;
+}
+
+.admin-hub__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.admin-hub__lead {
+  margin: 0.35rem 0 1rem;
+  font-size: 0.875rem;
+  color: var(--app-muted);
+}
+
+.admin-hub__tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.admin-hub__tab {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-bg);
+  color: var(--app-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.admin-hub__tab:hover {
+  color: var(--app-text);
+}
+
+.admin-hub__tab[data-active='true'] {
+  background: var(--app-surface);
+  color: var(--app-accent);
+  border-color: rgba(82, 67, 217, 0.35);
+  box-shadow: 0 1px 2px rgba(82, 67, 217, 0.1);
+}

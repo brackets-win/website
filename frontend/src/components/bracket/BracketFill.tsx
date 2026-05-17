@@ -16,6 +16,7 @@ import {
   getBracket,
   getUserBracket,
   patchMatchupWinner,
+  submitUserBracket,
 } from '../../utils/api';
 import { GroupStagePanel } from './GroupStagePanel';
 import './BracketFill.css';
@@ -95,15 +96,33 @@ export function matchupCenterPct(
 
 type Props = {
   userBracketId: number;
+  readOnly?: boolean;
+  allowMasterEdit?: boolean;
+  showSubmit?: boolean;
+  onSubmitted?: () => void;
 };
 
-export function BracketFill({ userBracketId }: Props) {
+export function BracketFill({
+  userBracketId,
+  readOnly = false,
+  allowMasterEdit = false,
+  showSubmit = false,
+  onSubmitted,
+}: Props) {
   const [detail, setDetail] = useState<UserBracketDetail | null>(null);
   const [bracketDef, setBracketDef] = useState<BracketDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
   const [phase, setPhase] = useState<'groups' | 'knockout'>('knockout');
   const phaseInitForUb = useRef<number | null>(null);
+
+  const goToPhase = useCallback((next: 'groups' | 'knockout') => {
+    setPhase((current) => {
+      if (current === next) return current;
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -116,9 +135,7 @@ export function BracketFill({ userBracketId }: Props) {
       setDetail(null);
       setBracketDef(null);
       setError(
-        e instanceof ApiError
-          ? e.message
-          : 'Could not load bracket (sign in and check user bracket id).',
+        e instanceof ApiError ? e.message : 'Could not load bracket.',
       );
     }
   }, [userBracketId]);
@@ -185,8 +202,11 @@ export function BracketFill({ userBracketId }: Props) {
     [leaves],
   );
 
+  const locked = readOnly || (detail != null && !detail.can_edit);
+
   const applyWinner = useCallback(
     async (feederMatchupId: number, contestantId: number) => {
+      if (locked) return;
       setBusy(true);
       setError(null);
       try {
@@ -198,11 +218,12 @@ export function BracketFill({ userBracketId }: Props) {
         setBusy(false);
       }
     },
-    [load],
+    [load, locked],
   );
 
   const clearWinner = useCallback(
     async (matchupId: number) => {
+      if (locked) return;
       setBusy(true);
       setError(null);
       try {
@@ -214,8 +235,25 @@ export function BracketFill({ userBracketId }: Props) {
         setBusy(false);
       }
     },
-    [load],
+    [load, locked],
   );
+
+  async function handleSubmit() {
+    if (locked || !detail) return;
+    setSubmitBusy(true);
+    setError(null);
+    try {
+      await submitUserBracket(userBracketId);
+      await load();
+      onSubmitted?.();
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : 'Could not submit bracket.',
+      );
+    } finally {
+      setSubmitBusy(false);
+    }
+  }
 
   if (error && !detail) {
     return (
@@ -233,7 +271,7 @@ export function BracketFill({ userBracketId }: Props) {
     );
   }
 
-  if (detail.is_master) {
+  if (detail.is_master && !allowMasterEdit) {
     return (
       <section className="bf">
         <p className="bf-error">
@@ -278,7 +316,7 @@ export function BracketFill({ userBracketId }: Props) {
                 detail={detail}
                 stages={knockoutStagesMain}
                 applyWinner={applyWinner}
-                busy={busy}
+                busy={busy || locked}
                 onClearWinner={clearWinner}
               />
               {stageIdx < knockoutStagesMain.length - 1 ? (
@@ -303,7 +341,7 @@ export function BracketFill({ userBracketId }: Props) {
               detail={detail}
               knockoutStages={knockoutStagesMain}
               applyWinner={applyWinner}
-              busy={busy}
+              busy={busy || locked}
               onClearWinner={clearWinner}
             />
           ) : null}
@@ -333,6 +371,31 @@ export function BracketFill({ userBracketId }: Props) {
       </p>
       {error ? <p className="bf-error">{error}</p> : null}
 
+      {showSubmit && !locked ? (
+        <div className="bf-submit-row">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={
+              submitBusy ||
+              busy ||
+              !detail.is_complete ||
+              !!detail.submitted_at
+            }
+            onClick={() => void handleSubmit()}
+          >
+            {submitBusy
+              ? 'Submitting…'
+              : detail.submitted_at
+                ? 'Submitted'
+                : 'Submit bracket'}
+          </button>
+          {!detail.is_complete ? (
+            <p className="bf-meta">Complete every pick before submitting.</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {hasGroupUi && firstGroupStage ? (
         <div className="bf-tabs" role="tablist" aria-label="Bracket sections">
           <button
@@ -342,9 +405,9 @@ export function BracketFill({ userBracketId }: Props) {
             className={
               phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
             }
-            onClick={() => setPhase('groups')}
+            onClick={() => goToPhase('groups')}
           >
-            Groups
+            Group stage
           </button>
           <button
             type="button"
@@ -353,31 +416,47 @@ export function BracketFill({ userBracketId }: Props) {
             className={
               phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
             }
-            onClick={() => setPhase('knockout')}
+            onClick={() => goToPhase('knockout')}
           >
             Knockout
           </button>
         </div>
       ) : null}
 
-      {hasGroupUi && phase === 'groups' && firstGroupStage ? (
-        <GroupStagePanel
-          userBracketId={userBracketId}
-          groups={groupsPreview}
-          groupStage={firstGroupStage}
-          isWorldCup={isWorldCup}
-          initialMetadata={{
-            group_positions: meta.group_positions ?? {},
-            third_place_advancers: meta.third_place_advancers ?? [],
-          }}
-          busy={busy}
-          onSaved={load}
-          onError={(msg) => setError(msg || null)}
-          setBusy={setBusy}
-        />
-      ) : null}
-
-      {(!hasGroupUi || phase === 'knockout') ? knockoutBoard : null}
+      {hasGroupUi && firstGroupStage ? (
+        <div className="bf-phase-viewport" data-phase={phase} aria-live="polite">
+          <div className="bf-phase-track" data-active={phase}>
+            <div
+              className="bf-phase-panel"
+              data-inert={phase !== 'groups' ? true : undefined}
+            >
+              <GroupStagePanel
+                userBracketId={userBracketId}
+                groups={groupsPreview}
+                groupStage={firstGroupStage}
+                isWorldCup={isWorldCup}
+                initialMetadata={{
+                  group_positions: meta.group_positions ?? {},
+                  third_place_advancers: meta.third_place_advancers ?? [],
+                }}
+                busy={busy || locked}
+                readOnly={locked}
+                onSaved={load}
+                onError={(msg) => setError(msg || null)}
+                setBusy={setBusy}
+              />
+            </div>
+            <div
+              className="bf-phase-panel"
+              data-inert={phase !== 'knockout' ? true : undefined}
+            >
+              {knockoutBoard}
+            </div>
+          </div>
+        </div>
+      ) : (
+        knockoutBoard
+      )}
 
     </section>
   );

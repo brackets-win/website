@@ -1,4 +1,8 @@
+import re
+
 from django.core.management.base import BaseCommand
+
+from brackets.data.fwc26.teams_by_group import TEAM_IDENTIFIERS, TEAMS_BY_GROUP
 from brackets.models import (
     Bracket,
     BracketContestant,
@@ -13,14 +17,55 @@ from brackets.utils.fwc26_regulations import (
 )
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 
+WC_IDENTIFIER = 'fifa-world-cup-2026'
+
+
+def _team_identifier(display_name: str) -> str:
+    if display_name in TEAM_IDENTIFIERS:
+        return TEAM_IDENTIFIERS[display_name]
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', display_name.strip().lower())
+    return slug.strip('-') or 'team'
+
 
 class Command(BaseCommand):
     help = 'Seeds the 2026 FIFA World Cup bracket structure'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--replace-teams',
+            action='store_true',
+            help=(
+                'Replace all teams on an existing fifa-world-cup-2026 bracket '
+                '(keeps stages and metadata).'
+            ),
+        )
 
     def _load_third_place_combinations(self):
         return build_third_place_combinations_lookup(
             load_third_place_combinations_raw()
         )
+
+    def _seed_teams(self, bracket: Bracket, user: User) -> int:
+        """Create contestants and bracket entries in group order (seeds 1–48)."""
+        BracketContestant.objects.filter(bracket=bracket).delete()
+        seed = 1
+        for code in sorted(TEAMS_BY_GROUP.keys()):
+            for display_name in TEAMS_BY_GROUP[code]:
+                ident = _team_identifier(display_name)
+                cont, _ = Contestant.objects.get_or_create(
+                    identifier=ident,
+                    defaults={'name': display_name, 'created_by': user},
+                )
+                if cont.name != display_name:
+                    cont.name = display_name
+                    cont.save(update_fields=['name'])
+                BracketContestant.objects.create(
+                    bracket=bracket,
+                    contestant=cont,
+                    seed=seed,
+                )
+                seed += 1
+        return seed - 1
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.NOTICE(
@@ -37,10 +82,20 @@ class Command(BaseCommand):
         if created:
             self.stdout.write(self.style.SUCCESS('Created system user'))
 
-        # Check if bracket already exists
-        if Bracket.objects.filter(name='2026 FIFA World Cup').exists():
+        existing = Bracket.objects.filter(identifier=WC_IDENTIFIER).first()
+        if existing and options['replace_teams']:
+            user = existing.created_by
+            n = self._seed_teams(existing, user)
+            master_ub = existing.get_master_bracket()
+            ensure_knockout_matchup_shell(master_ub)
+            self.stdout.write(self.style.SUCCESS(
+                f'Replaced {n} teams on {existing.identifier} (seeds follow groups A–L).'))
+            return
+
+        if existing:
             self.stdout.write(self.style.WARNING(
-                '2026 FIFA World Cup bracket already exists. Skipping.'))
+                'FIFA World Cup 2026 bracket already exists. Skipping. '
+                'Use --replace-teams to refresh teams.'))
             return
 
         # Load third-place combinations from file
@@ -50,8 +105,9 @@ class Command(BaseCommand):
 
         # Create the bracket with metadata
         bracket = Bracket.objects.create(
-            name='2026 FIFA World Cup',
-            description='The 2026 FIFA World Cup with 48 teams, 12 groups, and knockout rounds',
+            identifier=WC_IDENTIFIER,
+            name='FIFA World Cup 2026',
+            description='FIFA World Cup 2026 with 48 teams, 12 groups, and knockout rounds',
             created_by=user,
             metadata={
                 'third_place_combinations': third_place_combinations,
@@ -64,7 +120,7 @@ class Command(BaseCommand):
             }
         )
         self.stdout.write(self.style.SUCCESS(
-            f'Created bracket: {bracket.name}'))
+            f'Created bracket: {bracket.identifier} ({bracket.name})'))
 
         from brackets.utils.group_knockout_mapping import set_custom_group_knockout_mapping
 
@@ -176,25 +232,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(
                 f'Created stage: {knockout_stage.name}'))
 
-        # Placeholder teams (4 per group × 12 groups) + empty knockout matchups on master
-        for i in range(48):
-            label = f'Team {i + 1:02d}'
-            cont, _ = Contestant.objects.get_or_create(
-                name=label,
-                defaults={'created_by': user},
-            )
-            BracketContestant.objects.update_or_create(
-                bracket=bracket,
-                contestant=cont,
-                defaults={'seed': i + 1},
-            )
-
+        n_teams = self._seed_teams(bracket, user)
         master_ub = bracket.get_master_bracket()
         ensure_knockout_matchup_shell(master_ub)
         self.stdout.write(self.style.SUCCESS(
-            f'Seeded 48 teams and knockout shell on master user bracket id={master_ub.id}'))
+            f'Seeded {n_teams} teams (groups A–L) and knockout shell on '
+            f'master user bracket id={master_ub.id}'))
 
         self.stdout.write(self.style.SUCCESS(
-            '\n✓ 2026 FIFA World Cup bracket seeded successfully!'))
+            '\n✓ FIFA World Cup 2026 bracket seeded successfully!'))
         self.stdout.write(self.style.NOTICE(
             f'Total stages created: {bracket.stages.count()}'))
