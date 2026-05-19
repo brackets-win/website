@@ -216,10 +216,11 @@ def seed_knockout_matchups(user_bracket, knockout_stage):
     matchups = []
     num_matchups = num_contestants // 2
 
-    for position in range(1, num_matchups + 1):
-        seed1 = position
-        seed2 = num_contestants - position + 1
+    from brackets.utils.bracket_seeding import first_round_seed_pairs
 
+    for position, (seed1, seed2) in enumerate(
+        first_round_seed_pairs(num_contestants), start=1
+    ):
         contestant1 = contestants[seed1 - 1]
         contestant2 = contestants[seed2 - 1]
 

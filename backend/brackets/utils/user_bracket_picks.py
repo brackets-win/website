@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from brackets.api.serializers import bracket_groups_preview
+from brackets.utils.group_stage_config import (
+    get_group_stage,
+    group_stage_pick_requirements,
+)
 
 
 def merge_and_validate_user_bracket_metadata(
@@ -55,9 +59,12 @@ def validate_group_metadata(bracket, meta: dict[str, Any]) -> None:
     if not tp:
         return
 
-    meta_wc = (bracket.metadata or {}).get("tournament_type") == "world_cup_2026"
-    if meta_wc and len(tp) > 8:
-        raise ValueError("Choose at most 8 third-place teams")
+    gs = get_group_stage(bracket)
+    _, third_count = group_stage_pick_requirements(gs) if gs else (0, 0)
+    if third_count > 0 and len(tp) > third_count:
+        raise ValueError(f"Choose at most {third_count} third-place teams")
+    if third_count == 0 and tp:
+        raise ValueError("This bracket does not use third-place advancers")
 
     seen: set[int] = set()
     for cid in tp:

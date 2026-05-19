@@ -22,6 +22,7 @@ const bracketsProxy = {
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '127.0.0.1',
     port: 3000,
     /** If 3000 is taken (e.g. another `npm run dev`), Vite tries 3001, 3002, … */
     strictPort: false,

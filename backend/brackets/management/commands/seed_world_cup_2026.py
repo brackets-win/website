@@ -16,6 +16,7 @@ from brackets.utils.fwc26_regulations import (
     load_third_place_combinations_raw,
 )
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
+from brackets.utils.third_place_structure import sync_third_place_structure
 
 WC_IDENTIFIER = 'fifa-world-cup-2026'
 
@@ -93,6 +94,15 @@ class Command(BaseCommand):
             return
 
         if existing:
+            if existing.show_seeds:
+                existing.show_seeds = False
+                existing.save(update_fields=["show_seeds"])
+            if not existing.has_third_place_match:
+                existing.has_third_place_match = True
+                existing.save(update_fields=["has_third_place_match"])
+            sync_third_place_structure(existing)
+            master_ub = existing.get_master_bracket()
+            ensure_knockout_matchup_shell(master_ub)
             self.stdout.write(self.style.WARNING(
                 'FIFA World Cup 2026 bracket already exists. Skipping. '
                 'Use --replace-teams to refresh teams.'))
@@ -109,6 +119,8 @@ class Command(BaseCommand):
             name='FIFA World Cup 2026',
             description='FIFA World Cup 2026 with 48 teams, 12 groups, and knockout rounds',
             created_by=user,
+            show_seeds=False,
+            has_third_place_match=True,
             metadata={
                 'third_place_combinations': third_place_combinations,
                 'tournament_type': 'world_cup_2026',
@@ -122,30 +134,15 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'Created bracket: {bracket.identifier} ({bracket.name})'))
 
-        from brackets.utils.group_knockout_mapping import set_custom_group_knockout_mapping
+        from brackets.data.fwc26.r32_tree_slots import (
+            R32_TREE_SLOTS,
+            build_r32_group_knockout_mapping,
+        )
+        from brackets.utils.group_knockout_fill import apply_knockout_fill_to_stage
 
-        # World Cup 2026 Round of 32 mapping (from FIFA regulations)
-        # Codes like '1A'/'A1' = group positions; '3A'..='3L' = third-place qualifier slots.
-        r32_mapping = [
-            (1, 'A2', 'B2'),             # M73: Runner-up A vs Runner-up B
-            (2, 'E1', '3E'),
-            (3, 'F1', 'C2'),             # M75: Winner F vs Runner-up C
-            (4, 'C1', 'F2'),             # M76: Winner C vs Runner-up F
-            (5, 'I1', '3I'),
-            (6, 'E2', 'I2'),             # M78: Runner-up E vs Runner-up I
-            (7, 'A1', '3A'),
-            (8, 'L1', '3L'),
-            (9, 'D1', '3D'),
-            (10, 'G1', '3G'),
-            (11, 'K2', 'L2'),            # M83: Runner-up K vs Runner-up L
-            (12, 'H1', 'J2'),            # M84: Winner H vs Runner-up J
-            (13, 'B1', '3B'),
-            (14, 'J1', 'H2'),            # M86: Winner J vs Runner-up H
-            (15, 'K1', '3K'),
-            (16, 'D2', 'G2'),            # M88: Runner-up D vs Runner-up G
-        ]
+        r32_mapping = build_r32_group_knockout_mapping()
         self.stdout.write(self.style.SUCCESS(
-            f'Loaded {len(r32_mapping)} Round of 32 matchups'))
+            f'Loaded {len(R32_TREE_SLOTS)} R32 tree slots'))
 
         # Create Group Stage
         group_stage = GroupStage.objects.create(
@@ -221,16 +218,19 @@ class Command(BaseCommand):
                 has_extra_time=True,
                 has_penalty_shootout=True,
                 is_final=stage_data['is_final'],
+                is_third_place=stage_data.get('is_third_place', False),
             )
 
             if 'custom_mapping' in stage_data:
-                set_custom_group_knockout_mapping(
+                apply_knockout_fill_to_stage(
                     knockout_stage, stage_data['custom_mapping'])
                 self.stdout.write(self.style.NOTICE(
-                    f'  → Applied custom group-to-knockout mapping'))
+                    f'  → Applied mapping knockout fill'))
 
             self.stdout.write(self.style.SUCCESS(
                 f'Created stage: {knockout_stage.name}'))
+
+        sync_third_place_structure(bracket)
 
         n_teams = self._seed_teams(bracket, user)
         master_ub = bracket.get_master_bracket()

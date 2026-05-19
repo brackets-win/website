@@ -9,6 +9,7 @@ from typing import Any
 
 from django.contrib.auth import authenticate, login, logout
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.http import HttpRequest, JsonResponse
@@ -23,6 +24,7 @@ from brackets.models import (
     BracketTemplate,
     ChallengeParticipant,
     Contestant,
+    ContestantTag,
     Matchup,
     UserBracket,
 )
@@ -30,9 +32,23 @@ from brackets.utils.knockout_rebuild import (
     clear_matchup_winner_and_downstream,
     rebuild_knockout_from_first_round,
 )
+from brackets.utils.bracket_admin_update import (
+    apply_bracket_admin_fields,
+    apply_stage_admin_patch,
+)
 from brackets.utils.bracket_factory import (
     VALID_STRUCTURE_TYPES,
     create_bracket_with_structure,
+)
+from brackets.utils.bracket_structure_config import (
+    parse_bracket_metadata,
+    parse_structure_config,
+)
+from brackets.utils.contestant_admin import (
+    apply_contestant_admin_fields,
+    parse_tag_ids,
+    parse_tag_names,
+    set_contestant_tags,
 )
 from brackets.utils.knockout_tree import (
     ensure_full_knockout_matchups,
@@ -76,7 +92,7 @@ def _staff_user_or_error(request: HttpRequest):
 def _try_sync_knockout_master(bracket: Bracket) -> None:
     try:
         master = bracket.get_master_bracket()
-        ensure_full_knockout_matchups(master)
+        ensure_knockout_structure_for_user_bracket(master)
     except ValueError:
         pass
 
@@ -111,6 +127,34 @@ def _parse_json(request: HttpRequest) -> dict[str, Any]:
     if not request.body:
         return {}
     return json.loads(request.body)
+
+
+def _is_multipart(request: HttpRequest) -> bool:
+    return "multipart/form-data" in (request.content_type or "").lower()
+
+
+def _multipart_post_files(request: HttpRequest):
+    """
+    POST and FILES for multipart requests.
+
+    Django only auto-parses multipart bodies for POST. PATCH uploads (e.g. photo
+    on edit) need an explicit parse.
+    """
+    if not _is_multipart(request):
+        return request.POST, request.FILES
+    if request.method == "POST" and (request.POST or request.FILES):
+        return request.POST, request.FILES
+    if request.POST or request.FILES:
+        return request.POST, request.FILES
+    from django.http.multipartparser import MultiPartParser, MultiPartParserError
+
+    try:
+        parser = MultiPartParser(
+            request.META, request, request.upload_handlers
+        )
+        return parser.parse()
+    except MultiPartParserError:
+        return request.POST, request.FILES
 
 
 def _validate_contestant_identifier(raw: str) -> str | None:
@@ -206,7 +250,10 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
 
 @require_http_methods(["GET"])
 def brackets_list(request: HttpRequest) -> JsonResponse:
-    rows = Bracket.objects.order_by("-created_at")[:100]
+    rows = (
+        Bracket.objects.annotate(challenge_count=Count("bracketchallenge"))
+        .order_by("-created_at")[:100]
+    )
     return JsonResponse(
         {
             "brackets": [
@@ -524,29 +571,48 @@ def challenge_leaderboard(
             return _json_error("Forbidden", 403)
 
     master = challenge.bracket.get_master_bracket()
+    stages = list(challenge.bracket.stages.order_by("order"))
+    columns = [
+        serializers.leaderboard_column(
+            key=f"stage:{stage.id}",
+            name=stage.name,
+        )
+        for stage in stages
+    ]
+    columns.append(
+        serializers.leaderboard_column(key="champion", name="Champions")
+    )
+
     entries = []
     for ub in (
-        UserBracket.objects.filter(challenge=challenge, is_master=False)
+        UserBracket.objects.filter(
+            challenge=challenge,
+            is_master=False,
+            submitted_at__isnull=False,
+        )
         .select_related("user")
-        .order_by("-submitted_at", "created_at")
+        .order_by("user__username")
     ):
-        score = ub.calculate_score() if master else None
+        if master:
+            stage_scores: dict[str, int | None] = {
+                f"stage:{stage.id}": ub.calculate_stage_score(stage)
+                for stage in stages
+            }
+            stage_scores["champion"] = ub.calculate_champion_score()
+            score = ub.calculate_score()
+        else:
+            stage_scores = {col["key"]: None for col in columns}
+            score = None
         entries.append(
             serializers.leaderboard_entry(
                 username=ub.user.username,
                 user_bracket_id=ub.id,
                 score=score,
+                stage_scores=stage_scores,
                 submitted_at=ub.submitted_at,
             )
         )
-    entries.sort(
-        key=lambda e: (
-            e["score"] is None,
-            -(e["score"] or 0),
-            e["submitted_at"] is None,
-        )
-    )
-    return JsonResponse({"entries": entries})
+    return JsonResponse({"columns": columns, "entries": entries})
 
 
 @require_http_methods(["POST"])
@@ -654,30 +720,41 @@ def admin_contestants_list_create(request: HttpRequest) -> JsonResponse:
         return err
 
     if request.method == "GET":
-        qs = Contestant.objects.order_by("-id")[:300]
+        qs = Contestant.objects.prefetch_related("tags").order_by("-id")[:300]
+        all_tags = [
+            serializers.contestant_tag_public(t)
+            for t in ContestantTag.objects.order_by("name")
+        ]
         return JsonResponse(
             {
                 "contestants": [
                     serializers.contestant_catalog(c, request) for c in qs
-                ]
+                ],
+                "tags": all_tags,
             }
         )
 
-    content_type = (request.content_type or "").lower()
-    if "multipart/form-data" in content_type:
-        identifier = _validate_contestant_identifier(
-            request.POST.get("identifier") or ""
-        )
+    if _is_multipart(request):
+        post, files = _multipart_post_files(request)
+        identifier = _validate_contestant_identifier(post.get("identifier") or "")
         if not identifier:
             return _json_error(
                 "identifier is required (letters, numbers, _ and - only; no spaces)",
                 400,
             )
-        name = (request.POST.get("name") or "").strip()
+        name = (post.get("name") or "").strip()
         if not name:
             return _json_error("name is required", 400)
-        description = (request.POST.get("description") or "").strip()
-        photo = request.FILES.get("photo")
+        description = (post.get("description") or "").strip()
+        photo = files.get("photo")
+        image_url = (post.get("image_url") or "").strip()
+        metadata_raw = post.get("metadata")
+        metadata = None
+        if metadata_raw is not None and str(metadata_raw).strip():
+            try:
+                metadata = parse_bracket_metadata(metadata_raw)
+            except ValueError as e:
+                return _json_error(str(e), 400)
         try:
             c = Contestant.objects.create(
                 identifier=identifier,
@@ -685,9 +762,20 @@ def admin_contestants_list_create(request: HttpRequest) -> JsonResponse:
                 description=description,
                 created_by=user,
                 photo=photo if photo else None,
+                image_url=image_url,
+                metadata=metadata,
             )
+            if "tag_ids" in post or "tag_names" in post:
+                set_contestant_tags(
+                    c,
+                    tag_ids=parse_tag_ids(post.get("tag_ids")),
+                    tag_names=parse_tag_names(post.get("tag_names")),
+                )
         except IntegrityError:
             return _json_error("That identifier is already in use.", 409)
+        except (ValueError, json.JSONDecodeError) as e:
+            return _json_error(str(e), 400)
+        c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
         return JsonResponse(
             {"contestant": serializers.contestant_catalog(c, request)},
             status=201,
@@ -709,6 +797,15 @@ def admin_contestants_list_create(request: HttpRequest) -> JsonResponse:
         return _json_error("name is required", 400)
 
     description = (body.get("description") or "").strip()
+    image_url = str(body.get("image_url") or "").strip()
+    try:
+        metadata = (
+            parse_bracket_metadata(body.get("metadata"))
+            if "metadata" in body
+            else None
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
 
     try:
         c = Contestant.objects.create(
@@ -716,9 +813,20 @@ def admin_contestants_list_create(request: HttpRequest) -> JsonResponse:
             name=name,
             description=description,
             created_by=user,
+            image_url=image_url,
+            metadata=metadata,
         )
+        if "tag_ids" in body or "tag_names" in body:
+            set_contestant_tags(
+                c,
+                tag_ids=parse_tag_ids(body.get("tag_ids")),
+                tag_names=parse_tag_names(body.get("tag_names")),
+            )
     except IntegrityError:
         return _json_error("That identifier is already in use.", 409)
+    except (ValueError, json.JSONDecodeError) as e:
+        return _json_error(str(e), 400)
+    c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
     return JsonResponse(
         {"contestant": serializers.contestant_catalog(c, request)},
         status=201,
@@ -733,23 +841,54 @@ def admin_contestant_detail(
     if err is not None:
         return err
 
-    c = get_object_or_404(Contestant, pk=contestant_id)
+    c = get_object_or_404(
+        Contestant.objects.prefetch_related("tags"), pk=contestant_id
+    )
 
     if request.method == "DELETE":
         c.delete()
         return JsonResponse({"ok": True})
 
-    content_type = (request.content_type or "").lower()
-    if "multipart/form-data" in content_type:
-        name = (request.POST.get("name") or "").strip()
+    if _is_multipart(request):
+        post, files = _multipart_post_files(request)
+        name = (post.get("name") or "").strip()
         if name:
             c.name = name
-        if "description" in request.POST:
-            c.description = (request.POST.get("description") or "").strip()
-        photo = request.FILES.get("photo")
+        if "description" in post:
+            c.description = (post.get("description") or "").strip()
+        photo = files.get("photo")
         if photo:
             c.photo = photo
-        c.save()
+        admin_body: dict[str, Any] = {}
+        if "image_url" in post:
+            admin_body["image_url"] = post.get("image_url")
+        if "metadata" in post:
+            raw = post.get("metadata")
+            if raw:
+                try:
+                    admin_body["metadata"] = json.loads(raw)
+                except json.JSONDecodeError:
+                    return _json_error("metadata must be valid JSON", 400)
+            else:
+                admin_body["metadata"] = None
+        if "tag_ids" in post:
+            admin_body["tag_ids"] = post.get("tag_ids")
+        if "tag_names" in post:
+            admin_body["tag_names"] = post.get("tag_names")
+        save_fields: list[str] = []
+        if name:
+            save_fields.append("name")
+        if "description" in post:
+            save_fields.append("description")
+        if photo:
+            save_fields.append("photo")
+        try:
+            save_fields.extend(apply_contestant_admin_fields(c, admin_body))
+            if save_fields:
+                c.save(update_fields=list(dict.fromkeys(save_fields)))
+        except ValueError as e:
+            return _json_error(str(e), 400)
+        c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
         return JsonResponse(
             {"contestant": serializers.contestant_catalog(c, request)}
         )
@@ -769,7 +908,18 @@ def admin_contestant_detail(
     if "description" in body:
         c.description = str(body.get("description") or "").strip()
 
-    c.save()
+    try:
+        fields = apply_contestant_admin_fields(c, body)
+        if name is not None:
+            fields.append("name")
+        if "description" in body:
+            fields.append("description")
+        if fields:
+            c.save(update_fields=list(dict.fromkeys(fields)))
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
     return JsonResponse(
         {"contestant": serializers.contestant_catalog(c, request)}
     )
@@ -804,16 +954,28 @@ def admin_brackets_create(request: HttpRequest) -> JsonResponse:
         return err
 
     image_file = None
-    content_type = (request.content_type or "").lower()
-    if "multipart/form-data" in content_type:
-        body = dict(request.POST)
+    if _is_multipart(request):
+        post, files = _multipart_post_files(request)
+        body = dict(post)
         raw_bc = body.get("bracket_contestants")
         if raw_bc:
             try:
                 body["bracket_contestants"] = json.loads(raw_bc)
             except json.JSONDecodeError:
                 return _json_error("bracket_contestants must be valid JSON", 400)
-        image_file = request.FILES.get("image")
+        raw_sc = body.get("structure_config")
+        if raw_sc and isinstance(raw_sc, str):
+            try:
+                body["structure_config"] = json.loads(raw_sc)
+            except json.JSONDecodeError:
+                return _json_error("structure_config must be valid JSON", 400)
+        raw_meta = body.get("metadata")
+        if raw_meta and isinstance(raw_meta, str):
+            try:
+                body["metadata"] = json.loads(raw_meta)
+            except json.JSONDecodeError:
+                return _json_error("metadata must be valid JSON", 400)
+        image_file = files.get("image")
     else:
         try:
             body = _parse_json(request)
@@ -868,6 +1030,18 @@ def admin_brackets_create(request: HttpRequest) -> JsonResponse:
     has_third_place = _bool_request_field(body.get("has_third_place"))
     description = (body.get("description") or "").strip()
 
+    try:
+        structure_config = parse_structure_config(body.get("structure_config"))
+        bracket_metadata = parse_bracket_metadata(body.get("metadata"))
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    show_seeds = True
+    if "show_seeds" in body:
+        show_seeds = _bool_request_field(body["show_seeds"])
+
+    randomize = _bool_request_field(body.get("randomize_seeds_per_challenge"))
+
     raw_assign = body.get("bracket_contestants")
     assign_rows: list[dict[str, Any]] | None = None
     if raw_assign is not None:
@@ -884,16 +1058,14 @@ def admin_brackets_create(request: HttpRequest) -> JsonResponse:
                 n,
                 user,
                 has_third_place=has_third_place,
+                show_seeds=show_seeds,
+                metadata=bracket_metadata,
+                randomize_seeds_per_challenge=randomize,
+                structure_config=structure_config,
             )
             if description:
                 bracket.description = description
                 bracket.save(update_fields=["description"])
-
-            if "randomize_seeds_per_challenge" in body:
-                bracket.randomize_seeds_per_challenge = _bool_request_field(
-                    body["randomize_seeds_per_challenge"]
-                )
-                bracket.save(update_fields=["randomize_seeds_per_challenge"])
 
             if image_file:
                 bracket.image = image_file
@@ -960,19 +1132,47 @@ def admin_bracket_detail(
     bracket = get_object_or_404(Bracket, pk=bracket_id)
 
     if request.method == "DELETE":
+        if BracketChallenge.objects.filter(bracket=bracket).exists():
+            return _json_error(
+                "Cannot delete a bracket that has challenges. Remove all challenges first.",
+                409,
+            )
         bracket.delete()
         return JsonResponse({"ok": True})
 
-    content_type = (request.content_type or "").lower()
-    if "multipart/form-data" in content_type:
-        name = (request.POST.get("name") or "").strip()
+    bracket_fields: list[str] = []
+
+    if _is_multipart(request):
+        post, files = _multipart_post_files(request)
+        name = (post.get("name") or "").strip()
         if name:
             bracket.name = name
-        if "description" in request.POST:
-            bracket.description = (request.POST.get("description") or "").strip()
-        image = request.FILES.get("image")
+            bracket_fields.append("name")
+        if "description" in post:
+            bracket.description = (post.get("description") or "").strip()
+            bracket_fields.append("description")
+        image = files.get("image")
         if image:
             bracket.image = image
+            bracket_fields.append("image")
+
+        admin_body: dict[str, Any] = {}
+        for key in (
+            "show_seeds",
+            "randomize_seeds_per_challenge",
+            "has_third_place_match",
+            "metadata",
+        ):
+            if key in post:
+                raw = post.get(key)
+                if key == "metadata" and raw:
+                    try:
+                        admin_body[key] = json.loads(raw)
+                    except json.JSONDecodeError:
+                        return _json_error("metadata must be valid JSON", 400)
+                else:
+                    admin_body[key] = raw
+        bracket_fields.extend(apply_bracket_admin_fields(bracket, admin_body))
     else:
         try:
             body = _parse_json(request)
@@ -985,11 +1185,72 @@ def admin_bracket_detail(
             if not name:
                 return _json_error("name cannot be empty", 400)
             bracket.name = name
+            bracket_fields.append("name")
 
         if "description" in body:
             bracket.description = str(body.get("description") or "").strip()
+            bracket_fields.append("description")
 
-    bracket.save()
+        try:
+            bracket_fields.extend(apply_bracket_admin_fields(bracket, body))
+        except ValueError as e:
+            return _json_error(str(e), 400)
+
+    if bracket_fields:
+        unique_fields = list(dict.fromkeys(bracket_fields))
+        with transaction.atomic():
+            bracket.save(update_fields=unique_fields)
+            if "has_third_place_match" in unique_fields:
+                from brackets.utils.third_place_structure import (
+                    sync_third_place_structure,
+                )
+
+                sync_third_place_structure(bracket)
+    b = get_object_or_404(
+        Bracket.objects.prefetch_related("stages"), pk=bracket.pk
+    )
+    return JsonResponse(
+        {"bracket": serializers.bracket_detail(b, request=request)}
+    )
+
+
+@require_http_methods(["PATCH"])
+def admin_bracket_stages_update(
+    request: HttpRequest, bracket_id: int
+) -> JsonResponse:
+    user, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    bracket = get_object_or_404(Bracket, pk=bracket_id)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    raw = body.get("stages")
+    if not isinstance(raw, list):
+        return _json_error("stages must be a list", 400)
+
+    valid_ids = set(bracket.stages.values_list("id", flat=True))
+
+    try:
+        with transaction.atomic():
+            for item in raw:
+                if not isinstance(item, dict) or "id" not in item:
+                    continue
+                sid = int(item["id"])
+                if sid not in valid_ids:
+                    return _json_error(f"Unknown stage id {sid}", 400)
+                stage = get_object_or_404(BracketStage, pk=sid, bracket=bracket)
+                patch = {k: v for k, v in item.items() if k != "id"}
+                fields = apply_stage_admin_patch(stage, patch)
+                if fields:
+                    stage.save(update_fields=fields)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
     b = get_object_or_404(
         Bracket.objects.prefetch_related("stages"), pk=bracket.pk
     )

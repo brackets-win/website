@@ -44,8 +44,18 @@ devbox services stop
 
 ### Running the local dev environment
 
-In order to run the dev environment locally, just the following command:
+PostgreSQL and other backing services:
 
 ```shell
 devbox services up
 ```
+
+Django API (port 8000) and Vite frontend (port 3000) — start once, runs until you stop it:
+
+```shell
+npm run dev:up
+```
+
+Open http://localhost:3000/ . Logs: `npm run dev:logs`. Stop: `npm run dev:down`.
+
+Foreground Vite only (same terminal, Ctrl+C stops it): `npm run dev` from the repo root.

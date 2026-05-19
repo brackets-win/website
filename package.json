@@ -3,6 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "npm run dev --prefix frontend",
+    "dev:up": "bash scripts/dev-up.sh",
+    "dev:down": "bash scripts/dev-down.sh",
+    "dev:logs": "bash scripts/dev-logs.sh",
     "build": "npm run build --prefix frontend",
     "preview": "npm run preview --prefix frontend"
   }

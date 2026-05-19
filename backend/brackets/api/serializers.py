@@ -48,6 +48,7 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
         "stage_type": stage.stage_type,
         "number_of_contestants": stage.number_of_contestants,
         "contestants_advancing": stage.contestants_advancing,
+        "is_random_draw": stage.is_random_draw,
         "submission_deadline": (
             stage.submission_deadline.isoformat()
             if stage.submission_deadline
@@ -60,8 +61,10 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
         ks = KnockoutStage.objects.get(pk=stage.pk)
         base["knockout"] = {
             "is_final": ks.is_final,
-            "number_of_legs": ks.number_of_legs,
             "is_third_place": ks.is_third_place,
+            "number_of_legs": ks.number_of_legs,
+            "has_extra_time": ks.has_extra_time,
+            "has_penalty_shootout": ks.has_penalty_shootout,
         }
     elif stage.stage_type == BracketStage.StageType.GROUP:
         gs = GroupStage.objects.get(pk=stage.pk)
@@ -70,6 +73,10 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
             "matches_per_contestant": gs.matches_per_contestant,
             "contestants_qualifying_per_group": gs.contestants_qualifying_per_group,
             "remaining_spots_strategy": gs.remaining_spots_strategy,
+            "points_per_win": gs.points_per_win,
+            "points_per_tie": gs.points_per_tie,
+            "points_per_loss": gs.points_per_loss,
+            "ties_allowed": gs.ties_allowed,
         }
     return base
 
@@ -126,11 +133,13 @@ def matchup_public(m: Matchup) -> dict[str, Any]:
 def bracket_image_url(b: Bracket, request=None) -> str | None:
     if not b.image:
         return None
-    url = b.image.url
-    return request.build_absolute_uri(url) if request is not None else url
+    return b.image.url
 
 
 def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
+    challenge_count = getattr(b, "challenge_count", None)
+    if challenge_count is None:
+        challenge_count = b.bracketchallenge_set.count()
     return {
         "id": b.id,
         "identifier": b.identifier,
@@ -140,7 +149,9 @@ def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
         "created_at": b.created_at.isoformat(),
         "randomize_seeds_per_challenge": b.randomize_seeds_per_challenge,
         "has_third_place_match": b.has_third_place_match,
+        "show_seeds": b.show_seeds,
         "metadata": b.metadata,
+        "challenge_count": challenge_count,
     }
 
 
@@ -219,6 +230,10 @@ def auth_user(u) -> dict[str, Any]:
     return {"id": u.id, "username": u.username, "is_staff": bool(u.is_staff)}
 
 
+def contestant_tag_public(tag) -> dict[str, Any]:
+    return {"id": tag.id, "name": tag.name}
+
+
 def contestant_catalog(c: Contestant, request=None) -> dict[str, Any]:
     """Catalog row for admin/API."""
     out: dict[str, Any] = {
@@ -226,12 +241,14 @@ def contestant_catalog(c: Contestant, request=None) -> dict[str, Any]:
         "identifier": c.identifier,
         "name": c.name,
         "description": c.description or "",
+        "image_url": c.image_url or "",
+        "metadata": c.metadata,
+        "tags": [contestant_tag_public(t) for t in c.tags.all()],
     }
     if c.photo:
-        url = c.photo.url
-        out["photo_url"] = (
-            request.build_absolute_uri(url) if request is not None else url
-        )
+        out["photo_url"] = c.photo.url
+    elif c.image_url:
+        out["photo_url"] = c.image_url
     else:
         out["photo_url"] = None
     return out
@@ -281,17 +298,23 @@ def challenge_summary(
     }
 
 
+def leaderboard_column(*, key: str, name: str) -> dict[str, Any]:
+    return {"key": key, "name": name}
+
+
 def leaderboard_entry(
     *,
     username: str,
     user_bracket_id: int,
     score: int | None,
+    stage_scores: dict[str, int | None],
     submitted_at,
 ) -> dict[str, Any]:
     return {
         "username": username,
         "user_bracket_id": user_bracket_id,
         "score": score,
+        "stage_scores": stage_scores,
         "submitted_at": (
             submitted_at.isoformat() if submitted_at else None
         ),

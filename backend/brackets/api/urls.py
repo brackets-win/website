@@ -38,4 +38,8 @@ urlpatterns = [
         "admin/brackets/<int:bracket_id>",
         views.admin_bracket_detail,
     ),
+    path(
+        "admin/brackets/<int:bracket_id>/stages",
+        views.admin_bracket_stages_update,
+    ),
 ]

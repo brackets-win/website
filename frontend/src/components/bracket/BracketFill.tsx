@@ -19,6 +19,11 @@ import {
   submitUserBracket,
 } from '../../utils/api';
 import { GroupStagePanel } from './GroupStagePanel';
+import {
+  buildMirrorBracketLayout,
+  columnMatchupCenterPct,
+  type MirrorBracketColumn,
+} from './bracketMirrorLayout';
 import './BracketFill.css';
 
 function sortStages(stages: BracketStageInfo[]) {
@@ -69,7 +74,31 @@ function feederWinnerDropLabel(
   if (gamesInStage <= 1) {
     return `${prefix} Winner`;
   }
-  return `${prefix}${feeder.position} Winner`;
+  return `${prefix} Winner ${feeder.position}`;
+}
+
+function MatchupContestantFace({
+  contestant,
+  showSeed,
+}: {
+  contestant: BracketContestantInfo;
+  showSeed: boolean;
+}) {
+  return (
+    <>
+      {contestant.image_url ? (
+        <img className="bf-ko-img" src={contestant.image_url} alt="" />
+      ) : (
+        <span className="bf-ko-img bf-ko-img--ph" aria-hidden>
+          {contestant.display_name.charAt(0)}
+        </span>
+      )}
+      <span className="bf-ko-name">{contestant.display_name}</span>
+      {showSeed && contestant.seed != null ? (
+        <span className="bf-ko-seed">#{contestant.seed}</span>
+      ) : null}
+    </>
+  );
 }
 
 export function matchupsForStage(
@@ -187,19 +216,38 @@ export function BracketFill({
     [stages],
   );
 
-  const thirdPlaceStage = useMemo(
-    () => stages.find((s) => s.knockout?.is_third_place),
-    [stages],
-  );
+  const thirdPlaceStage = useMemo(() => {
+    if (!bracketDef?.has_third_place_match) return undefined;
+    return stages.find((s) => s.knockout?.is_third_place);
+  }, [bracketDef?.has_third_place_match, stages]);
 
   const leaves = useMemo(() => {
     if (!detail || knockoutStagesMain.length === 0) return 0;
     return matchupsForStage(detail, knockoutStagesMain[0].id).length;
   }, [detail, knockoutStagesMain]);
 
-  const boardHeightPx = useMemo(
-    () => Math.max(560, leaves * 160),
-    [leaves],
+  const openingKoStage = knockoutStagesMain[0];
+  const openingContestants = openingKoStage?.number_of_contestants ?? 0;
+  const splitKnockoutBoard = openingContestants >= 32 && leaves >= 2;
+
+  const boardHeightPx = useMemo(() => {
+    if (splitKnockoutBoard) {
+      // Each R32 band must fit two full team rows (not clipped).
+      const wingGames = Math.max(leaves / 2, 1);
+      const matchupPx = 108;
+      return Math.max(640, wingGames * matchupPx);
+    }
+    return Math.max(560, leaves * 160);
+  }, [leaves, splitKnockoutBoard]);
+
+  const mirrorLayout = useMemo(
+    () =>
+      buildMirrorBracketLayout(
+        knockoutStagesMain,
+        leaves,
+        openingContestants,
+      ),
+    [knockoutStagesMain, leaves, openingContestants],
   );
 
   const locked = readOnly || (detail != null && !detail.can_edit);
@@ -302,50 +350,105 @@ export function BracketFill({
       : undefined;
 
   const meta = detail.metadata ?? {};
+  const showSeeds = bracketDef?.show_seeds !== false;
 
   const knockoutBoard =
     !knockoutEmpty ? (
       <div className="bf-scroll">
-        <div className="bf-board-inner">
-          {knockoutStagesMain.map((stage, stageIdx) => (
-            <Fragment key={stage.id}>
-              <BracketStageColumn
-                stage={stage}
-                stageIdx={stageIdx}
-                leaves={leaves}
-                detail={detail}
-                stages={knockoutStagesMain}
-                applyWinner={applyWinner}
-                busy={busy || locked}
-                onClearWinner={clearWinner}
-              />
-              {stageIdx < knockoutStagesMain.length - 1 ? (
-                <ConnectorBetweenStages
-                  stageIdx={stageIdx}
-                  leaves={leaves}
-                  pairCount={
-                    matchupsForStage(
-                      detail,
-                      knockoutStagesMain[stageIdx + 1].id,
-                    ).length
-                  }
-                />
-              ) : null}
-            </Fragment>
-          ))}
-
-          {finalMatchup ? (
-            <ChampionColumn
-              finalMatchup={finalMatchup}
-              thirdPlaceMatchup={thirdPlaceMatchup}
+        {mirrorLayout ? (
+          <div className="bf-board-split">
+            <MirrorWing
+              columns={mirrorLayout.left}
               detail={detail}
-              knockoutStages={knockoutStagesMain}
+              stages={knockoutStagesMain}
+              showSeeds={showSeeds}
               applyWinner={applyWinner}
               busy={busy || locked}
               onClearWinner={clearWinner}
             />
-          ) : null}
-        </div>
+            {mirrorLayout.center && finalMatchup ? (
+              <>
+                <SpineConnector
+                  col={mirrorLayout.left[mirrorLayout.left.length - 1]}
+                  towardCenter
+                />
+                <SplitCenterColumn
+                  finalMatchup={finalMatchup}
+                  thirdPlaceMatchup={thirdPlaceMatchup}
+                  finalCenterPct={columnMatchupCenterPct(
+                    mirrorLayout.left[mirrorLayout.left.length - 1].stageIdx,
+                    mirrorLayout.left[mirrorLayout.left.length - 1].positionMin,
+                    mirrorLayout.left[mirrorLayout.left.length - 1].wingMin,
+                    mirrorLayout.left[mirrorLayout.left.length - 1].wingMax,
+                    mirrorLayout.left[mirrorLayout.left.length - 1].positionMin,
+                  )}
+                  detail={detail}
+                  knockoutStages={knockoutStagesMain}
+                  showSeeds={showSeeds}
+                  applyWinner={applyWinner}
+                  busy={busy || locked}
+                  onClearWinner={clearWinner}
+                />
+                <SpineConnector
+                  col={mirrorLayout.right[mirrorLayout.right.length - 1]}
+                  towardCenter
+                />
+              </>
+            ) : null}
+            <MirrorWing
+              columns={mirrorLayout.right}
+              detail={detail}
+              stages={knockoutStagesMain}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy || locked}
+              onClearWinner={clearWinner}
+              reverse
+            />
+          </div>
+        ) : (
+          <div className="bf-board-inner">
+            {knockoutStagesMain.map((stage, stageIdx) => (
+              <Fragment key={stage.id}>
+                <BracketStageColumn
+                  stage={stage}
+                  stageIdx={stageIdx}
+                  leaves={leaves}
+                  detail={detail}
+                  stages={knockoutStagesMain}
+                  showSeeds={showSeeds}
+                  applyWinner={applyWinner}
+                  busy={busy || locked}
+                  onClearWinner={clearWinner}
+                />
+                {stageIdx < knockoutStagesMain.length - 1 ? (
+                  <ConnectorBetweenStages
+                    stageIdx={stageIdx}
+                    leaves={leaves}
+                    pairCount={
+                      matchupsForStage(
+                        detail,
+                        knockoutStagesMain[stageIdx + 1].id,
+                      ).length
+                    }
+                  />
+                ) : null}
+              </Fragment>
+            ))}
+            {finalMatchup ? (
+              <ChampionColumn
+                finalMatchup={finalMatchup}
+                thirdPlaceMatchup={thirdPlaceMatchup}
+                detail={detail}
+                knockoutStages={knockoutStagesMain}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy || locked}
+                onClearWinner={clearWinner}
+              />
+            ) : null}
+          </div>
+        )}
       </div>
     ) : (
       <p className="bf-meta bf-knockout-placeholder">
@@ -355,7 +458,7 @@ export function BracketFill({
 
   return (
     <section
-      className="bf"
+      className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
       aria-busy={busy}
       style={
         {
@@ -364,62 +467,59 @@ export function BracketFill({
       }
     >
       <h2>{detail.bracket.name}</h2>
-      <p className="bf-meta">
-        {detail.score_vs_master != null
-          ? `Score vs master: ${detail.score_vs_master}`
-          : 'Score —'}
-      </p>
       {error ? <p className="bf-error">{error}</p> : null}
 
-      {showSubmit && !locked ? (
-        <div className="bf-submit-row">
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={
-              submitBusy ||
-              busy ||
-              !detail.is_complete ||
-              !!detail.submitted_at
-            }
-            onClick={() => void handleSubmit()}
-          >
-            {submitBusy
-              ? 'Submitting…'
-              : detail.submitted_at
-                ? 'Submitted'
-                : 'Submit bracket'}
-          </button>
-          {!detail.is_complete ? (
-            <p className="bf-meta">Complete every pick before submitting.</p>
+      {(hasGroupUi && firstGroupStage) || (showSubmit && !locked) ? (
+        <div className="bf-toolbar">
+          {hasGroupUi && firstGroupStage ? (
+            <div
+              className="bf-tabs"
+              role="tablist"
+              aria-label="Bracket sections"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={phase === 'groups'}
+                className={
+                  phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                }
+                onClick={() => goToPhase('groups')}
+              >
+                Group Stage
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={phase === 'knockout'}
+                className={
+                  phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                }
+                onClick={() => goToPhase('knockout')}
+              >
+                Knockout
+              </button>
+            </div>
           ) : null}
-        </div>
-      ) : null}
-
-      {hasGroupUi && firstGroupStage ? (
-        <div className="bf-tabs" role="tablist" aria-label="Bracket sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={phase === 'groups'}
-            className={
-              phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
-            }
-            onClick={() => goToPhase('groups')}
-          >
-            Group stage
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={phase === 'knockout'}
-            className={
-              phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
-            }
-            onClick={() => goToPhase('knockout')}
-          >
-            Knockout
-          </button>
+          {showSubmit && !locked ? (
+            <button
+              type="button"
+              className="btn btn--primary bf-toolbar__submit"
+              disabled={
+                submitBusy ||
+                busy ||
+                !detail.is_complete ||
+                !!detail.submitted_at
+              }
+              onClick={() => void handleSubmit()}
+            >
+              {submitBusy
+                ? 'Submitting…'
+                : detail.submitted_at
+                  ? 'Submitted'
+                  : 'Submit Bracket'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -462,15 +562,26 @@ export function BracketFill({
   );
 }
 
+type MatchupCenterFn = (stageIdx: number, position: number) => number;
+
 function ConnectorBetweenStages({
   stageIdx,
   leaves,
   pairCount,
+  feederPositionMin = 1,
+  centerPct,
+  mirrored = false,
 }: {
   stageIdx: number;
   leaves: number;
   pairCount: number;
+  feederPositionMin?: number;
+  centerPct?: MatchupCenterFn;
+  mirrored?: boolean;
 }) {
+  const pct: MatchupCenterFn =
+    centerPct ?? ((s, pos) => matchupCenterPct(s, pos, leaves));
+
   return (
     <div className="bf-connector-strip" aria-hidden>
       <div className="bf-stage-heading-spacer" />
@@ -481,14 +592,210 @@ function ConnectorBetweenStages({
           preserveAspectRatio="none"
         >
           {Array.from({ length: pairCount }, (_, idx) => {
-            const pos = idx + 1;
-            const y1 = matchupCenterPct(stageIdx, 2 * pos - 1, leaves);
-            const y2 = matchupCenterPct(stageIdx, 2 * pos, leaves);
+            const feedA = feederPositionMin + 2 * idx;
+            const feedB = feedA + 1;
+            const y1 = pct(stageIdx, feedA);
+            const y2 = pct(stageIdx, feedB);
             const ym = (y1 + y2) / 2;
-            const d = `M 0 ${y1} H 24 M 0 ${y2} H 24 M 24 ${y1} V ${y2} M 24 ${ym} H 100`;
+            const d = mirrored
+              ? `M 100 ${y1} H 76 M 100 ${y2} H 76 M 76 ${y1} V ${y2} M 76 ${ym} H 0`
+              : `M 0 ${y1} H 24 M 0 ${y2} H 24 M 24 ${y1} V ${y2} M 24 ${ym} H 100`;
             return <path key={idx} d={d} className="bf-connector-path" />;
           })}
         </svg>
+      </div>
+    </div>
+  );
+}
+
+function columnCenterFn(col: MirrorBracketColumn): MatchupCenterFn {
+  return (stageIdx, position) =>
+    columnMatchupCenterPct(
+      stageIdx,
+      position,
+      col.wingMin,
+      col.wingMax,
+      col.positionMin,
+    );
+}
+
+function MirrorWing({
+  columns,
+  detail,
+  stages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+  reverse = false,
+}: {
+  columns: MirrorBracketColumn[];
+  detail: UserBracketDetail;
+  stages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner: (matchupId: number) => void;
+  reverse?: boolean;
+}) {
+  return (
+    <div
+      className={
+        reverse ? 'bf-board-wing bf-board-wing--right' : 'bf-board-wing'
+      }
+    >
+      {columns.map((col, colIdx) => (
+        <Fragment key={col.key}>
+          <MirrorBracketStageColumn
+            col={col}
+            detail={detail}
+            stages={stages}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+          />
+          {colIdx < columns.length - 1 ? (
+            <ConnectorBetweenStages
+              stageIdx={columns[colIdx].stageIdx}
+              leaves={0}
+              pairCount={
+                columns[colIdx + 1].positionMax -
+                columns[colIdx + 1].positionMin +
+                1
+              }
+              feederPositionMin={columns[colIdx].positionMin}
+              centerPct={columnCenterFn(columns[colIdx])}
+              mirrored={reverse}
+            />
+          ) : null}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function SpineConnector({
+  col,
+  towardCenter,
+}: {
+  col: MirrorBracketColumn;
+  towardCenter: boolean;
+}) {
+  const y = columnMatchupCenterPct(
+    col.stageIdx,
+    col.positionMin,
+    col.wingMin,
+    col.wingMax,
+    col.positionMin,
+  );
+  const d = towardCenter ? `M 0 ${y} H 100` : `M 100 ${y} H 0`;
+  return (
+    <div className="bf-connector-strip" aria-hidden>
+      <div className="bf-stage-heading-spacer" />
+      <div className="bf-connector-track">
+        <svg
+          className="bf-connector-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          <path d={d} className="bf-connector-path" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function findMatchupById(
+  detail: UserBracketDetail,
+  matchupId: number,
+): MatchupInfo | undefined {
+  for (const pack of detail.matchups_by_stage) {
+    const found = pack.matchups.find((m) => m.id === matchupId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function MirrorBracketStageColumn({
+  col,
+  detail,
+  stages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  col: MirrorBracketColumn;
+  detail: UserBracketDetail;
+  stages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner: (matchupId: number) => void;
+}) {
+  const { stage, stageIdx, positionMin, positionMax, wingMin, wingMax } = col;
+  const matchups = matchupsForStage(detail, stage.id).filter(
+    (m) => m.position >= positionMin && m.position <= positionMax,
+  );
+
+  const isFirst = stageIdx === 0;
+  const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
+  const wingSlots = wingMax - wingMin + 1;
+  const stageTitle =
+    stage.name?.trim() !== ''
+      ? stage.name
+      : stageIdx === 0
+        ? 'Opening round'
+        : `Round ${stageIdx + 1}`;
+
+  return (
+    <div className="bf-stage-col">
+      <p className="bf-stage-title">{stageTitle}</p>
+      <div className="bf-stage-track">
+        {matchups.map((m) => {
+          const topPct = columnMatchupCenterPct(
+            stageIdx,
+            m.position,
+            wingMin,
+            wingMax,
+            positionMin,
+          );
+          const anchorStyle =
+            isFirst && wingSlots > 0
+              ? {
+                  top: `${((m.position - wingMin) / wingSlots) * 100}%`,
+                  height: `${100 / wingSlots}%`,
+                  transform: 'none' as const,
+                }
+              : {
+                  top: `${topPct}%`,
+                  transform: 'translateY(-50%)' as const,
+                };
+          return (
+            <div
+              key={m.id}
+              className={
+                isFirst
+                  ? 'bf-matchup-anchor bf-matchup-anchor--band'
+                  : 'bf-matchup-anchor'
+              }
+              style={anchorStyle}
+            >
+              <MatchupCard
+                m={m}
+                detail={detail}
+                isFirst={isFirst}
+                prevStageId={prevStage?.id ?? null}
+                knockoutStages={stages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -500,6 +807,7 @@ function BracketStageColumn({
   leaves,
   detail,
   stages,
+  showSeeds,
   applyWinner,
   busy,
   onClearWinner,
@@ -509,6 +817,7 @@ function BracketStageColumn({
   leaves: number;
   detail: UserBracketDetail;
   stages: BracketStageInfo[];
+  showSeeds: boolean;
   applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
   busy: boolean;
   onClearWinner: (matchupId: number) => void;
@@ -557,6 +866,7 @@ function BracketStageColumn({
                 isFirst={isFirst}
                 prevStageId={prevStage?.id ?? null}
                 knockoutStages={stages}
+                showSeeds={showSeeds}
                 applyWinner={applyWinner}
                 busy={busy}
                 onClearWinner={onClearWinner}
@@ -569,11 +879,125 @@ function BracketStageColumn({
   );
 }
 
+/** Split bracket center: champion above final, aligned with semifinal row. */
+const SPLIT_CENTER_CHAMP_GAP_PCT = 14;
+const SPLIT_CENTER_THIRD_GAP_PCT = 18;
+
+function SplitCenterColumn({
+  finalMatchup,
+  thirdPlaceMatchup,
+  finalCenterPct,
+  detail,
+  knockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  finalMatchup: MatchupInfo;
+  thirdPlaceMatchup: MatchupInfo | undefined;
+  finalCenterPct: number;
+  detail: UserBracketDetail;
+  knockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner: (matchupId: number) => void;
+}) {
+  const champ = finalMatchup.winner;
+  const finalIdx = knockoutStages.findIndex((s) => s.knockout?.is_final);
+  const prevStage =
+    finalIdx > 0 ? knockoutStages[finalIdx - 1] : null;
+  const champTop = Math.max(4, finalCenterPct - SPLIT_CENTER_CHAMP_GAP_PCT);
+  const thirdTop = Math.min(96, finalCenterPct + SPLIT_CENTER_THIRD_GAP_PCT);
+
+  return (
+    <div className="bf-stage-col bf-stage-col--center">
+      <p className="bf-stage-title">Final</p>
+      <div className="bf-stage-track bf-center-track">
+        <div
+          className="bf-center-slot bf-center-slot--champion"
+          style={{ top: `${champTop}%` }}
+        >
+          <p className="bf-stage-title bf-center-slot-label">Champion</p>
+          <div className="bf-center-matchup-wrap bf-center-matchup-wrap--up">
+            <div className="bf-champion-box">
+              {champ ? (
+                <>
+                  <button
+                    type="button"
+                    className="bf-pick-clear bf-pick-clear--champion"
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onClearWinner(finalMatchup.id);
+                    }}
+                    aria-label="Remove champion pick"
+                  >
+                    ×
+                  </button>
+                  <MatchupContestantFace contestant={champ} showSeed={showSeeds} />
+                </>
+              ) : (
+                <span className="bf-champion-placeholder">Champion</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="bf-center-slot bf-center-slot--final"
+          style={{ top: `${finalCenterPct}%` }}
+        >
+          <div className="bf-center-matchup-wrap">
+            <MatchupCard
+              m={finalMatchup}
+              detail={detail}
+              isFirst={false}
+              prevStageId={prevStage?.id ?? null}
+              knockoutStages={knockoutStages}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy}
+              onClearWinner={onClearWinner}
+            />
+          </div>
+        </div>
+
+        {thirdPlaceMatchup ? (
+          <div
+            className="bf-center-slot bf-center-slot--third"
+            style={{ top: `${thirdTop}%` }}
+          >
+            <p className="bf-stage-title bf-center-slot-label">Third place</p>
+            <div className="bf-center-matchup-wrap">
+              <MatchupCard
+                m={thirdPlaceMatchup}
+                detail={detail}
+                isFirst={false}
+                prevStageId={
+                  knockoutStages.find((s) => s.knockout?.is_final)?.id ?? null
+                }
+                knockoutStages={knockoutStages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ChampionColumn({
   finalMatchup,
   thirdPlaceMatchup,
   detail,
   knockoutStages,
+  showSeeds,
   applyWinner,
   busy,
   onClearWinner,
@@ -582,6 +1006,7 @@ function ChampionColumn({
   thirdPlaceMatchup: MatchupInfo | undefined;
   detail: UserBracketDetail;
   knockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
   applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
   busy: boolean;
   onClearWinner: (matchupId: number) => void;
@@ -609,10 +1034,7 @@ function ChampionColumn({
                   >
                     ×
                   </button>
-                  <span className="bf-champion-name">{champ.display_name}</span>
-                  {champ.seed != null ? (
-                    <span className="bf-champion-seed">#{champ.seed}</span>
-                  ) : null}
+                  <MatchupContestantFace contestant={champ} showSeed={showSeeds} />
                 </>
               ) : (
                 <span className="bf-champion-placeholder">Champion</span>
@@ -630,6 +1052,7 @@ function ChampionColumn({
                 isFirst
                 prevStageId={null}
                 knockoutStages={knockoutStages}
+                showSeeds={showSeeds}
                 applyWinner={applyWinner}
                 busy={busy}
                 onClearWinner={onClearWinner}
@@ -648,6 +1071,7 @@ function MatchupCard({
   isFirst,
   prevStageId,
   knockoutStages,
+  showSeeds,
   applyWinner,
   busy,
   onClearWinner,
@@ -657,14 +1081,23 @@ function MatchupCard({
   isFirst: boolean;
   prevStageId: number | null;
   knockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
   applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
   busy: boolean;
   onClearWinner: (matchupId: number) => void;
 }) {
   const prev = prevStageId ? matchupsForStage(detail, prevStageId) : [];
   const np = m.position;
-  const feederTop = !isFirst ? prev.find((x) => x.position === 2 * np - 1) : null;
-  const feederBot = !isFirst ? prev.find((x) => x.position === 2 * np) : null;
+  const feederTop = !isFirst
+    ? (m.source_a_matchup_id != null
+        ? findMatchupById(detail, m.source_a_matchup_id)
+        : prev.find((x) => x.position === 2 * np - 1))
+    : null;
+  const feederBot = !isFirst
+    ? (m.source_b_matchup_id != null
+        ? findMatchupById(detail, m.source_b_matchup_id)
+        : prev.find((x) => x.position === 2 * np))
+    : null;
 
   const labelTop =
     feederTop != null
@@ -685,6 +1118,7 @@ function MatchupCard({
             feeder={feederTop}
             otherContestantId={m.contestant2?.id}
             winnerId={m.winner?.id}
+            showSeeds={showSeeds}
             applyWinner={applyWinner}
             busy={busy}
             onClearWinner={onClearWinner}
@@ -696,6 +1130,7 @@ function MatchupCard({
             feeder={feederBot}
             otherContestantId={m.contestant1?.id}
             winnerId={m.winner?.id}
+            showSeeds={showSeeds}
             applyWinner={applyWinner}
             busy={busy}
             onClearWinner={onClearWinner}
@@ -711,6 +1146,7 @@ function MatchupCard({
             matchupId={m.id}
             winnerId={m.winner?.id}
             otherId={m.contestant2?.id}
+            showSeeds={showSeeds}
             applyWinner={applyWinner}
             busy={busy}
           />
@@ -719,6 +1155,7 @@ function MatchupCard({
             matchupId={m.id}
             winnerId={m.winner?.id}
             otherId={m.contestant1?.id}
+            showSeeds={showSeeds}
             applyWinner={applyWinner}
             busy={busy}
           />
@@ -734,6 +1171,7 @@ function ContestantOnly({
   matchupId,
   winnerId,
   otherId,
+  showSeeds,
   applyWinner,
   busy,
 }: {
@@ -741,6 +1179,7 @@ function ContestantOnly({
   matchupId: number;
   winnerId: number | undefined;
   otherId: number | undefined;
+  showSeeds: boolean;
   applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
   busy: boolean;
 }) {
@@ -758,15 +1197,12 @@ function ContestantOnly({
     <div className="bf-slot">
       <button
         type="button"
-        className={`bf-chip ${isWinner ? 'bf-chip--winner' : ''}`}
+        className={`bf-chip bf-chip--ko ${isWinner ? 'bf-chip--winner' : ''}`}
         disabled={busy}
         onClick={() => void applyWinner(matchupId, label.id)}
         aria-label={`${label.display_name}, pick to advance`}
       >
-        {label.display_name}
-        {label.seed != null ? (
-          <span style={{ opacity: 0.55, marginLeft: 6 }}>#{label.seed}</span>
-        ) : null}
+        <MatchupContestantFace contestant={label} showSeed={showSeeds} />
       </button>
     </div>
   );
@@ -779,6 +1215,7 @@ function ReceiveOrPick({
   feeder,
   otherContestantId,
   winnerId,
+  showSeeds,
   applyWinner,
   busy,
   onClearWinner,
@@ -789,6 +1226,7 @@ function ReceiveOrPick({
   feeder: MatchupInfo;
   otherContestantId: number | undefined;
   winnerId: number | undefined;
+  showSeeds: boolean;
   applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
   busy: boolean;
   onClearWinner: (matchupId: number) => void;
@@ -824,17 +1262,12 @@ function ReceiveOrPick({
     >
       <button
         type="button"
-        className={`bf-chip ${isWinner ? 'bf-chip--winner' : ''}`}
+        className={`bf-chip bf-chip--ko ${isWinner ? 'bf-chip--winner' : ''}`}
         disabled={busy || !canPickThisGame}
         onClick={() => void applyWinner(currentMatchupId, contestant.id)}
         aria-label={`${contestant.display_name}, pick to advance`}
       >
-        {contestant.display_name}
-        {contestant.seed != null ? (
-          <span style={{ opacity: 0.55, marginLeft: 6 }}>
-            #{contestant.seed}
-          </span>
-        ) : null}
+        <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
       </button>
       {clearMatchupId != null ? (
         <button

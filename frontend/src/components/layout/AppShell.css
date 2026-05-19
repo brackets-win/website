@@ -36,15 +36,20 @@
 }
 
 .shell__logo-mark {
-  width: 32px;
-  height: 32px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.4rem;
+  font-size: 0.8125rem;
   font-weight: 700;
-  color: #fff;
-  background: var(--app-accent);
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--app-accent);
+  background: rgba(var(--app-accent-rgb), 0.12);
+  border: 1px solid rgba(var(--app-accent-rgb), 0.45);
   border-radius: 8px;
 }
 
@@ -54,6 +59,12 @@
   letter-spacing: -0.03em;
   line-height: 1.1;
   color: var(--app-text);
+}
+
+.shell__logo:hover .shell__logo-mark {
+  color: #fff;
+  background: var(--app-accent);
+  border-color: var(--app-accent);
 }
 
 .shell__logo:hover .shell__logo-text {
@@ -66,9 +77,9 @@
 }
 
 .shell__admin--active {
-  border-color: rgba(82, 67, 217, 0.45);
+  border-color: rgba(var(--app-accent-rgb), 0.45);
   color: var(--app-accent);
-  background: rgba(82, 67, 217, 0.08);
+  background: rgba(var(--app-accent-rgb), 0.1);
 }
 
 .shell__user {

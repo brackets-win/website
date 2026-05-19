@@ -22,10 +22,10 @@ export function LoginPage({ onLogin, error, busy }: Props) {
       <div className="login__card card">
         <div className="login__brand">
           <span className="login__mark" aria-hidden>
-            B
+            {'}'} {'{'}
           </span>
           <div>
-            <h1 className="login__title">{'}'} brackets.win {'{'}</h1>
+            <h1 className="login__title">brackets.win</h1>
             <p className="login__tagline">
               Sign in to fill and manage your picks.
             </p>

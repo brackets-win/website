@@ -83,27 +83,13 @@
 }
 
 .challenge-view__tab--active {
-  background: var(--primary, #0f172a);
-  border-color: var(--primary, #0f172a);
+  background: var(--app-accent, #5782a8);
+  border-color: var(--app-accent, #5782a8);
   color: #fff;
 }
 
 .challenge-view__board {
   padding: 1rem 1.25rem;
-  overflow-x: auto;
-}
-
-.challenge-view__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.challenge-view__table th,
-.challenge-view__table td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border, #e2e8f0);
 }
 
 .challenge-view__muted {

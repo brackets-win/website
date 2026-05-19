@@ -11,11 +11,19 @@ export type ApiUser = {
   is_staff?: boolean;
 };
 
+export type ContestantTagInfo = {
+  id: number;
+  name: string;
+};
+
 export type ContestantCatalog = {
   id: number;
   identifier: string;
   name: string;
   description: string;
+  image_url: string;
+  metadata: unknown;
+  tags: ContestantTagInfo[];
   photo_url?: string | null;
 };
 
@@ -38,10 +46,16 @@ export type ChallengeSummary = {
   can_edit_picks: boolean;
 };
 
+export type LeaderboardColumn = {
+  key: string;
+  name: string;
+};
+
 export type LeaderboardEntry = {
   username: string;
   user_bracket_id: number;
   score: number | null;
+  stage_scores: Record<string, number | null>;
   submitted_at: string | null;
 };
 
@@ -63,7 +77,9 @@ export type BracketSummary = {
   randomize_seeds_per_challenge: boolean;
   /** Single elimination: optional third-place match (semifinal losers). */
   has_third_place_match?: boolean;
+  show_seeds?: boolean;
   metadata: unknown;
+  challenge_count?: number;
 };
 
 export type BracketContestantInfo = {
@@ -104,20 +120,49 @@ export type BracketStageInfo = {
   stage_type: string;
   number_of_contestants: number;
   contestants_advancing?: number | null;
+  is_random_draw: boolean;
   submission_deadline: string | null;
   points_per_correct_pick: number;
   metadata: unknown;
   knockout?: {
     is_final: boolean;
-    number_of_legs: number;
     is_third_place?: boolean;
+    number_of_legs: number;
+    has_extra_time: boolean;
+    has_penalty_shootout: boolean;
   };
   group?: {
     number_of_groups: number;
     matches_per_contestant: number;
     contestants_qualifying_per_group: number;
     remaining_spots_strategy: string | null;
+    points_per_win: number;
+    points_per_tie: number;
+    points_per_loss: number;
+    ties_allowed: boolean;
   };
+};
+
+export type AdminStagePatch = {
+  id: number;
+  name?: string;
+  points_per_correct_pick?: number;
+  is_random_draw?: boolean;
+  submission_deadline?: string | null;
+  metadata?: unknown;
+  number_of_groups?: number;
+  matches_per_contestant?: number;
+  contestants_qualifying_per_group?: number;
+  remaining_spots_strategy?: string | null;
+  points_per_win?: number;
+  points_per_tie?: number;
+  points_per_loss?: number;
+  ties_allowed?: boolean;
+  number_of_legs?: number;
+  has_extra_time?: boolean;
+  has_penalty_shootout?: boolean;
+  is_final?: boolean;
+  is_third_place?: boolean;
 };
 
 /** Group bucket for UI (even split of bracket contestants). */
@@ -280,6 +325,7 @@ export async function getChallenge(
 }
 
 export async function getChallengeLeaderboard(challengeId: number): Promise<{
+  columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
 }> {
   return apiFetch('GET', `challenges/${challengeId}/leaderboard`);
@@ -349,6 +395,7 @@ export async function patchMatchupWinner(
 
 export async function adminListContestants(): Promise<{
   contestants: ContestantCatalog[];
+  tags: ContestantTagInfo[];
 }> {
   return apiFetch('GET', 'admin/contestants');
 }
@@ -378,9 +425,20 @@ export async function adminUpdateBracket(
     | {
         name?: string;
         description?: string;
+        show_seeds?: boolean;
+        randomize_seeds_per_challenge?: boolean;
+        has_third_place_match?: boolean;
+        metadata?: unknown;
       },
 ): Promise<{ bracket: BracketDetail }> {
   return apiFetch('PATCH', `admin/brackets/${bracketId}`, body);
+}
+
+export async function adminUpdateBracketStages(
+  bracketId: number,
+  stages: AdminStagePatch[],
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('PATCH', `admin/brackets/${bracketId}/stages`, { stages });
 }
 
 export async function adminDeleteBracket(
@@ -403,6 +461,28 @@ export async function adminCreateContestant(
 
 export type BracketStructureType = 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
 
+export type BracketStructureConfig = {
+  group_stage?: {
+    number_of_groups?: number;
+    matches_per_contestant?: number;
+    contestants_qualifying_per_group?: number;
+    remaining_spots_strategy?: string | null;
+    points_per_win?: number;
+    points_per_tie?: number;
+    points_per_loss?: number;
+    ties_allowed?: boolean;
+    points_per_correct_pick?: number;
+    is_random_draw?: boolean;
+  };
+  knockout?: {
+    number_of_legs?: number;
+    has_extra_time?: boolean;
+    has_penalty_shootout?: boolean;
+    points_per_correct_pick?: number;
+    is_random_draw?: boolean;
+  };
+};
+
 export async function adminCreateBracket(
   body:
     | FormData
@@ -414,6 +494,9 @@ export async function adminCreateBracket(
         number_of_contestants: number;
         has_third_place?: boolean;
         randomize_seeds_per_challenge?: boolean;
+        show_seeds?: boolean;
+        metadata?: unknown;
+        structure_config?: BracketStructureConfig;
         bracket_contestants?: { contestant_id: number; seed: number | null }[];
       },
 ): Promise<{ bracket: BracketDetail }> {

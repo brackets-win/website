@@ -10,12 +10,83 @@ from typing import List
 from django.db import transaction
 
 from brackets.models import (
+    Bracket,
     BracketContestant,
     BracketStage,
     KnockoutStage,
     Matchup,
     UserBracket,
 )
+def _semifinal_stage_before_final(bracket, final_stage: BracketStage) -> BracketStage | None:
+    """Knockout stage immediately before the final (feeds semi winners/losers)."""
+    return (
+        bracket.stages.filter(
+            stage_type=BracketStage.StageType.KNOCKOUT,
+            order=final_stage.order - 1,
+        )
+        .first()
+    )
+
+
+def ensure_third_place_matchup_wired(
+    user_bracket: UserBracket,
+    third_place_stage: BracketStage,
+    *,
+    bracket: Bracket | None = None,
+) -> Matchup:
+    """
+    One third-place game: losers of the two semifinal matchups (``uses_winner=False``).
+    """
+    bracket = bracket or user_bracket.bracket
+    final_ks = KnockoutStage.objects.filter(bracket=bracket, is_final=True).first()
+    if not final_ks:
+        raise ValueError("Third place stage requires a final stage on bracket.")
+
+    final_stage = BracketStage.objects.get(pk=final_ks.pk)
+    sf_stage = _semifinal_stage_before_final(bracket, final_stage)
+    if not sf_stage:
+        raise ValueError("Third place requires a knockout stage before the final.")
+
+    sf_pair = list(
+        Matchup.objects.filter(
+            user_bracket=user_bracket,
+            stage=sf_stage,
+        ).order_by("position")
+    )
+    if len(sf_pair) != 2:
+        raise ValueError("Expected two semifinal matchups for third-place wiring.")
+
+    m, created = Matchup.objects.get_or_create(
+        user_bracket=user_bracket,
+        stage=third_place_stage,
+        position=1,
+        defaults={
+            "source_a_matchup": sf_pair[0],
+            "source_a_uses_winner": False,
+            "source_b_matchup": sf_pair[1],
+            "source_b_uses_winner": False,
+        },
+    )
+    if not created:
+        changed = False
+        if m.source_a_matchup_id != sf_pair[0].pk:
+            m.source_a_matchup = sf_pair[0]
+            m.source_a_uses_winner = False
+            changed = True
+        if m.source_b_matchup_id != sf_pair[1].pk:
+            m.source_b_matchup = sf_pair[1]
+            m.source_b_uses_winner = False
+            changed = True
+        if changed:
+            m.save(
+                update_fields=[
+                    "source_a_matchup",
+                    "source_a_uses_winner",
+                    "source_b_matchup",
+                    "source_b_uses_winner",
+                ]
+            )
+    return m
 
 
 def _is_single_elim_knockout_only(bracket) -> bool:
@@ -66,54 +137,26 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
 
         ks = KnockoutStage.objects.filter(pk=stage.pk).first()
         if ks and ks.is_third_place:
-            final_ks = KnockoutStage.objects.filter(
-                bracket=bracket, is_final=True
-            ).first()
-            if not final_ks:
-                raise ValueError('Third place stage requires a final stage on bracket.')
-            final_stage = BracketStage.objects.get(pk=final_ks.pk)
-            sf_stage = (
-                bracket.stages.filter(
-                    stage_type=BracketStage.StageType.KNOCKOUT,
-                    order__lt=final_stage.order,
+            created.append(
+                ensure_third_place_matchup_wired(
+                    user_bracket, stage, bracket=bracket
                 )
-                .order_by('-order')
-                .first()
             )
-            if not sf_stage:
-                raise ValueError(
-                    'Third place requires a knockout stage before the final.'
-                )
-            sf_pair = list(
-                Matchup.objects.filter(
-                    user_bracket=user_bracket, stage=sf_stage
-                ).order_by('position')
-            )
-            if len(sf_pair) != 2:
-                raise ValueError('Expected two semifinal matchups for third-place wiring.')
-            m = Matchup.objects.create(
-                user_bracket=user_bracket,
-                stage=stage,
-                position=1,
-                source_a_matchup=sf_pair[0],
-                source_a_uses_winner=False,
-                source_b_matchup=sf_pair[1],
-                source_b_uses_winner=False,
-            )
-            created.append(m)
             continue
 
         if idx == 0:
-            for position in range(1, num_matchups + 1):
-                c1 = contestants[position - 1]
-                c2 = contestants[n - position]
+            from brackets.utils.bracket_seeding import first_round_seed_pairs
+
+            for position, (seed1, seed2) in enumerate(
+                first_round_seed_pairs(n), start=1
+            ):
                 created.append(
                     Matchup.objects.create(
                         user_bracket=user_bracket,
                         stage=stage,
                         position=position,
-                        contestant1=c1,
-                        contestant2=c2,
+                        contestant1=contestants[seed1 - 1],
+                        contestant2=contestants[seed2 - 1],
                     )
                 )
         else:
@@ -152,6 +195,19 @@ def ensure_knockout_matchup_shell(user_bracket: UserBracket) -> List[Matchup]:
 
     created: List[Matchup] = []
     for stage in ko_stages:
+        ks = KnockoutStage.objects.filter(pk=stage.pk).first()
+        if ks and ks.is_third_place:
+            m, was_created = Matchup.objects.get_or_create(
+                user_bracket=user_bracket,
+                stage=stage,
+                position=1,
+                defaults={},
+            )
+            ensure_third_place_matchup_wired(user_bracket, stage, bracket=bracket)
+            if was_created:
+                created.append(m)
+            continue
+
         num_matchups = stage.number_of_contestants // 2
         for position in range(1, num_matchups + 1):
             m, was_created = Matchup.objects.get_or_create(
@@ -162,6 +218,11 @@ def ensure_knockout_matchup_shell(user_bracket: UserBracket) -> List[Matchup]:
             )
             if was_created:
                 created.append(m)
+
+    from brackets.utils.fwc26_knockout_wiring import wire_fwc26_knockout_sources
+
+    if _bracket_has_group_stage(bracket):
+        wire_fwc26_knockout_sources(user_bracket)
 
     return created
 

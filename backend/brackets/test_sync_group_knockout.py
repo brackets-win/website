@@ -8,7 +8,7 @@ from brackets.utils.fwc26_regulations import (
     build_third_place_combinations_lookup,
     load_third_place_combinations_raw,
 )
-from brackets.utils.group_knockout_mapping import set_custom_group_knockout_mapping
+from brackets.utils.group_knockout_fill import MAPPING, apply_knockout_fill_to_stage
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 from brackets.utils.sync_group_knockout import (
     parse_position_code,
@@ -129,9 +129,10 @@ class SyncWorldCupKnockoutTests(TestCase):
         first_ko = (
             self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
         )
-        set_custom_group_knockout_mapping(
+        apply_knockout_fill_to_stage(
             KnockoutStage.objects.get(pk=first_ko.pk),
             [(1, "E1", "3E"), (7, "A1", "3A")],
+            method=MAPPING,
         )
 
         self.ub = self.bracket.userbracket_set.create(

@@ -6,8 +6,9 @@
   --app-border: #d8dde3;
   --app-text: #1a1d21;
   --app-muted: #5c6470;
-  --app-accent: #5243d9;
-  --app-accent-hover: #4338ca;
+  --app-accent: #5782a8;
+  --app-accent-hover: #476d91;
+  --app-accent-rgb: 87, 130, 168;
   --app-danger: #c43333;
   --app-success: #1d6b3a;
   --app-radius: 10px;
@@ -90,7 +91,7 @@ body {
 .textarea:focus {
   outline: none;
   border-color: var(--app-accent);
-  box-shadow: 0 0 0 3px rgba(82, 67, 217, 0.18);
+  box-shadow: 0 0 0 3px rgba(var(--app-accent-rgb), 0.22);
 }
 
 .input:disabled {
@@ -272,6 +273,11 @@ body {
 @media (min-width: 640px) {
   .form-grid--2 {
     grid-template-columns: 1fr 1fr;
+    gap: 0 1.25rem;
+  }
+
+  .form-grid--3 {
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 0 1.25rem;
   }
 }

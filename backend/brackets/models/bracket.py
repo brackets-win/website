@@ -23,6 +23,10 @@ class Bracket(models.Model):
     randomize_seeds_per_challenge = models.BooleanField(default=False)
     # Single-elim brackets: optional third-place match (losers of the semifinals).
     has_third_place_match = models.BooleanField(default=False)
+    show_seeds = models.BooleanField(
+        default=True,
+        help_text="When false, knockout UI hides seed numbers (e.g. World Cup).",
+    )
     # Store bracket-specific metadata (e.g., World Cup third-place combinations)
     metadata = models.JSONField(null=True, blank=True)
 
@@ -157,34 +161,53 @@ class UserBracket(models.Model):
 
         return None
 
-    def calculate_score(self):
+    def calculate_stage_score(self, stage):
         """
-        Calculate this bracket's score against the master bracket.
-        Points awarded for correctly predicting contestants advancing to each stage.
+        Points for this stage vs the master bracket, or None when not scored yet.
         """
         if self.is_master:
-            return None  # Master bracket doesn't get scored
+            return None
+
+        master = self.get_master_bracket()
+        if not master:
+            return None
+
+        if stage.stage_type == 'GROUP':
+            # TODO: score group stages once user-specific predictions exist.
+            return None
+
+        if stage.stage_type == 'KNOCKOUT':
+            knockout_stage = KnockoutStage.objects.get(pk=stage.pk)
+            user_contestants = self.get_contestants_in_stage(stage)
+            master_contestants = master.get_contestants_in_stage(stage)
+            correct_predictions = user_contestants & master_contestants
+            return (
+                len(correct_predictions) * knockout_stage.points_per_correct_pick
+            )
+
+        return None
+
+    def calculate_champion_score(self):
+        """Points for picking the champion vs master; None until scoring is defined."""
+        return None
+
+    def calculate_score(self):
+        """
+        Calculate this bracket's total score against the master bracket.
+        """
+        if self.is_master:
+            return None
 
         master = self.get_master_bracket()
         if not master:
             return 0
 
         score = 0
-
-        # Score knockout stages: points for each contestant correctly predicted to reach this stage
         for stage in self.bracket.stages.filter(stage_type='KNOCKOUT'):
-            knockout_stage = KnockoutStage.objects.get(pk=stage.pk)
-
-            # Get contestants that reached this stage
-            user_contestants = self.get_contestants_in_stage(stage)
-            master_contestants = master.get_contestants_in_stage(stage)
-
-            # Award points for each correct prediction
-            correct_predictions = user_contestants & master_contestants
-            score += len(correct_predictions) * \
-                knockout_stage.points_per_correct_pick
-
-        # Group-stage scoring needs per-user placement picks (GroupMembership is bracket-wide).
-        # TODO: score group stages once user-specific predictions exist.
-
+            stage_score = self.calculate_stage_score(stage)
+            if stage_score:
+                score += stage_score
+        champion_score = self.calculate_champion_score()
+        if champion_score:
+            score += champion_score
         return score

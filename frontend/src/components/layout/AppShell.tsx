@@ -32,7 +32,10 @@ export function AppShell({
             className="shell__logo"
             onClick={() => onNavigate('home')}
           >
-            <span className="shell__logo-text">{'}'} brackets.win {'{'}</span>
+            <span className="shell__logo-mark" aria-hidden>
+              {'}'} {'{'}
+            </span>
+            <span className="shell__logo-text">brackets.win</span>
           </button>
 
           <div className="shell__user">

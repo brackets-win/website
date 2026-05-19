@@ -162,7 +162,7 @@ export default function App() {
 
       {page === 'challenge' && activeChallenge != null ? (
         <ChallengeView
-          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId}-${activeChallenge.initialTab ?? 'fill'}`}
+          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId}-${activeChallenge.initialTab ?? 'bracket'}`}
           challengeId={activeChallenge.challengeId}
           userBracketId={activeChallenge.userBracketId}
           initialTab={activeChallenge.initialTab}

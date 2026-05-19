@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from brackets.models import KnockoutStage, UserBracket
+from brackets.utils.group_stage_config import (
+    get_group_stage,
+    group_stage_pick_requirements,
+)
 
 
 def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
@@ -13,11 +17,14 @@ def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
     meta = ub.metadata if isinstance(ub.metadata, dict) else {}
 
     if preview:
-        gp = meta.get("group_positions") or {}
-        is_wc = (bracket.metadata or {}).get("tournament_type") == "world_cup_2026"
-        slots_required = 3 if is_wc else 2
-        slot_keys = ["1", "2", "3"][:slots_required]
+        gs = get_group_stage(bracket)
+        if gs is None:
+            return False, "Bracket has no group stage"
 
+        ranks_required, third_count = group_stage_pick_requirements(gs)
+        slot_keys = [str(i) for i in range(1, ranks_required + 1)]
+
+        gp = meta.get("group_positions") or {}
         for group in preview:
             code = group["code"]
             slots = gp.get(code) or {}
@@ -28,10 +35,10 @@ def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
                 if val is None:
                     return False, f"Complete group {code} picks first"
 
-        if is_wc:
+        if third_count > 0:
             tp = meta.get("third_place_advancers") or []
-            if len(tp) < 8:
-                return False, "Select 8 third-place teams"
+            if len(tp) < third_count:
+                return False, f"Select {third_count} third-place teams"
 
     for m in ub.matchup_set.select_related("stage").all():
         if m.contestant1_id and m.contestant2_id and m.winner_id is None:
@@ -45,5 +52,14 @@ def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
         if final_matchup and final_matchup.winner_id is None:
             if final_matchup.contestant1_id and final_matchup.contestant2_id:
                 return False, "Pick a champion"
+
+    third_ks = KnockoutStage.objects.filter(bracket=bracket, is_third_place=True).first()
+    if third_ks:
+        third_matchup = (
+            ub.matchup_set.filter(stage_id=third_ks.pk).order_by("position").first()
+        )
+        if third_matchup and third_matchup.winner_id is None:
+            if third_matchup.contestant1_id and third_matchup.contestant2_id:
+                return False, "Pick a third-place winner"
 
     return True, None

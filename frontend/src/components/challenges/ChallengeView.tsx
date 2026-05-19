@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { BracketFill } from '../bracket/BracketFill';
 import {
@@ -6,14 +6,16 @@ import {
   getChallenge,
   getChallengeLeaderboard,
   type ChallengeSummary,
+  type LeaderboardColumn,
   type LeaderboardEntry,
 } from '../../utils/api';
 import { formatDeadlineEst } from '../../utils/est';
 
+import { ChallengeLeaderboard } from './ChallengeLeaderboard';
 import { CopyJoinCode } from './CopyJoinCode';
 import './ChallengeView.css';
 
-export type ChallengeTab = 'fill' | 'bracket' | 'leaderboard' | 'settings';
+export type ChallengeTab = 'bracket' | 'leaderboard' | 'settings';
 
 type Props = {
   challengeId: number;
@@ -31,9 +33,10 @@ export function ChallengeView({
   onSubmitted,
 }: Props) {
   const [challenge, setChallenge] = useState<ChallengeSummary | null>(null);
+  const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loadErr, setLoadErr] = useState('');
-  const [tab, setTab] = useState<ChallengeTab>(initialTab ?? 'fill');
+  const [tab, setTab] = useState<ChallengeTab>(initialTab ?? 'bracket');
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -43,6 +46,7 @@ export function ChallengeView({
         getChallengeLeaderboard(challengeId),
       ]);
       setChallenge(c);
+      setColumns(board.columns);
       setEntries(board.entries);
     } catch (e) {
       setLoadErr(
@@ -54,20 +58,6 @@ export function ChallengeView({
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  const activeTab = useMemo((): ChallengeTab => {
-    if (!challenge) return tab;
-    if (challenge.is_submitted || challenge.deadline_passed) {
-      if (tab === 'fill') return 'bracket';
-    }
-    if (!challenge.can_edit_picks && tab === 'fill') return 'bracket';
-    return tab;
-  }, [challenge, tab]);
-
-  const showFillTab =
-    challenge != null &&
-    challenge.can_edit_picks &&
-    !challenge.is_submitted;
 
   function handleSubmitted() {
     void reload();
@@ -89,6 +79,11 @@ export function ChallengeView({
   if (!challenge) {
     return <p className="challenge-view__muted">Loading…</p>;
   }
+
+  const canEdit =
+    challenge.can_edit_picks &&
+    !challenge.is_submitted &&
+    !challenge.deadline_passed;
 
   return (
     <div className="challenge-view">
@@ -114,56 +109,43 @@ export function ChallengeView({
             </span>
           )}
           <div>
-          <h1>{challenge.name}</h1>
-          <p className="challenge-view__meta">{challenge.bracket_name}</p>
-          {challenge.submission_deadline ? (
-            <p className="challenge-view__deadline">
-              Submit by{' '}
-              <strong>{formatDeadlineEst(challenge.submission_deadline)}</strong>
-            </p>
-          ) : null}
-          {challenge.deadline_passed ? (
-            <p className="challenge-view__status challenge-view__status--closed">
-              Submissions closed
-            </p>
-          ) : challenge.is_submitted ? (
-            <p className="challenge-view__status challenge-view__status--ok">
-              Bracket submitted
-            </p>
-          ) : null}
+            <h1>{challenge.name}</h1>
+            <p className="challenge-view__meta">{challenge.bracket_name}</p>
+            {challenge.submission_deadline ? (
+              <p className="challenge-view__deadline">
+                Submit by{' '}
+                <strong>{formatDeadlineEst(challenge.submission_deadline)}</strong>
+              </p>
+            ) : null}
+            {challenge.deadline_passed ? (
+              <p className="challenge-view__status challenge-view__status--closed">
+                Submissions closed
+              </p>
+            ) : challenge.is_submitted ? (
+              <p className="challenge-view__status challenge-view__status--ok">
+                Bracket submitted
+              </p>
+            ) : null}
           </div>
         </div>
       </header>
 
       <nav className="challenge-view__tabs" aria-label="Challenge sections">
-        {showFillTab ? (
-          <button
-            type="button"
-            className={
-              activeTab === 'fill'
-                ? 'challenge-view__tab challenge-view__tab--active'
-                : 'challenge-view__tab'
-            }
-            onClick={() => setTab('fill')}
-          >
-            Fill bracket
-          </button>
-        ) : null}
         <button
           type="button"
           className={
-            activeTab === 'bracket'
+            tab === 'bracket'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
           onClick={() => setTab('bracket')}
         >
-          My bracket
+          My Bracket
         </button>
         <button
           type="button"
           className={
-            activeTab === 'leaderboard'
+            tab === 'leaderboard'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
@@ -174,7 +156,7 @@ export function ChallengeView({
         <button
           type="button"
           className={
-            activeTab === 'settings'
+            tab === 'settings'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
@@ -184,53 +166,22 @@ export function ChallengeView({
         </button>
       </nav>
 
-      {activeTab === 'fill' && showFillTab ? (
+      {tab === 'bracket' ? (
         <BracketFill
           userBracketId={userBracketId}
-          readOnly={false}
-          showSubmit
+          readOnly={!canEdit}
+          showSubmit={canEdit}
           onSubmitted={handleSubmitted}
         />
       ) : null}
 
-      {activeTab === 'bracket' ? (
-        <BracketFill userBracketId={userBracketId} readOnly />
-      ) : null}
-
-      {activeTab === 'leaderboard' ? (
+      {tab === 'leaderboard' ? (
         <section className="card challenge-view__board">
-          {entries.length === 0 ? (
-            <p className="challenge-view__muted">No entries yet.</p>
-          ) : (
-            <table className="challenge-view__table">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Player</th>
-                  <th scope="col">Score</th>
-                  <th scope="col">Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((row, i) => (
-                  <tr key={row.user_bracket_id}>
-                    <td>{i + 1}</td>
-                    <td>{row.username}</td>
-                    <td>{row.score != null ? row.score : '—'}</td>
-                    <td>
-                      {row.submitted_at
-                        ? formatDeadlineEst(row.submitted_at)
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <ChallengeLeaderboard columns={columns} entries={entries} />
         </section>
       ) : null}
 
-      {activeTab === 'settings' ? (
+      {tab === 'settings' ? (
         <section className="card challenge-view__settings">
           {challenge.is_private && challenge.join_code ? (
             <CopyJoinCode code={challenge.join_code} />

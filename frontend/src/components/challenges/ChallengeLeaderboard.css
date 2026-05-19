@@ -1,0 +1,58 @@
+.challenge-leaderboard {
+  overflow-x: auto;
+}
+
+.challenge-leaderboard__table {
+  min-width: 100%;
+}
+
+.challenge-leaderboard__table .is-num {
+  text-align: right;
+}
+
+.challenge-leaderboard__table .is-rank {
+  width: 2.5rem;
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-leaderboard__th-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.challenge-leaderboard__th-btn:hover,
+.challenge-leaderboard__th-btn:focus-visible {
+  color: var(--app-accent, #5782a8);
+  outline: none;
+}
+
+.challenge-leaderboard__th-btn--active {
+  color: var(--app-accent, #5782a8);
+  font-weight: 600;
+}
+
+.challenge-leaderboard__sort-icon {
+  font-size: 0.65rem;
+  opacity: 0.45;
+  line-height: 1;
+}
+
+.challenge-leaderboard__th-btn--active .challenge-leaderboard__sort-icon {
+  opacity: 1;
+}
+
+.challenge-leaderboard__table th.is-num .challenge-leaderboard__th-btn {
+  width: 100%;
+  justify-content: flex-end;
+}

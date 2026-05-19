@@ -39,20 +39,24 @@ function easternOffsetMs(utcMs: number): number {
   return sign * (hours * 60 + mins) * 60 * 1000;
 }
 
-/** Format an API ISO deadline for display in Eastern time. */
+/** Format an API ISO deadline for display in Eastern time (e.g. "Jun 15, 2026 at 11:59 PM EST"). */
 export function formatDeadlineEst(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', {
+  const datePart = new Intl.DateTimeFormat('en-US', {
     timeZone: EST_TIMEZONE,
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+  }).format(d);
+  const timePart = new Intl.DateTimeFormat('en-US', {
+    timeZone: EST_TIMEZONE,
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
   }).format(d);
+  return `${datePart} at ${timePart}`;
 }
 
 /** Build value for `<input type="datetime-local" />` from API ISO (Eastern). */

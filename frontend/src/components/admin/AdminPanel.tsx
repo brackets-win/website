@@ -15,10 +15,6 @@ export function AdminPanel({ tab, onTabChange }: Props) {
     <div className="admin-hub">
       <div className="admin-hub__intro card">
         <h2 className="admin-hub__title">Admin</h2>
-        <p className="admin-hub__lead">
-          Manage the contestant catalog and create brackets. Anyone signed in can
-          start a challenge from the home page.
-        </p>
         <nav className="admin-hub__tabs" aria-label="Admin sections">
           <button
             type="button"

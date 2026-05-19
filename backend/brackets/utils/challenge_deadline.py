@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -31,7 +31,7 @@ def parse_deadline_est(raw: str) -> datetime:
     parsed = datetime.fromisoformat(s.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=EASTERN)
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(dt_timezone.utc)
 
 
 def deadline_passed(challenge: BracketChallenge, *, now: datetime | None = None) -> bool:

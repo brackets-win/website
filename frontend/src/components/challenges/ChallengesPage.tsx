@@ -240,9 +240,6 @@ export function ChallengesPage({ onOpenChallenge }: Props) {
       <header className="challenges-page__hero">
         <div>
           <h1>My Challenges</h1>
-          <p className="challenges-page__lead">
-            Join a challenge, fill your bracket, and submit before the deadline.
-          </p>
         </div>
         <div className="challenges-page__actions">
           <button
@@ -415,8 +412,8 @@ export function ChallengesPage({ onOpenChallenge }: Props) {
                       <div>
                         <strong>{c.name}</strong>
                         <span className="challenge-card__meta">{c.bracket_name}</span>
-                        {c.submission_deadline ? (
-                          <span className="challenges-page__muted">
+                        {!c.is_submitted && c.submission_deadline ? (
+                          <span className="challenge-card__due">
                             Due {formatDeadlineEst(c.submission_deadline)}
                           </span>
                         ) : null}
@@ -458,43 +455,35 @@ export function ChallengesPage({ onOpenChallenge }: Props) {
       ) : !createOpen && !joinOpen ? (
         <ul className="challenge-list">
           {rows.map((c) => (
-            <li key={c.id} className="challenge-card card">
-              <div className="challenge-card__body">
-                <ChallengeThumb url={c.bracket_image_url} name={c.name} />
-                <div className="challenge-card__text">
-                <h2 className="challenge-card__name">{c.name}</h2>
-                <p className="challenge-card__meta">{c.bracket_name}</p>
-                {c.submission_deadline ? (
-                  <p className="challenges-page__muted">
-                    Due {formatDeadlineEst(c.submission_deadline)}
-                  </p>
-                ) : null}
-                {c.is_private ? (
-                  <span className="challenge-card__badge">Private</span>
-                ) : null}
-                {c.is_submitted ? (
-                  <span className="challenge-card__badge">Submitted</span>
-                ) : c.deadline_passed ? (
-                  <span className="challenge-card__badge">Closed</span>
-                ) : null}
+            <li key={c.id}>
+              <button
+                type="button"
+                className="challenge-card card challenge-card--clickable"
+                disabled={startBusyId === c.id}
+                aria-busy={startBusyId === c.id}
+                onClick={() => void openExisting(c)}
+              >
+                <div className="challenge-card__body">
+                  <ChallengeThumb url={c.bracket_image_url} name={c.name} />
+                  <div className="challenge-card__text">
+                    <h2 className="challenge-card__name">{c.name}</h2>
+                    <p className="challenge-card__meta">{c.bracket_name}</p>
+                    {!c.is_submitted && c.submission_deadline ? (
+                      <p className="challenge-card__due">
+                        Due {formatDeadlineEst(c.submission_deadline)}
+                      </p>
+                    ) : null}
+                    {c.is_private ? (
+                      <span className="challenge-card__badge">Private</span>
+                    ) : null}
+                    {c.is_submitted ? (
+                      <span className="challenge-card__badge">Submitted</span>
+                    ) : c.deadline_passed ? (
+                      <span className="challenge-card__badge">Closed</span>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div className="challenge-card__actions">
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  disabled={startBusyId === c.id}
-                  onClick={() => void openExisting(c)}
-                >
-                  {startBusyId === c.id
-                    ? 'Opening…'
-                    : c.is_submitted || c.deadline_passed
-                      ? 'View'
-                      : c.user_bracket_id != null
-                        ? 'Open'
-                        : 'Start'}
-                </button>
-              </div>
+              </button>
             </li>
           ))}
         </ul>

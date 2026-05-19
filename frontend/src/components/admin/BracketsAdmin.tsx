@@ -7,13 +7,24 @@ import {
   adminDeleteBracket,
   adminListContestants,
   adminUpdateBracket,
+  adminUpdateBracketStages,
   getBracket,
   listBrackets,
+  type BracketStageInfo,
   type BracketStructureType,
   type BracketSummary,
   type ContestantCatalog,
 } from '../../utils/api';
 
+import { AdminBackBar } from './AdminBackBar';
+import { BracketStageEditor } from './BracketStageEditor';
+import {
+  buildStructureConfig,
+  metadataToText,
+  parseMetadataJson,
+  stageToAdminPatch,
+} from './bracketAdminHelpers';
+import { AdminCatalogToolbar } from './AdminCatalogToolbar';
 import { IconPencil, IconTrash } from './AdminIcons';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import './admin-shared.css';
@@ -47,19 +58,38 @@ export function BracketsAdmin() {
   const [bN, setBN] = useState(8);
   const [bThird, setBThird] = useState(false);
   const [bRand, setBRand] = useState(false);
+  const [bShowSeeds, setBShowSeeds] = useState(true);
+  const [bMetadata, setBMetadata] = useState('');
+  const [bNumGroups, setBNumGroups] = useState('');
+  const [bMatchesPer, setBMatchesPer] = useState(3);
+  const [bQualify, setBQualify] = useState(2);
+  const [bPtWin, setBPtWin] = useState(3);
+  const [bPtTie, setBPtTie] = useState(1);
+  const [bPtLoss, setBPtLoss] = useState(0);
+  const [bTiesAllowed, setBTiesAllowed] = useState(true);
+  const [bGroupPickPts, setBGroupPickPts] = useState(1);
+  const [bGroupRandom, setBGroupRandom] = useState(false);
+  const [bKoLegs, setBKoLegs] = useState(1);
+  const [bKoET, setBKoET] = useState(true);
+  const [bKoPK, setBKoPK] = useState(true);
+  const [bKoPickPts, setBKoPickPts] = useState(1);
+  const [bKoRandom, setBKoRandom] = useState(false);
   const [bImage, setBImage] = useState<File | null>(null);
   const [bImagePreview, setBImagePreview] = useState<string | null>(null);
   const [assignRows, setAssignRows] = useState<AssignRow[]>(() =>
     buildAssignRows(8, []),
   );
   const [assignSearch, setAssignSearch] = useState('');
-  const [createMsg, setCreateMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(
+  const [view, setView] = useState<'list' | 'create' | 'edit' | 'master'>('list');
+  const [listSearch, setListSearch] = useState('');
+  const [pageMsg, setPageMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(
     null,
   );
   const [createBusy, setCreateBusy] = useState(false);
   const [fillMasterUbId, setFillMasterUbId] = useState<number | null>(null);
   const [fillBracketName, setFillBracketName] = useState('');
   const [editBracketId, setEditBracketId] = useState<number | null>(null);
+  const [editIdentifier, setEditIdentifier] = useState('');
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editImage, setEditImage] = useState<File | null>(null);
@@ -67,6 +97,20 @@ export function BracketsAdmin() {
   const [editExistingImageUrl, setEditExistingImageUrl] = useState<string | null>(
     null,
   );
+  const [editShowSeeds, setEditShowSeeds] = useState(true);
+  const [editRand, setEditRand] = useState(false);
+  const [editThird, setEditThird] = useState(false);
+  const [editMetadata, setEditMetadata] = useState('');
+  const [editStages, setEditStages] = useState<BracketStageInfo[]>([]);
+  const firstKnockoutStageId = useMemo(() => {
+    const ko = editStages
+      .filter(
+        (s) => s.stage_type === 'KNOCKOUT' && !s.knockout?.is_third_place,
+      )
+      .sort((a, b) => a.order - b.order);
+    return ko[0]?.id ?? null;
+  }, [editStages]);
+  const [editLoadBusy, setEditLoadBusy] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: number;
@@ -130,16 +174,44 @@ export function BracketsAdmin() {
     );
   }, [contestants, assignSearch]);
 
+  const filteredBrackets = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) return brackets;
+    return brackets.filter(
+      (b) =>
+        b.name.toLowerCase().includes(q) ||
+        b.identifier.toLowerCase().includes(q),
+    );
+  }, [brackets, listSearch]);
+
+  function goList() {
+    setView('list');
+    setEditBracketId(null);
+    setEditStages([]);
+    setFillMasterUbId(null);
+    setFillBracketName('');
+  }
+
+  function openCreate() {
+    setPageMsg(null);
+    setBIdentifier('');
+    setBName('');
+    setBDesc('');
+    setBImage(null);
+    setPageMsg(null);
+    setView('create');
+  }
+
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
-    setCreateMsg(null);
+    setPageMsg(null);
     const identifier = bIdentifier.trim();
     if (!identifier) {
-      setCreateMsg({ type: 'err', text: 'Identifier is required.' });
+      setPageMsg({ type: 'err', text: 'Identifier is required.' });
       return;
     }
     if (/\s/.test(identifier)) {
-      setCreateMsg({
+      setPageMsg({
         type: 'err',
         text: 'Identifier cannot contain spaces.',
       });
@@ -148,15 +220,15 @@ export function BracketsAdmin() {
 
     const name = bName.trim();
     if (!name) {
-      setCreateMsg({ type: 'err', text: 'Display name is required.' });
+      setPageMsg({ type: 'err', text: 'Display name is required.' });
       return;
     }
     if (!Number.isFinite(bN) || bN < 2) {
-      setCreateMsg({ type: 'err', text: 'Number of contestants must be at least 2.' });
+      setPageMsg({ type: 'err', text: 'Number of contestants must be at least 2.' });
       return;
     }
     if (structureKind === 'GROUP_KNOCKOUT' && bN % 4 !== 0) {
-      setCreateMsg({
+      setPageMsg({
         type: 'err',
         text: 'For group & knockout, use a multiple of 4 contestants.',
       });
@@ -171,49 +243,77 @@ export function BracketsAdmin() {
       if (!cid) continue;
       const contestant_id = parseInt(cid, 10);
       if (!Number.isFinite(contestant_id)) {
-        setCreateMsg({ type: 'err', text: 'Invalid contestant selection.' });
+        setPageMsg({ type: 'err', text: 'Invalid contestant selection.' });
         return;
       }
       if (seen.has(contestant_id)) {
-        setCreateMsg({ type: 'err', text: 'Each contestant can only appear once.' });
+        setPageMsg({ type: 'err', text: 'Each contestant can only appear once.' });
         return;
       }
       seen.add(contestant_id);
       const seedRaw = row.seed.trim();
       const seed = seedRaw === '' ? null : parseInt(seedRaw, 10);
       if (seedRaw !== '' && !Number.isFinite(seed)) {
-        setCreateMsg({ type: 'err', text: 'Seeds must be numbers.' });
+        setPageMsg({ type: 'err', text: 'Seeds must be numbers.' });
         return;
       }
       bracket_contestants.push({ contestant_id, seed });
     }
 
+    let metadata: unknown = null;
+    try {
+      metadata = parseMetadataJson(bMetadata);
+    } catch {
+      setPageMsg({ type: 'err', text: 'Metadata must be valid JSON.' });
+      return;
+    }
+
     setCreateBusy(true);
     try {
+      const structure_config = buildStructureConfig({
+        structureKind,
+        bNumGroups,
+        bMatchesPer,
+        bQualify,
+        bPtWin,
+        bPtTie,
+        bPtLoss,
+        bTiesAllowed,
+        bGroupPickPts,
+        bGroupRandom,
+        bKoLegs,
+        bKoET,
+        bKoPK,
+        bKoPickPts,
+        bKoRandom,
+      });
+
       const fd = new FormData();
       fd.append('structure', structureKind);
       fd.append('identifier', identifier);
       fd.append('name', name);
       if (bDesc.trim()) fd.append('description', bDesc.trim());
       fd.append('number_of_contestants', String(bN));
-      if (isSingleElim && bThird) fd.append('has_third_place', 'true');
-      if (bRand) fd.append('randomize_seeds_per_challenge', 'true');
+      if (bThird) fd.append('has_third_place', 'true');
+      fd.append('randomize_seeds_per_challenge', bRand ? 'true' : 'false');
+      fd.append('show_seeds', bShowSeeds ? 'true' : 'false');
+      if (metadata != null) {
+        fd.append('metadata', JSON.stringify(metadata));
+      }
+      fd.append('structure_config', JSON.stringify(structure_config));
       if (bracket_contestants.length > 0) {
         fd.append('bracket_contestants', JSON.stringify(bracket_contestants));
       }
       if (bImage) fd.append('image', bImage);
       const { bracket } = await adminCreateBracket(fd);
       setBrackets((prev) => [bracket, ...prev]);
-      setBIdentifier('');
-      setBName('');
-      setBDesc('');
-      setBImage(null);
-      setCreateMsg({
+      goList();
+      setPageMsg({
         type: 'ok',
         text: `Created bracket “${bracket.name}”.`,
       });
     } catch (err) {
-      setCreateMsg({
+      setPageMsg({
         type: 'err',
         text: err instanceof ApiError ? err.message : 'Could not create bracket.',
       });
@@ -222,24 +322,67 @@ export function BracketsAdmin() {
     }
   }
 
-  function startBracketEdit(b: BracketSummary) {
+  async function startBracketEdit(b: BracketSummary) {
+    setPageMsg(null);
+    setView('edit');
     setEditBracketId(b.id);
+    setEditIdentifier(b.identifier);
     setEditName(b.name);
     setEditDesc(b.description ?? '');
     setEditImage(null);
     setEditExistingImageUrl(b.image_url ?? null);
+    setEditShowSeeds(b.show_seeds !== false);
+    setEditRand(b.randomize_seeds_per_challenge);
+    setEditThird(b.has_third_place_match ?? false);
+    setEditMetadata(metadataToText(b.metadata));
+    setEditStages([]);
+    setEditLoadBusy(true);
+    try {
+      const { bracket } = await getBracket(b.id);
+      setEditShowSeeds(bracket.show_seeds !== false);
+      setEditRand(bracket.randomize_seeds_per_challenge);
+      setEditThird(bracket.has_third_place_match ?? false);
+      setEditMetadata(metadataToText(bracket.metadata));
+      setEditStages(
+        [...bracket.stages].sort((a, c) => a.order - c.order),
+      );
+    } catch (err) {
+      setPageMsg({
+        type: 'err',
+        text: err instanceof ApiError ? err.message : 'Could not load bracket.',
+      });
+    } finally {
+      setEditLoadBusy(false);
+    }
   }
 
   async function saveBracketEdit(e: React.FormEvent) {
     e.preventDefault();
     if (editBracketId == null) return;
+    let metadata: unknown = null;
+    try {
+      metadata = parseMetadataJson(editMetadata);
+    } catch {
+      setPageMsg({ type: 'err', text: 'Metadata must be valid JSON.' });
+      return;
+    }
+
     setEditBusy(true);
     try {
       const fd = new FormData();
       fd.append('name', editName.trim());
       fd.append('description', editDesc.trim());
+      fd.append('show_seeds', editShowSeeds ? 'true' : 'false');
+      fd.append('randomize_seeds_per_challenge', editRand ? 'true' : 'false');
+      fd.append('has_third_place_match', editThird ? 'true' : 'false');
+      fd.append('metadata', JSON.stringify(metadata));
       if (editImage) fd.append('image', editImage);
-      const { bracket } = await adminUpdateBracket(editBracketId, fd);
+      await adminUpdateBracket(editBracketId, fd);
+      const stageRes = await adminUpdateBracketStages(
+        editBracketId,
+        editStages.map(stageToAdminPatch),
+      );
+      const bracket = stageRes.bracket;
       setBrackets((prev) =>
         prev.map((r) =>
           r.id === bracket.id
@@ -248,15 +391,23 @@ export function BracketsAdmin() {
                 name: bracket.name,
                 description: bracket.description,
                 image_url: bracket.image_url,
+                show_seeds: bracket.show_seeds,
+                randomize_seeds_per_challenge: bracket.randomize_seeds_per_challenge,
+                has_third_place_match: bracket.has_third_place_match,
+                metadata: bracket.metadata,
+                challenge_count:
+                  r.challenge_count ?? bracket.challenge_count ?? 0,
               }
             : r,
         ),
       );
-      setEditBracketId(null);
-      setEditImage(null);
-      setEditExistingImageUrl(null);
+      goList();
+      setPageMsg({
+        type: 'ok',
+        text: `Saved “${bracket.name}”.`,
+      });
     } catch (err) {
-      setCreateMsg({
+      setPageMsg({
         type: 'err',
         text: err instanceof ApiError ? err.message : 'Could not save bracket.',
       });
@@ -271,17 +422,11 @@ export function BracketsAdmin() {
     try {
       await adminDeleteBracket(deleteTarget.id);
       setBrackets((prev) => prev.filter((b) => b.id !== deleteTarget.id));
-      if (editBracketId === deleteTarget.id) setEditBracketId(null);
-      if (fillMasterUbId != null) {
-        const gone = !brackets.some((b) => b.id === deleteTarget.id);
-        if (gone) {
-          setFillMasterUbId(null);
-          setFillBracketName('');
-        }
-      }
+      if (editBracketId === deleteTarget.id) goList();
       setDeleteTarget(null);
+      setPageMsg({ type: 'ok', text: 'Bracket deleted.' });
     } catch (err) {
-      setCreateMsg({
+      setPageMsg({
         type: 'err',
         text: err instanceof ApiError ? err.message : 'Could not delete bracket.',
       });
@@ -301,6 +446,7 @@ export function BracketsAdmin() {
       }
       setFillBracketName(b.name);
       setFillMasterUbId(masterId);
+      setView('master');
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Could not open master bracket.',
@@ -308,13 +454,13 @@ export function BracketsAdmin() {
     }
   }
 
-  return (
-    <div className="admin-page">
-      {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
-
-      <section className="card">
-        <header className="card__header">
-          <h2>Create bracket</h2>
+  if (view === 'create') {
+    return (
+      <div className="admin-page">
+        <AdminBackBar label="Brackets" onBack={goList} />
+        <section className="card">
+          <header className="card__header">
+            <h2>Create Bracket</h2>
           <p>
             Identifier is unique and has no spaces. Display name is what players
             see. Players join via challenges on the home page.
@@ -322,16 +468,16 @@ export function BracketsAdmin() {
         </header>
         <div className="card__body">
           <form onSubmit={onCreate}>
-            {createMsg ? (
+            {pageMsg ? (
               <div
-                className={`alert alert--${createMsg.type === 'ok' ? 'success' : 'error'}`}
+                className={`alert alert--${pageMsg.type === 'ok' ? 'success' : 'error'}`}
               >
-                {createMsg.text}
+                {pageMsg.text}
               </div>
             ) : null}
 
             <div className="field">
-              <label htmlFor="bracket-structure">Bracket type</label>
+              <label htmlFor="bracket-structure">Bracket Type</label>
               <select
                 id="bracket-structure"
                 className="select"
@@ -366,7 +512,7 @@ export function BracketsAdmin() {
 
             <div className="form-grid form-grid--2">
               <div className="field">
-                <label htmlFor="bracket-name">Display name</label>
+                <label htmlFor="bracket-name">Display Name</label>
                 <input
                   id="bracket-name"
                   className="input"
@@ -378,7 +524,7 @@ export function BracketsAdmin() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="bracket-n">Number of contestants</label>
+                <label htmlFor="bracket-n">Number of Contestants</label>
                 <input
                   id="bracket-n"
                   className="input"
@@ -424,7 +570,7 @@ export function BracketsAdmin() {
               ) : null}
             </div>
 
-            {isSingleElim ? (
+            {isSingleElim || structureKind === 'GROUP_KNOCKOUT' ? (
               <label className="checkbox-row">
                 <input
                   type="checkbox"
@@ -432,7 +578,7 @@ export function BracketsAdmin() {
                   onChange={(e) => setBThird(e.target.checked)}
                   disabled={createBusy}
                 />
-                Third-place match
+                Third-place match (semifinal losers)
               </label>
             ) : null}
             <label className="checkbox-row">
@@ -444,6 +590,217 @@ export function BracketsAdmin() {
               />
               Randomize seeds for each challenge
             </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={bShowSeeds}
+                onChange={(e) => setBShowSeeds(e.target.checked)}
+                disabled={createBusy}
+              />
+              Show seed numbers in the bracket
+            </label>
+
+            <div className="field">
+              <label htmlFor="bracket-metadata">Bracket metadata (JSON)</label>
+              <textarea
+                id="bracket-metadata"
+                className="textarea textarea--mono"
+                rows={4}
+                value={bMetadata}
+                onChange={(e) => setBMetadata(e.target.value)}
+                disabled={createBusy}
+                placeholder={'{\n  "tournament_type": "world_cup_2026"\n}'}
+                spellCheck={false}
+              />
+            </div>
+
+            <details className="admin-details">
+              <summary>Structure &amp; scoring defaults</summary>
+              <div className="admin-details__body">
+                {!isSingleElim ? (
+                  <>
+                    <p className="admin-details__subtitle">Group stage</p>
+                    <div className="form-grid form-grid--2">
+                      <div className="field">
+                        <label htmlFor="b-num-groups">Number of groups</label>
+                        <input
+                          id="b-num-groups"
+                          className="input"
+                          type="number"
+                          min={1}
+                          placeholder={`Auto (${Math.floor(bN / 4) || '—'})`}
+                          value={bNumGroups}
+                          onChange={(e) => setBNumGroups(e.target.value)}
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-qualify">Qualifiers per group</label>
+                        <input
+                          id="b-qualify"
+                          className="input"
+                          type="number"
+                          min={1}
+                          value={bQualify}
+                          onChange={(e) =>
+                            setBQualify(parseInt(e.target.value, 10) || 1)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-matches">Matches per team</label>
+                        <input
+                          id="b-matches"
+                          className="input"
+                          type="number"
+                          min={1}
+                          value={bMatchesPer}
+                          onChange={(e) =>
+                            setBMatchesPer(parseInt(e.target.value, 10) || 1)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-group-pick-pts">Points per correct pick</label>
+                        <input
+                          id="b-group-pick-pts"
+                          className="input"
+                          type="number"
+                          min={1}
+                          value={bGroupPickPts}
+                          onChange={(e) =>
+                            setBGroupPickPts(parseInt(e.target.value, 10) || 1)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                    </div>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={bTiesAllowed}
+                        onChange={(e) => setBTiesAllowed(e.target.checked)}
+                        disabled={createBusy}
+                      />
+                      Ties allowed in groups
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={bGroupRandom}
+                        onChange={(e) => setBGroupRandom(e.target.checked)}
+                        disabled={createBusy}
+                      />
+                      Random draw for group stage
+                    </label>
+                    <div className="form-grid form-grid--3">
+                      <div className="field">
+                        <label htmlFor="b-pt-win">Points per win</label>
+                        <input
+                          id="b-pt-win"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={bPtWin}
+                          onChange={(e) =>
+                            setBPtWin(parseInt(e.target.value, 10) || 0)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-pt-tie">Points per tie</label>
+                        <input
+                          id="b-pt-tie"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={bPtTie}
+                          onChange={(e) =>
+                            setBPtTie(parseInt(e.target.value, 10) || 0)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-pt-loss">Points per loss</label>
+                        <input
+                          id="b-pt-loss"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={bPtLoss}
+                          onChange={(e) =>
+                            setBPtLoss(parseInt(e.target.value, 10) || 0)
+                          }
+                          disabled={createBusy}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                <p className="admin-details__subtitle">Knockout rounds</p>
+                <div className="form-grid form-grid--2">
+                  <div className="field">
+                    <label htmlFor="b-ko-legs">Legs per matchup</label>
+                    <input
+                      id="b-ko-legs"
+                      className="input"
+                      type="number"
+                      min={1}
+                      value={bKoLegs}
+                      onChange={(e) =>
+                        setBKoLegs(parseInt(e.target.value, 10) || 1)
+                      }
+                      disabled={createBusy}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="b-ko-pick-pts">Points per correct pick</label>
+                    <input
+                      id="b-ko-pick-pts"
+                      className="input"
+                      type="number"
+                      min={1}
+                      value={bKoPickPts}
+                      onChange={(e) =>
+                        setBKoPickPts(parseInt(e.target.value, 10) || 1)
+                      }
+                      disabled={createBusy}
+                    />
+                  </div>
+                </div>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bKoET}
+                    onChange={(e) => setBKoET(e.target.checked)}
+                    disabled={createBusy}
+                  />
+                  Extra time in knockout
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bKoPK}
+                    onChange={(e) => setBKoPK(e.target.checked)}
+                    disabled={createBusy}
+                  />
+                  Penalty shootout in knockout
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bKoRandom}
+                    onChange={(e) => setBKoRandom(e.target.checked)}
+                    disabled={createBusy}
+                  />
+                  Random draw for knockout
+                </label>
+              </div>
+            </details>
 
             <div className="assign-section">
               <div className="assign-section__head">
@@ -514,108 +871,64 @@ export function BracketsAdmin() {
               disabled={createBusy}
               style={{ marginTop: '1rem' }}
             >
-              {createBusy ? 'Creating…' : 'Create bracket'}
+              {createBusy ? 'Creating…' : 'Create Bracket'}
             </button>
           </form>
         </div>
       </section>
+      </div>
+    );
+  }
 
-      {fillMasterUbId != null ? (
+  if (view === 'master' && fillMasterUbId != null) {
+    return (
+      <div className="admin-page">
+        <AdminBackBar label="Brackets" onBack={goList} />
         <section className="card">
           <header className="card__header">
             <h2>Master bracket — {fillBracketName}</h2>
             <p>Official results used for scoring after the deadline.</p>
           </header>
           <div className="card__body">
-            <button
-              type="button"
-              className="btn btn--ghost"
-              style={{ marginBottom: '1rem' }}
-              onClick={() => {
-                setFillMasterUbId(null);
-                setFillBracketName('');
-              }}
-            >
-              ← Back to brackets
-            </button>
             <BracketFill userBracketId={fillMasterUbId} allowMasterEdit />
           </div>
         </section>
-      ) : null}
+      </div>
+    );
+  }
 
-      {brackets.length > 0 && fillMasterUbId == null ? (
+  if (view === 'edit' && editBracketId != null) {
+    return (
+      <div className="admin-page">
+        <AdminBackBar label="Brackets" onBack={goList} />
         <section className="card">
           <header className="card__header">
-            <h2>Brackets</h2>
-          </header>
-          <div className="card__body" style={{ paddingTop: 0 }}>
-            <ul className="catalog-list">
-              {brackets.map((b) => (
-                <li key={b.id} className="catalog-list__row catalog-shelf__row">
-                  <div className="catalog-shelf__main">
-                    {b.image_url ? (
-                      <img
-                        className="catalog-list__avatar"
-                        src={b.image_url}
-                        alt=""
-                      />
-                    ) : (
-                      <span className="catalog-list__avatar catalog-list__avatar--ph">
-                        {b.name.charAt(0)}
-                      </span>
-                    )}
-                    <span className="catalog-list__main">
-                      <span className="catalog-list__name">{b.name}</span>
-                      <span className="catalog-list__id">{b.identifier}</span>
-                    </span>
-                  </div>
-                  <div className="catalog-shelf__actions">
-                    <button
-                      type="button"
-                      className="btn-icon"
-                      title="Edit"
-                      aria-label={`Edit ${b.name}`}
-                      onClick={() => startBracketEdit(b)}
-                    >
-                      <IconPencil />
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-icon btn-icon--bracket"
-                      title="Fill master"
-                      aria-label={`Fill master bracket for ${b.name}`}
-                      onClick={() => void openMasterFill(b)}
-                    >
-                      {'}'} {'{'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-icon btn-icon--danger"
-                      title="Delete"
-                      aria-label={`Delete ${b.name}`}
-                      onClick={() =>
-                        setDeleteTarget({ id: b.id, label: b.name })
-                      }
-                    >
-                      <IconTrash />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      ) : null}
-
-      {editBracketId != null ? (
-        <section className="card">
-          <header className="card__header">
-            <h2>Edit bracket</h2>
+            <h2>Edit Bracket</h2>
           </header>
           <div className="card__body">
+            {editLoadBusy ? (
+              <p className="field__hint">Loading bracket settings…</p>
+            ) : null}
             <form onSubmit={saveBracketEdit}>
+              {pageMsg ? (
+                <div
+                  className={`alert alert--${pageMsg.type === 'ok' ? 'success' : 'error'}`}
+                >
+                  {pageMsg.text}
+                </div>
+              ) : null}
               <div className="field">
-                <label htmlFor="edit-bracket-name">Display name</label>
+                <label htmlFor="edit-bracket-identifier">Identifier</label>
+                <input
+                  id="edit-bracket-identifier"
+                  className="input"
+                  value={editIdentifier}
+                  readOnly
+                  disabled
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="edit-bracket-name">Display Name</label>
                 <input
                   id="edit-bracket-name"
                   className="input"
@@ -655,30 +968,185 @@ export function BracketsAdmin() {
                   </div>
                 ) : null}
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="submit" className="btn btn--primary" disabled={editBusy}>
-                  {editBusy ? 'Saving…' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  onClick={() => setEditBracketId(null)}
-                  disabled={editBusy}
-                >
-                  Cancel
-                </button>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={editShowSeeds}
+                  onChange={(e) => setEditShowSeeds(e.target.checked)}
+                  disabled={editBusy || editLoadBusy}
+                />
+                Show seed numbers in the bracket
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={editRand}
+                  onChange={(e) => setEditRand(e.target.checked)}
+                  disabled={editBusy || editLoadBusy}
+                />
+                Randomize seeds for each challenge
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={editThird}
+                  onChange={(e) => setEditThird(e.target.checked)}
+                  disabled={editBusy || editLoadBusy}
+                />
+                Third-place match (adds a knockout stage after the final when creating)
+              </label>
+              <div className="field">
+                <label htmlFor="edit-bracket-metadata">Bracket metadata (JSON)</label>
+                <textarea
+                  id="edit-bracket-metadata"
+                  className="textarea textarea--mono"
+                  rows={5}
+                  value={editMetadata}
+                  onChange={(e) => setEditMetadata(e.target.value)}
+                  disabled={editBusy || editLoadBusy}
+                  spellCheck={false}
+                />
               </div>
+              {editStages.length > 0 ? (
+                <div className="stage-editor-list">
+                  <h3 className="assign-section__title">Stages</h3>
+                  {editStages.map((stage) => (
+                    <BracketStageEditor
+                      key={stage.id}
+                      stage={stage}
+                      isFirstKnockout={stage.id === firstKnockoutStageId}
+                      disabled={editBusy || editLoadBusy}
+                      onChange={(next) =>
+                        setEditStages((rows) =>
+                          rows.map((r) => (r.id === next.id ? next : r)),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={editBusy || editLoadBusy}
+                style={{ marginTop: '1rem' }}
+              >
+                {editBusy ? 'Saving…' : 'Save Changes'}
+              </button>
             </form>
           </div>
         </section>
-      ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-page">
+      {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
+
+      <section className="card catalog-card">
+        <AdminCatalogToolbar
+          title="Brackets"
+          countLabel={
+            filteredBrackets.length === brackets.length
+              ? `${brackets.length} in catalog`
+              : `${filteredBrackets.length} of ${brackets.length} in catalog`
+          }
+          search={listSearch}
+          onSearchChange={setListSearch}
+          searchLabel="Search brackets"
+          createLabel="Create Bracket"
+          onCreate={openCreate}
+        />
+        <div className="card__body catalog-card__body">
+          {pageMsg ? (
+            <div
+              className={`alert alert--${pageMsg.type === 'ok' ? 'success' : 'error'}`}
+              role="status"
+            >
+              {pageMsg.text}
+            </div>
+          ) : null}
+          {filteredBrackets.length === 0 && !loadErr ? (
+            <p className="empty-state empty-state--compact">
+              <strong>
+                {brackets.length === 0 ? 'No brackets yet' : 'No matches'}
+              </strong>
+              {brackets.length === 0
+                ? 'Create a bracket to run challenges.'
+                : 'Try a different search.'}
+            </p>
+          ) : (
+            <ul className="catalog-list">
+              {filteredBrackets.map((b) => {
+                const canDelete = (b.challenge_count ?? 0) === 0;
+                return (
+                <li key={b.id} className="catalog-list__row catalog-shelf__row">
+                  <div className="catalog-shelf__main">
+                    {b.image_url ? (
+                      <img
+                        className="catalog-list__avatar"
+                        src={b.image_url}
+                        alt=""
+                      />
+                    ) : (
+                      <span className="catalog-list__avatar catalog-list__avatar--ph">
+                        {b.name.charAt(0)}
+                      </span>
+                    )}
+                    <span className="catalog-list__main">
+                      <span className="catalog-list__name">{b.name}</span>
+                      <span className="catalog-list__id">{b.identifier}</span>
+                    </span>
+                  </div>
+                  <div className="catalog-shelf__actions">
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      title="Edit"
+                      aria-label={`Edit ${b.name}`}
+                      onClick={() => void startBracketEdit(b)}
+                    >
+                      <IconPencil />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-icon btn-icon--bracket"
+                      title="Fill Master"
+                      aria-label={`Fill master bracket for ${b.name}`}
+                      onClick={() => void openMasterFill(b)}
+                    >
+                      {'}'} {'{'}
+                    </button>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        className="btn-icon btn-icon--danger"
+                        title="Delete"
+                        aria-label={`Delete ${b.name}`}
+                        onClick={() =>
+                          setDeleteTarget({ id: b.id, label: b.name })
+                        }
+                      >
+                        <IconTrash />
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+
 
       <DeleteConfirmDialog
         open={deleteTarget != null}
         title="Delete bracket?"
         message={
           deleteTarget
-            ? `“${deleteTarget.label}” and all related challenges will be removed.`
+            ? `“${deleteTarget.label}” will be permanently removed.`
             : ''
         }
         busy={deleteBusy}

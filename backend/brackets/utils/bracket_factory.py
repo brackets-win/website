@@ -6,7 +6,14 @@ Create ``Bracket`` rows with stages from a structure key (no ``BracketTemplate``
 
 from __future__ import annotations
 
+from typing import Any
+
 from brackets.models import Bracket, GroupStage, KnockoutStage
+from brackets.utils.bracket_structure_config import (
+    resolved_group_stage_options,
+    resolved_knockout_defaults,
+)
+from brackets.utils.third_place_structure import sync_third_place_structure
 
 VALID_STRUCTURE_TYPES = frozenset({"GROUP_KNOCKOUT", "SINGLE_ELIM"})
 
@@ -19,6 +26,10 @@ def create_bracket_with_structure(
     created_by,
     *,
     has_third_place: bool = False,
+    show_seeds: bool = True,
+    metadata: dict[str, Any] | None = None,
+    randomize_seeds_per_challenge: bool = False,
+    structure_config: dict[str, Any] | None = None,
 ) -> Bracket:
     """
     Build a bracket and all stages for ``template_type`` (same values as
@@ -33,14 +44,21 @@ def create_bracket_with_structure(
         identifier=bracket_identifier,
         name=bracket_name,
         created_by=created_by,
-        has_third_place_match=(
-            has_third_place if template_type == "SINGLE_ELIM" else False
-        ),
+        has_third_place_match=has_third_place,
+        show_seeds=show_seeds,
+        metadata=metadata,
+        randomize_seeds_per_challenge=randomize_seeds_per_challenge,
     )
 
+    ko_defaults = resolved_knockout_defaults(structure_config)
+
     if template_type == "GROUP_KNOCKOUT":
-        num_groups = number_of_contestants // 4
-        contestants_advancing = num_groups * 2
+        gs_opts = resolved_group_stage_options(
+            number_of_contestants, structure_config
+        )
+        contestants_advancing = gs_opts.pop("contestants_advancing")
+        gs_metadata = gs_opts.pop("metadata", None)
+        gs_random = gs_opts.pop("is_random_draw")
 
         GroupStage.objects.create(
             bracket=bracket,
@@ -49,14 +67,9 @@ def create_bracket_with_structure(
             stage_type="GROUP",
             number_of_contestants=number_of_contestants,
             contestants_advancing=contestants_advancing,
-            number_of_groups=num_groups,
-            matches_per_contestant=3,
-            contestants_qualifying_per_group=2,
-            points_per_win=3,
-            points_per_tie=1,
-            points_per_loss=0,
-            ties_allowed=True,
-            points_per_correct_pick=1,
+            is_random_draw=gs_random,
+            metadata=gs_metadata,
+            **gs_opts,
         )
 
         current_contestants = contestants_advancing
@@ -84,11 +97,8 @@ def create_bracket_with_structure(
                 stage_type="KNOCKOUT",
                 number_of_contestants=current_contestants,
                 contestants_advancing=None if is_final else current_contestants // 2,
-                number_of_legs=1,
-                has_extra_time=True,
-                has_penalty_shootout=True,
                 is_final=is_final,
-                points_per_correct_pick=1,
+                **ko_defaults,
             )
 
             current_contestants //= 2
@@ -120,30 +130,14 @@ def create_bracket_with_structure(
                 stage_type="KNOCKOUT",
                 number_of_contestants=current_contestants,
                 contestants_advancing=None if is_final else current_contestants // 2,
-                number_of_legs=1,
-                has_extra_time=True,
-                has_penalty_shootout=True,
                 is_final=is_final,
-                points_per_correct_pick=1,
+                **ko_defaults,
             )
 
             current_contestants //= 2
             order += 1
 
-        if has_third_place:
-            KnockoutStage.objects.create(
-                bracket=bracket,
-                name="Third place",
-                order=order,
-                stage_type="KNOCKOUT",
-                number_of_contestants=2,
-                contestants_advancing=1,
-                number_of_legs=1,
-                has_extra_time=True,
-                has_penalty_shootout=True,
-                is_final=False,
-                is_third_place=True,
-                points_per_correct_pick=1,
-            )
+    if has_third_place:
+        sync_third_place_structure(bracket)
 
     return bracket

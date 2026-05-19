@@ -9,7 +9,10 @@ from django.db import transaction
 from brackets.api.serializers import bracket_groups_preview
 from brackets.models import BracketContestant, BracketStage, Matchup, UserBracket
 from brackets.utils.fwc26_regulations import teams_to_bit_vector
-from brackets.utils.group_knockout_mapping import generate_default_group_knockout_mapping
+from brackets.utils.group_knockout_fill import (
+    load_knockout_mapping,
+    uses_wc_third_place_table,
+)
 from brackets.utils.knockout_rebuild import rebuild_knockout_from_first_round
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 
@@ -49,27 +52,6 @@ def _get_first_knockout_stage(bracket):
         .order_by("order")
         .first()
     )
-
-
-def _load_knockout_mapping(bracket, knockout_stage) -> list[tuple[int, str, str]]:
-    if knockout_stage.metadata and "group_knockout_mapping" in knockout_stage.metadata:
-        mapping_data = knockout_stage.metadata["group_knockout_mapping"]
-        out: list[tuple[int, str, str]] = []
-        for pos_str, teams in mapping_data.items():
-            out.append((int(pos_str), teams["team_a"], teams["team_b"]))
-        return sorted(out, key=lambda x: x[0])
-
-    group_stage = (
-        bracket.stages.filter(stage_type=BracketStage.StageType.GROUP)
-        .order_by("order")
-        .first()
-    )
-    if group_stage is None:
-        return []
-    from brackets.models import GroupStage
-
-    gs = GroupStage.objects.get(pk=group_stage.pk)
-    return generate_default_group_knockout_mapping(gs.number_of_groups)
 
 
 def _placement_map(
@@ -183,7 +165,11 @@ def _resolve_position_code(
 
 
 @transaction.atomic
-def sync_first_knockout_from_group_picks(user_bracket: UserBracket) -> int:
+def sync_first_knockout_from_group_picks(
+    user_bracket: UserBracket,
+    *,
+    ensure_shell: bool = True,
+) -> int:
     """
     Update first knockout round contestants from ``group_positions`` metadata.
 
@@ -197,18 +183,19 @@ def sync_first_knockout_from_group_picks(user_bracket: UserBracket) -> int:
     if first_ko is None:
         return 0
 
-    ensure_knockout_matchup_shell(user_bracket)
+    if ensure_shell:
+        ensure_knockout_matchup_shell(user_bracket)
 
     metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
     placements = _placement_map(bracket, metadata)
     if not placements:
         return 0
 
-    mapping = _load_knockout_mapping(bracket, first_ko)
+    mapping = load_knockout_mapping(bracket, first_ko)
     if not mapping:
         return 0
 
-    is_wc = (bracket.metadata or {}).get("tournament_type") == "world_cup_2026"
+    is_wc = uses_wc_third_place_table(bracket, first_ko)
     wc_pairings: dict[str, str] | None = None
     if is_wc:
         third_codes = _third_place_group_codes(metadata, placements)
@@ -265,6 +252,9 @@ def sync_first_knockout_from_group_picks(user_bracket: UserBracket) -> int:
         updated += 1
 
     if updated:
+        from brackets.utils.fwc26_knockout_wiring import wire_fwc26_knockout_sources
+
+        wire_fwc26_knockout_sources(user_bracket)
         rebuild_knockout_from_first_round(user_bracket)
 
     return updated
