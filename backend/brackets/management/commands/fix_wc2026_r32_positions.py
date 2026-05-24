@@ -26,17 +26,19 @@ class Command(BaseCommand):
         except Bracket.DoesNotExist as exc:
             raise CommandError(f"No bracket with identifier {ident!r}") from exc
 
-        n = fix_fwc26_r32_tree_positions(bracket)
-        if n:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Repositioned R32 for {n} user bracket(s) on {ident}."
-                )
-            )
-        else:
+        result = fix_fwc26_r32_tree_positions(bracket)
+        if not isinstance(result, tuple):
             self.stdout.write(
                 self.style.NOTICE(
-                    f"No R32 repositioning needed for {ident} "
-                    "(already on tree slots or not a WC 2026 bracket)."
+                    f"Skipped {ident} (not a WC 2026 bracket or no R32 stage)."
                 )
             )
+            return
+        repositioned, resynced = result
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Applied FIFA R32 mapping on {ident}: "
+                f"repositioned {repositioned} user bracket(s), "
+                f"re-synced group picks on {resynced} user bracket(s)."
+            )
+        )

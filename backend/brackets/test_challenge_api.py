@@ -4,7 +4,13 @@ import json
 
 from django.test import Client, TestCase
 
-from brackets.models import BracketChallenge, ChallengeParticipant, User, UserBracket
+from brackets.models import (
+    BracketChallenge,
+    BracketContestant,
+    ChallengeParticipant,
+    User,
+    UserBracket,
+)
 from brackets.utils.bracket_factory import create_bracket_with_structure
 
 
@@ -20,6 +26,10 @@ class ChallengeJoinApiTests(TestCase):
             4,
             self.creator,
         )
+        for i in range(4):
+            BracketContestant.objects.create(
+                bracket=self.bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
         self.challenge = BracketChallenge.objects.create(
             name="Office pool",
             bracket=self.bracket,
@@ -31,7 +41,7 @@ class ChallengeJoinApiTests(TestCase):
         self.client.force_login(user)
         return self.client.post(
             "/brackets/api/challenges/join",
-            data=json.dumps({"join_code": code}),
+            data=json.dumps({"join_code": code, "display_name": "Guest Player"}),
             content_type="application/json",
         )
 
@@ -58,7 +68,9 @@ class ChallengeJoinApiTests(TestCase):
     def test_join_requires_auth(self):
         res = self.client.post(
             "/brackets/api/challenges/join",
-            data=json.dumps({"join_code": "POOL2026"}),
+            data=json.dumps(
+                {"join_code": "POOL2026", "display_name": "Guest"}
+            ),
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 401)
@@ -77,4 +89,25 @@ class ChallengeJoinApiTests(TestCase):
                 challenge=self.challenge, user=self.joiner
             ).count(),
             1,
+        )
+
+    def test_creator_can_delete_challenge(self):
+        self.client.force_login(self.creator)
+        res = self.client.delete(
+            f"/brackets/api/challenges/{self.challenge.id}"
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(
+            BracketChallenge.objects.filter(pk=self.challenge.pk).exists()
+        )
+
+    def test_non_creator_cannot_delete_challenge(self):
+        self._post_join(self.joiner, "POOL2026")
+        self.client.force_login(self.joiner)
+        res = self.client.delete(
+            f"/brackets/api/challenges/{self.challenge.id}"
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertTrue(
+            BracketChallenge.objects.filter(pk=self.challenge.pk).exists()
         )

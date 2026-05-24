@@ -11,10 +11,19 @@ export function contestantsQualifyingPerGroup(
  * Extra knockout spots filled from group also-rans (e.g. 8 best third-place teams).
  * Derived from ``contestants_advancing`` minus direct qualifiers.
  */
-export function thirdPlaceAdvanceCount(stage: BracketStageInfo): number {
+/** Third-place pool size from the first knockout stage field size when set. */
+export function thirdPlaceAdvanceCount(
+  stage: BracketStageInfo,
+  opts?: { firstKnockoutContestants?: number },
+): number {
   const g = stage.group;
-  if (!g || stage.contestants_advancing == null) return 0;
+  if (!g) return 0;
   const direct = g.number_of_groups * g.contestants_qualifying_per_group;
+  const koSize = opts?.firstKnockoutContestants;
+  if (koSize != null && koSize > direct) {
+    return koSize - direct;
+  }
+  if (stage.contestants_advancing == null) return 0;
   return Math.max(0, stage.contestants_advancing - direct);
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import type { LeaderboardColumn, LeaderboardEntry } from '../../utils/api';
+import { leaderboardRowClassName } from '../../utils/leaderboardRows';
 
 import './ChallengeLeaderboard.css';
 
@@ -14,6 +15,8 @@ type SortState = {
 type Props = {
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
+  viewerUsername?: string | null;
+  onSelectPlayer?: (userBracketId: number, displayName: string) => void;
 };
 
 function defaultDirection(key: SortKey): 'asc' | 'desc' {
@@ -27,7 +30,7 @@ function computeCompetitionRanks(
 ): Map<number, number> {
   const byScore = [...entries].sort((a, b) => {
     if (a.score == null && b.score == null) {
-      return a.username.localeCompare(b.username, undefined, {
+      return playerLabel(a).localeCompare(playerLabel(b), undefined, {
         sensitivity: 'base',
       });
     }
@@ -35,7 +38,7 @@ function computeCompetitionRanks(
     if (b.score == null) return -1;
     const diff = b.score - a.score;
     if (diff !== 0) return diff;
-    return a.username.localeCompare(b.username, undefined, {
+    return playerLabel(a).localeCompare(playerLabel(b), undefined, {
       sensitivity: 'base',
     });
   });
@@ -55,6 +58,10 @@ function computeCompetitionRanks(
     );
   }
   return ranks;
+}
+
+function playerLabel(entry: LeaderboardEntry): string {
+  return entry.display_name?.trim() || entry.username;
 }
 
 function compareWithNullsLast(
@@ -83,11 +90,14 @@ function compareEntries(
     const rankB = ranks.get(b.user_bracket_id) ?? Number.MAX_SAFE_INTEGER;
     result = rankA - rankB;
   } else if (key === 'player') {
-    result = a.username.localeCompare(b.username, undefined, {
+    result = playerLabel(a).localeCompare(playerLabel(b), undefined, {
       sensitivity: 'base',
     });
   } else if (key === 'total') {
     result = compareWithNullsLast(a.score, b.score, direction);
+    return result;
+  } else if (key === 'potential') {
+    result = compareWithNullsLast(a.potential, b.potential, direction);
     return result;
   } else {
     result = compareWithNullsLast(
@@ -112,7 +122,7 @@ function SortableHeader({
   sortKey: SortKey;
   sort: SortState;
   onSort: (key: SortKey) => void;
-  align?: 'left' | 'right';
+  align?: 'left' | 'center';
 }) {
   const active = sort.key === sortKey;
   const ariaSort = active
@@ -120,13 +130,15 @@ function SortableHeader({
       ? 'ascending'
       : 'descending'
     : 'none';
+  const thClass =
+    align === 'left'
+      ? 'is-player'
+      : align === 'center'
+        ? 'is-num'
+        : undefined;
 
   return (
-    <th
-      scope="col"
-      className={align === 'right' ? 'is-num' : undefined}
-      aria-sort={ariaSort}
-    >
+    <th scope="col" className={thClass} aria-sort={ariaSort}>
       <button
         type="button"
         className={
@@ -145,7 +157,12 @@ function SortableHeader({
   );
 }
 
-export function ChallengeLeaderboard({ columns, entries }: Props) {
+export function ChallengeLeaderboard({
+  columns,
+  entries,
+  viewerUsername = null,
+  onSelectPlayer,
+}: Props) {
   const [sort, setSort] = useState<SortState>({
     key: 'rank',
     direction: 'asc',
@@ -178,7 +195,7 @@ export function ChallengeLeaderboard({ columns, entries }: Props) {
       const rankA = ranks.get(a.user_bracket_id) ?? Number.MAX_SAFE_INTEGER;
       const rankB = ranks.get(b.user_bracket_id) ?? Number.MAX_SAFE_INTEGER;
       if (rankA !== rankB) return rankA - rankB;
-      return a.username.localeCompare(b.username, undefined, {
+      return playerLabel(a).localeCompare(playerLabel(b), undefined, {
         sensitivity: 'base',
       });
     });
@@ -199,53 +216,133 @@ export function ChallengeLeaderboard({ columns, entries }: Props) {
               sortKey="rank"
               sort={sort}
               onSort={onSort}
-              align="right"
+              align="center"
             />
             <SortableHeader
               label="Player"
               sortKey="player"
               sort={sort}
               onSort={onSort}
+              align="left"
             />
             <SortableHeader
               label="Total"
               sortKey="total"
               sort={sort}
               onSort={onSort}
-              align="right"
+              align="center"
             />
-            {columns.map((col) => (
-              <SortableHeader
-                key={col.key}
-                label={col.name}
-                sortKey={col.key}
-                sort={sort}
-                onSort={onSort}
-                align="right"
-              />
-            ))}
+            {columns.map((col) =>
+              col.key === 'top_four_picks' ? (
+                <th
+                  key={col.key}
+                  scope="col"
+                  className="is-num challenge-leaderboard__top-four-th"
+                >
+                  {col.name}
+                </th>
+              ) : (
+                <SortableHeader
+                  key={col.key}
+                  label={col.name}
+                  sortKey={col.key}
+                  sort={sort}
+                  onSort={onSort}
+                  align="center"
+                />
+              ),
+            )}
           </tr>
         </thead>
         <tbody>
-          {sortedEntries.map((row) => (
-            <tr key={row.user_bracket_id}>
+          {sortedEntries.map((row) => {
+            const rank = ranks.get(row.user_bracket_id);
+            const isViewer =
+              viewerUsername != null && row.username === viewerUsername;
+            return (
+            <tr
+              key={row.user_bracket_id}
+              className={leaderboardRowClassName(rank, isViewer)}
+            >
               <td className="is-rank is-num">
                 {ranks.get(row.user_bracket_id)}
               </td>
-              <td>{row.username}</td>
+              <td className="is-player">
+                {onSelectPlayer ? (
+                  <button
+                    type="button"
+                    className="challenge-leaderboard__player-btn"
+                    onClick={() =>
+                      onSelectPlayer(row.user_bracket_id, playerLabel(row))
+                    }
+                  >
+                    {playerLabel(row)}
+                  </button>
+                ) : (
+                  playerLabel(row)
+                )}
+              </td>
               <td className="is-num">
                 {row.score != null ? row.score : '—'}
               </td>
               {columns.map((col) => {
-                const stageScore = row.stage_scores[col.key];
+                if (col.key === 'top_four_picks') {
+                  const picks = row.top_four_picks ?? [];
+                  return (
+                    <td
+                      key={col.key}
+                      className="is-num challenge-leaderboard__top-four"
+                    >
+                      <div
+                        className="challenge-leaderboard__top-four-row"
+                        aria-label="Top four picks"
+                      >
+                        {[0, 1, 2, 3].map((i) => {
+                          const pick = picks[i] ?? null;
+                          return (
+                            <span
+                              key={i}
+                              className="challenge-leaderboard__top-four-slot"
+                            >
+                              {pick?.image_url ? (
+                                <img
+                                  src={pick.image_url}
+                                  alt={pick.display_name}
+                                  className="challenge-leaderboard__top-four-img"
+                                />
+                              ) : pick ? (
+                                <span
+                                  className="challenge-leaderboard__top-four-fallback"
+                                  title={pick.display_name}
+                                >
+                                  {pick.display_name.slice(0, 2).toUpperCase()}
+                                </span>
+                              ) : (
+                                <span
+                                  className="challenge-leaderboard__top-four-empty"
+                                  aria-hidden
+                                />
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  );
+                }
+                const value =
+                  col.key === 'potential'
+                    ? row.potential
+                    : row.stage_scores[col.key];
                 return (
                   <td key={col.key} className="is-num">
-                    {stageScore != null ? stageScore : '—'}
+                    {value != null ? value : '—'}
                   </td>
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

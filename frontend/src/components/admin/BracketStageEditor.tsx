@@ -1,5 +1,6 @@
 import type { BracketStageInfo } from '../../utils/api';
 
+import { AdminNumberInput } from './AdminNumberInput';
 import './admin-shared.css';
 
 const KNOCKOUT_FILL_OPTIONS = [
@@ -70,6 +71,7 @@ export function BracketStageEditor({
 }: Props) {
   const isGroup = stage.stage_type === 'GROUP';
   const isKo = stage.stage_type === 'KNOCKOUT';
+  const isThirdPlace = stage.knockout?.is_third_place === true;
 
   return (
     <fieldset className="stage-editor">
@@ -80,32 +82,14 @@ export function BracketStageEditor({
         </span>
       </legend>
 
-      <div className="form-grid form-grid--2">
-        <div className="field">
-          <label>Stage name</label>
-          <input
-            className="input"
-            value={stage.name}
-            onChange={(e) => onChange({ ...stage, name: e.target.value })}
-            disabled={disabled}
-          />
-        </div>
-        <div className="field">
-          <label>Points per correct pick</label>
-          <input
-            className="input"
-            type="number"
-            min={1}
-            value={stage.points_per_correct_pick}
-            onChange={(e) =>
-              onChange({
-                ...stage,
-                points_per_correct_pick: parseInt(e.target.value, 10) || 1,
-              })
-            }
-            disabled={disabled}
-          />
-        </div>
+      <div className="field">
+        <label>Stage name</label>
+        <input
+          className="input"
+          value={stage.name}
+          onChange={(e) => onChange({ ...stage, name: e.target.value })}
+          disabled={disabled}
+        />
       </div>
 
       <label className="checkbox-row">
@@ -126,17 +110,14 @@ export function BracketStageEditor({
           <div className="form-grid form-grid--2">
             <div className="field">
               <label>Number of groups</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
+              <AdminNumberInput
                 value={stage.group.number_of_groups}
-                onChange={(e) =>
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      number_of_groups: parseInt(e.target.value, 10) || 1,
+                      number_of_groups: Math.max(1, n),
                     },
                   })
                 }
@@ -145,18 +126,14 @@ export function BracketStageEditor({
             </div>
             <div className="field">
               <label>Qualifiers per group</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
+              <AdminNumberInput
                 value={stage.group.contestants_qualifying_per_group}
-                onChange={(e) =>
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      contestants_qualifying_per_group:
-                        parseInt(e.target.value, 10) || 1,
+                      contestants_qualifying_per_group: Math.max(1, n),
                     },
                   })
                 }
@@ -165,17 +142,14 @@ export function BracketStageEditor({
             </div>
             <div className="field">
               <label>Matches per team</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
+              <AdminNumberInput
                 value={stage.group.matches_per_contestant}
-                onChange={(e) =>
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      matches_per_contestant: parseInt(e.target.value, 10) || 1,
+                      matches_per_contestant: Math.max(1, n),
                     },
                   })
                 }
@@ -204,18 +178,47 @@ export function BracketStageEditor({
               </select>
             </div>
             <div className="field">
-              <label>Points per win</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={stage.group.points_per_win}
-                onChange={(e) =>
+              <label>Points per exact position</label>
+              <AdminNumberInput
+                value={stage.group.points_per_exact_position ?? 0}
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      points_per_win: parseInt(e.target.value, 10) || 0,
+                      points_per_exact_position: n,
+                    },
+                  })
+                }
+                disabled={disabled}
+              />
+            </div>
+            <div className="field">
+              <label>Points per advancer</label>
+              <AdminNumberInput
+                value={stage.group.points_per_advancer ?? 0}
+                onChange={(n) =>
+                  onChange({
+                    ...stage,
+                    group: {
+                      ...stage.group!,
+                      points_per_advancer: n,
+                    },
+                  })
+                }
+                disabled={disabled}
+              />
+            </div>
+            <div className="field">
+              <label>Points per win</label>
+              <AdminNumberInput
+                value={stage.group.points_per_win}
+                onChange={(n) =>
+                  onChange({
+                    ...stage,
+                    group: {
+                      ...stage.group!,
+                      points_per_win: n,
                     },
                   })
                 }
@@ -224,17 +227,14 @@ export function BracketStageEditor({
             </div>
             <div className="field">
               <label>Points per tie</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
+              <AdminNumberInput
                 value={stage.group.points_per_tie}
-                onChange={(e) =>
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      points_per_tie: parseInt(e.target.value, 10) || 0,
+                      points_per_tie: n,
                     },
                   })
                 }
@@ -243,17 +243,14 @@ export function BracketStageEditor({
             </div>
             <div className="field">
               <label>Points per loss</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
+              <AdminNumberInput
                 value={stage.group.points_per_loss}
-                onChange={(e) =>
+                onChange={(n) =>
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
-                      points_per_loss: parseInt(e.target.value, 10) || 0,
+                      points_per_loss: n,
                     },
                   })
                 }
@@ -278,27 +275,36 @@ export function BracketStageEditor({
         </div>
       ) : null}
 
-      {isKo && stage.knockout ? (
+      {isKo && stage.knockout && !isThirdPlace ? (
         <div className="stage-editor__block">
           <h4 className="stage-editor__subtitle">Knockout rules</h4>
-          <div className="field">
-            <label>Number of legs</label>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              value={stage.knockout.number_of_legs}
-              onChange={(e) =>
-                onChange({
-                  ...stage,
-                  knockout: {
-                    ...stage.knockout!,
-                    number_of_legs: parseInt(e.target.value, 10) || 1,
-                  },
-                })
-              }
-              disabled={disabled}
-            />
+          <div className="form-grid form-grid--2">
+            <div className="field">
+              <label>Points per team in round</label>
+              <AdminNumberInput
+                value={stage.points_per_correct_pick}
+                onChange={(n) =>
+                  onChange({ ...stage, points_per_correct_pick: n })
+                }
+                disabled={disabled}
+              />
+            </div>
+            <div className="field">
+              <label>Number of legs</label>
+              <AdminNumberInput
+                value={stage.knockout.number_of_legs}
+                onChange={(n) =>
+                  onChange({
+                    ...stage,
+                    knockout: {
+                      ...stage.knockout!,
+                      number_of_legs: Math.max(1, n),
+                    },
+                  })
+                }
+                disabled={disabled}
+              />
+            </div>
           </div>
           <label className="checkbox-row">
             <input
@@ -349,7 +355,7 @@ export function BracketStageEditor({
               }
               disabled={disabled}
             />
-            Final (champion)
+            Final
           </label>
           {isFirstKnockout ? (
             <div className="field" style={{ marginTop: '0.75rem' }}>
@@ -377,10 +383,6 @@ export function BracketStageEditor({
                   </option>
                 ))}
               </select>
-              <p className="stage-editor__hint">
-                Standard walks groups (A1 vs B2, …). Seeding uses ranked bracket
-                slots. Mapping uses an explicit slot map in metadata.
-              </p>
             </div>
           ) : null}
         </div>

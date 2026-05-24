@@ -10,6 +10,7 @@ from typing import Any
 
 from brackets.models import Bracket, GroupStage, KnockoutStage
 from brackets.utils.bracket_structure_config import (
+    resolved_bracket_scoring,
     resolved_group_stage_options,
     resolved_knockout_defaults,
 )
@@ -40,6 +41,7 @@ def create_bracket_with_structure(
             f"template_type must be one of {sorted(VALID_STRUCTURE_TYPES)}"
         )
 
+    scoring = resolved_bracket_scoring(structure_config)
     bracket = Bracket.objects.create(
         identifier=bracket_identifier,
         name=bracket_name,
@@ -48,6 +50,7 @@ def create_bracket_with_structure(
         show_seeds=show_seeds,
         metadata=metadata,
         randomize_seeds_per_challenge=randomize_seeds_per_challenge,
+        **scoring,
     )
 
     ko_defaults = resolved_knockout_defaults(structure_config)

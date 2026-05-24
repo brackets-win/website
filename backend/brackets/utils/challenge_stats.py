@@ -1,0 +1,156 @@
+"""Aggregate pick statistics for a bracket challenge."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from brackets.api.serializers import bracket_groups_preview, contestant_public
+from brackets.models import BracketChallenge, BracketContestant, BracketStage, KnockoutStage, UserBracket
+from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
+
+
+def _team_position_in_row(row: dict, team_id: int) -> int | None:
+    if not isinstance(row, dict):
+        return None
+    for key, cid in row.items():
+        if cid is None:
+            continue
+        try:
+            if int(cid) != team_id:
+                continue
+            return int(key)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
+    bracket = challenge.bracket
+    groups_preview = bracket_groups_preview(bracket)
+
+    user_brackets = list(
+        UserBracket.objects.filter(
+            challenge=challenge,
+            is_master=False,
+            submitted_at__isnull=False,
+        ).prefetch_related("matchup_set__stage")
+    )
+    submitted_count = len(user_brackets)
+
+    group_stage: list[dict[str, Any]] = []
+    for group in groups_preview:
+        code = group["code"]
+        teams_out: list[dict[str, Any]] = []
+        for team in group["teams"]:
+            team_id = int(team["id"])
+            positions: list[int] = []
+            for ub in user_brackets:
+                gp = (ub.metadata or {}).get("group_positions") or {}
+                row = gp.get(code)
+                pos = _team_position_in_row(row, team_id) if isinstance(row, dict) else None
+                if pos is not None:
+                    positions.append(pos)
+            avg = (
+                round(sum(positions) / len(positions), 2)
+                if positions
+                else None
+            )
+            teams_out.append(
+                {
+                    "bracket_contestant_id": team_id,
+                    "display_name": team["display_name"],
+                    "image_url": team.get("image_url"),
+                    "average_position": avg,
+                    "pick_count": len(positions),
+                }
+            )
+        teams_out.sort(
+            key=lambda t: (
+                t["average_position"] is None,
+                t["average_position"] if t["average_position"] is not None else 999.0,
+            )
+        )
+        group_stage.append({"code": code, "teams": teams_out})
+
+    knockout_stages = list(
+        bracket.stages.filter(stage_type=BracketStage.StageType.KNOCKOUT).order_by(
+            "order"
+        )
+    )
+    stage_columns = [
+        {"key": f"stage:{stage.id}", "name": stage.name}
+        for stage in reversed(knockout_stages)
+    ]
+    columns = [
+        {"key": "champion", "name": "Champions"},
+        {"key": "runner_up", "name": "Runner-up"},
+        *stage_columns,
+        {"key": "group_winner", "name": "Group Winner"},
+    ]
+
+    final_stage = KnockoutStage.objects.filter(
+        bracket=bracket, is_final=True
+    ).first()
+
+    ub_stage_hits: dict[int, dict[str, set[int]]] = {}
+    for ub in user_brackets:
+        hits: dict[str, set[int]] = {}
+        for stage in knockout_stages:
+            hits[f"stage:{stage.id}"] = contestants_in_stage_for_scoring(ub, stage)
+        champ = ub.get_final_matchup_winner()
+        hits["champion"] = {champ.id} if champ is not None else set()
+        runner_up: set[int] = set()
+        if champ is not None and final_stage is not None:
+            final_matchup = ub.matchup_set.filter(stage=final_stage).first()
+            if final_matchup is not None:
+                loser = final_matchup.get_loser()
+                if loser is not None:
+                    runner_up = {loser.id}
+        hits["runner_up"] = runner_up
+        group_winners: set[int] = set()
+        gp = (ub.metadata or {}).get("group_positions") or {}
+        for row in gp.values():
+            if not isinstance(row, dict):
+                continue
+            first = row.get("1")
+            if first is None:
+                continue
+            try:
+                group_winners.add(int(first))
+            except (TypeError, ValueError):
+                continue
+        hits["group_winner"] = group_winners
+        ub_stage_hits[ub.id] = hits
+
+    knockout_rows: list[dict[str, Any]] = []
+    contestants = BracketContestant.objects.filter(bracket=bracket).select_related(
+        "contestant"
+    ).order_by("seed", "id")
+    for bc in contestants:
+        pub = contestant_public(bc)
+        percentages: dict[str, float] = {}
+        for col in columns:
+            key = col["key"]
+            if submitted_count == 0:
+                percentages[key] = 0.0
+                continue
+            hits = sum(
+                1
+                for ub in user_brackets
+                if bc.id in ub_stage_hits[ub.id].get(key, set())
+            )
+            percentages[key] = round(100.0 * hits / submitted_count, 1)
+        knockout_rows.append(
+            {
+                "bracket_contestant_id": pub["id"],
+                "display_name": pub["display_name"],
+                "image_url": pub["image_url"],
+                "percentages": percentages,
+            }
+        )
+
+    return {
+        "submitted_count": submitted_count,
+        "group_stage": group_stage,
+        "knockout": {"columns": columns, "rows": knockout_rows},
+    }

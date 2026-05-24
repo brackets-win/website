@@ -18,6 +18,15 @@ from brackets.models import (
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import deadline_passed
+from brackets.utils.leaderboard_preview import bracket_challenge_leaderboard_preview
+from brackets.utils.challenge_types import (
+    CHALLENGE,
+    POLL,
+    TOURNAMENT,
+    creates_user_bracket,
+    uses_bracket_submission,
+    uses_prediction_scoring,
+)
 
 
 def contestant_public(bc: BracketContestant) -> dict[str, Any]:
@@ -76,6 +85,8 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
             "points_per_win": gs.points_per_win,
             "points_per_tie": gs.points_per_tie,
             "points_per_loss": gs.points_per_loss,
+            "points_per_exact_position": gs.points_per_exact_position,
+            "points_per_advancer": gs.points_per_advancer,
             "ties_allowed": gs.ties_allowed,
         }
     return base
@@ -149,6 +160,8 @@ def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
         "created_at": b.created_at.isoformat(),
         "randomize_seeds_per_challenge": b.randomize_seeds_per_challenge,
         "has_third_place_match": b.has_third_place_match,
+        "points_champion": b.points_champion,
+        "points_third_place_winner": b.points_third_place_winner,
         "show_seeds": b.show_seeds,
         "metadata": b.metadata,
         "challenge_count": challenge_count,
@@ -173,16 +186,21 @@ def bracket_detail(
 
 def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
     complete, _ = user_bracket_is_complete(ub)
-    can_edit = not ub.is_master and ub.submitted_at is None
-    if can_edit and ub.challenge_id:
-        ch = ub.challenge
-        if ch and deadline_passed(ch):
-            can_edit = False
+    # Master bracket is staff-only via API; editable regardless of challenge deadline.
+    if ub.is_master:
+        can_edit = True
+    else:
+        can_edit = ub.submitted_at is None
+        if can_edit and ub.challenge_id:
+            ch = ub.challenge
+            if ch and deadline_passed(ch):
+                can_edit = False
     return {
         "id": ub.id,
         "bracket_id": ub.bracket_id,
         "user_id": ub.user_id,
         "challenge_id": ub.challenge_id,
+        "display_name": (ub.display_name or "").strip(),
         "is_master": ub.is_master,
         "created_at": ub.created_at.isoformat(),
         "submitted_at": (
@@ -193,7 +211,7 @@ def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
     }
 
 
-def user_bracket_detail(ub: UserBracket) -> dict[str, Any]:
+def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     matchups = (
         ub.matchup_set.select_related(
             "stage",
@@ -223,7 +241,29 @@ def user_bracket_detail(ub: UserBracket) -> dict[str, Any]:
     out["matchups_by_stage"] = matchups_by_stage
     out["score_vs_master"] = None if ub.is_master else ub.calculate_score()
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
+    if viewer is not None and not ub.is_master and _viewer_sees_scoring_highlights(
+        viewer, ub
+    ):
+        from brackets.utils.scoring_highlights import scoring_highlights_for_user_bracket
+
+        out["scoring_highlights"] = scoring_highlights_for_user_bracket(ub)
     return out
+
+
+def _viewer_sees_scoring_highlights(viewer, ub: UserBracket) -> bool:
+    """Own bracket or another entry in a challenge the viewer participates in."""
+    if ub.user_id == viewer.id:
+        return True
+    if getattr(viewer, "is_staff", False):
+        return True
+    if ub.challenge_id is None:
+        return False
+    from brackets.models import ChallengeParticipant
+
+    return ChallengeParticipant.objects.filter(
+        user=viewer,
+        challenge_id=ub.challenge_id,
+    ).exists()
 
 
 def auth_user(u) -> dict[str, Any]:
@@ -254,48 +294,119 @@ def contestant_catalog(c: Contestant, request=None) -> dict[str, Any]:
     return out
 
 
+def _user_entry_payload(ub: UserBracket) -> dict[str, Any]:
+    complete, _ = user_bracket_is_complete(ub)
+    return {
+        "user_bracket_id": ub.id,
+        "display_name": (ub.display_name or "").strip(),
+        "is_submitted": ub.submitted_at is not None,
+        "is_complete": complete,
+    }
+
+
+def _created_by_username(obj: BracketChallenge | Any) -> str:
+    if not getattr(obj, "created_by_id", None):
+        return ""
+    user = getattr(obj, "created_by", None)
+    if user is None:
+        return ""
+    return (getattr(user, "username", None) or "").strip()
+
+
 def challenge_summary(
     c: BracketChallenge,
     *,
+    user=None,
     user_bracket_id: int | None = None,
     user_bracket: UserBracket | None = None,
+    user_entries: list[UserBracket] | None = None,
+    master_user_bracket_id: int | None = None,
+    can_manage_bracket: bool = False,
     request=None,
 ) -> dict[str, Any]:
-    passed = deadline_passed(c)
+    passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
     submitted = ub is not None and ub.submitted_at is not None
     complete = False
     if ub is not None:
         complete, _ = user_bracket_is_complete(ub)
-    can_join = c.instance_type == "CHALLENGE" and not passed
-    can_edit = (
-        ub is not None
-        and not submitted
-        and not passed
-        and ub.submitted_at is None
+
+    instance_labels = {
+        CHALLENGE: "Bracket Challenge",
+        TOURNAMENT: "Tournament",
+        POLL: "Poll",
+    }
+    needs_user_bracket = creates_user_bracket(c.instance_type)
+    entry_count = len(user_entries) if user_entries is not None else (
+        1 if user_bracket is not None else 0
     )
+
+    from brackets.utils.challenge_entries import max_entries_in_use
+
+    can_add_entry = (
+        c.instance_type in (CHALLENGE, TOURNAMENT, POLL)
+        and not (c.instance_type == CHALLENGE and passed)
+        and entry_count < c.max_entries
+    )
+    is_creator = user is not None and c.created_by_id == user.id
+    can_join = can_add_entry
+    can_edit = False
+    if ub is not None and not passed:
+        if uses_bracket_submission(c.instance_type):
+            can_edit = not submitted and ub.submitted_at is None
+        elif c.instance_type == POLL:
+            can_edit = True
     return {
         "id": c.id,
         "name": c.name,
+        "created_by_username": _created_by_username(c),
         "bracket_id": c.bracket_id,
         "bracket_name": c.bracket.name,
         "bracket_image_url": bracket_image_url(c.bracket, request),
         "instance_type": c.instance_type,
+        "instance_type_label": instance_labels.get(
+            c.instance_type, c.instance_type
+        ),
+        "needs_user_bracket": needs_user_bracket,
+        "uses_prediction_leaderboard": uses_prediction_scoring(c.instance_type),
         "is_public": c.is_public,
         "is_private": not c.is_public,
         "join_code": c.join_code if not c.is_public else None,
         "submission_deadline": (
             c.submission_deadline.isoformat()
-            if c.submission_deadline
+            if c.instance_type == CHALLENGE and c.submission_deadline
             else None
         ),
-        "deadline_passed": passed,
+        "deadline_passed": passed if c.instance_type == CHALLENGE else False,
+        "max_entries": c.max_entries,
+        "entry_count": entry_count,
         "user_bracket_id": user_bracket_id,
+        "user_entries": [
+            _user_entry_payload(ub) for ub in (user_entries or [])
+        ],
         "is_submitted": submitted,
         "is_complete": complete,
         "can_join": can_join,
+        "can_add_entry": can_add_entry,
         "can_edit_picks": can_edit,
+        "can_manage_bracket": can_manage_bracket,
+        "is_creator": is_creator,
+        "max_entries_minimum": (
+            max_entries_in_use(c)
+            if is_creator and c.instance_type == CHALLENGE
+            else None
+        ),
+        "master_user_bracket_id": master_user_bracket_id,
+        "leaderboard_preview": bracket_challenge_leaderboard_preview(c, user),
     }
+
+
+def streak_display(streak_signed: int) -> str:
+    if streak_signed > 0:
+        return f"{streak_signed}W"
+    if streak_signed < 0:
+        return f"{-streak_signed}L"
+    return "—"
 
 
 def leaderboard_column(*, key: str, name: str) -> dict[str, Any]:
@@ -305,16 +416,22 @@ def leaderboard_column(*, key: str, name: str) -> dict[str, Any]:
 def leaderboard_entry(
     *,
     username: str,
+    display_name: str,
     user_bracket_id: int,
     score: int | None,
+    potential: int | None,
     stage_scores: dict[str, int | None],
+    top_four_picks: list[dict[str, Any] | None],
     submitted_at,
 ) -> dict[str, Any]:
     return {
         "username": username,
+        "display_name": display_name,
         "user_bracket_id": user_bracket_id,
         "score": score,
+        "potential": potential,
         "stage_scores": stage_scores,
+        "top_four_picks": top_four_picks,
         "submitted_at": (
             submitted_at.isoformat() if submitted_at else None
         ),
@@ -327,5 +444,6 @@ def bracket_template_summary(t: BracketTemplate) -> dict[str, Any]:
         "name": t.name,
         "template_type": t.template_type,
         "description": t.description or "",
+        "default_number_of_contestants": t.default_number_of_contestants,
         "is_system": t.is_system,
     }

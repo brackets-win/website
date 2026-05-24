@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 
+import type { DeleteImpactRecord } from '../../utils/api';
+
 import './admin-shared.css';
 
 type Props = {
   open: boolean;
   title: string;
-  message: string;
+  label: string;
+  relatedRecords?: DeleteImpactRecord[];
+  loadingRelated?: boolean;
   busy?: boolean;
+  intro?: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -14,10 +19,13 @@ type Props = {
 export function DeleteConfirmDialog({
   open,
   title,
-  message,
+  label,
+  relatedRecords = [],
+  loadingRelated = false,
   busy = false,
-  onCancel,
+  intro,
   onConfirm,
+  onCancel,
 }: Props) {
   const [typed, setTyped] = useState('');
 
@@ -27,7 +35,10 @@ export function DeleteConfirmDialog({
 
   if (!open) return null;
 
-  const canConfirm = typed === 'delete' && !busy;
+  const canConfirm = typed === 'delete' && !busy && !loadingRelated;
+  const related = relatedRecords.filter((r) => r.count > 0);
+  const lead =
+    intro ?? `“${label}” will be permanently removed.`;
 
   return (
     <div
@@ -45,7 +56,27 @@ export function DeleteConfirmDialog({
         <h2 id="delete-dialog-title" className="delete-dialog__title">
           {title}
         </h2>
-        <p className="delete-dialog__message">{message}</p>
+        <div className="delete-dialog__message">
+          <p>{lead}</p>
+          {loadingRelated ? (
+            <p className="delete-dialog__related-loading">
+              Counting related records…
+            </p>
+          ) : related.length > 0 ? (
+            <>
+              <p className="delete-dialog__related-lead">
+                This will also delete:
+              </p>
+              <ul className="delete-dialog__related">
+                {related.map((row) => (
+                  <li key={row.label}>
+                    <strong>{row.count}</strong> {row.label}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </div>
         <div className="field">
           <label htmlFor="delete-confirm-input">
             Type <strong>delete</strong> to confirm
@@ -56,7 +87,7 @@ export function DeleteConfirmDialog({
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             autoComplete="off"
-            disabled={busy}
+            disabled={busy || loadingRelated}
             autoFocus
           />
         </div>

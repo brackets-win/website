@@ -91,6 +91,33 @@ class SyncGroupKnockoutTests(TestCase):
         self.assertEqual(m1.contestant1_id, g["A"][0])
         self.assertEqual(m1.contestant2_id, g["B"][1])
 
+    def test_group_stage_leaderboard_score_not_null(self):
+        g = self._group_bc_ids()
+        group_stage = self.bracket.stages.filter(stage_type="GROUP").first()
+        master = self.bracket.get_master_bracket()
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": g["A"][0], "2": g["A"][1], "3": g["A"][2], "4": g["A"][3]},
+                "B": {"1": g["B"][0], "2": g["B"][1], "3": g["B"][2], "4": g["B"][3]},
+                "C": {"1": g["C"][0], "2": g["C"][1], "3": g["C"][2], "4": g["C"][3]},
+                "D": {"1": g["D"][0], "2": g["D"][1], "3": g["D"][2], "4": g["D"][3]},
+            }
+        }
+        master.save()
+        self.ub.metadata = {
+            "group_positions": {
+                "A": {"1": g["A"][0], "2": g["A"][2], "3": g["A"][1], "4": g["A"][3]},
+                "B": {"1": g["B"][0], "2": g["B"][1], "3": g["B"][2], "4": g["B"][3]},
+                "C": {"1": g["C"][0], "2": g["C"][1], "3": g["C"][2], "4": g["C"][3]},
+                "D": {"1": g["D"][0], "2": g["D"][1], "3": g["D"][2], "4": g["D"][3]},
+            }
+        }
+        self.ub.save()
+
+        score = self.ub.calculate_stage_score(group_stage)
+        self.assertIsNotNone(score)
+        self.assertEqual(score, 14)
+
 
 class SyncWorldCupKnockoutTests(TestCase):
     def setUp(self):

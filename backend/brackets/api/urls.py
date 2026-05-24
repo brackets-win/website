@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import streak_views, views
 
 urlpatterns = [
     path("auth/me", views.auth_me),
@@ -22,7 +22,51 @@ urlpatterns = [
         "challenges/<int:challenge_id>/leaderboard",
         views.challenge_leaderboard,
     ),
+    path(
+        "challenges/<int:challenge_id>/stats",
+        views.challenge_stats,
+    ),
+    path(
+        "challenges/<int:challenge_id>/poll-votes",
+        views.challenge_poll_votes,
+    ),
+    path("streak-competitions", streak_views.streak_competitions_list_create),
+    path(
+        "streak-competitions/<int:streak_competition_id>",
+        streak_views.streak_competition_detail,
+    ),
+    path(
+        "streak-competitions/<int:streak_competition_id>/questions",
+        streak_views.streak_competition_question_create,
+    ),
+    path("streak-challenges", streak_views.streak_challenges_list_create),
+    path("streak-challenges/join", streak_views.streak_challenges_join),
+    path(
+        "streak-challenges/<int:streak_challenge_id>",
+        streak_views.streak_challenge_detail,
+    ),
+    path(
+        "streak-challenges/<int:streak_challenge_id>/leaderboard",
+        streak_views.streak_challenge_leaderboard,
+    ),
+    path(
+        "streak-challenges/<int:streak_challenge_id>/players/<int:user_id>/picks",
+        streak_views.streak_participant_picks,
+    ),
+    path("streak-questions/<int:question_id>/pick", streak_views.streak_pick),
+    path(
+        "streak-questions/<int:question_id>/resolve",
+        streak_views.streak_question_resolve,
+    ),
+    path(
+        "streak-questions/<int:question_id>",
+        streak_views.streak_question_detail,
+    ),
     path("matchups/<int:matchup_id>", views.matchup_patch),
+    path(
+        "admin/delete-impact/<str:resource>/<int:object_id>",
+        views.admin_delete_impact,
+    ),
     path("admin/contestants", views.admin_contestants_list_create),
     path(
         "admin/contestants/<int:contestant_id>",

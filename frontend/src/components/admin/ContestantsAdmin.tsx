@@ -15,6 +15,10 @@ import { AdminCatalogToolbar } from './AdminCatalogToolbar';
 import { ContestantFormFields } from './ContestantFormFields';
 import { IconPencil, IconTrash } from './AdminIcons';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import {
+  startDeleteTarget,
+  type AdminDeleteTarget,
+} from './deleteDialogHelpers';
 import { metadataToText, parseMetadataJson } from './bracketAdminHelpers';
 import './admin-shared.css';
 
@@ -77,10 +81,9 @@ export function ContestantsAdmin() {
   const [editBusy, setEditBusy] = useState(false);
   const [editPhotoInputKey, setEditPhotoInputKey] = useState(0);
 
-  const [deleteTarget, setDeleteTarget] = useState<{
-    id: number;
-    label: string;
-  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminDeleteTarget | null>(
+    null,
+  );
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const reload = useCallback(async () => {
@@ -480,7 +483,12 @@ export function ContestantsAdmin() {
                       title="Delete"
                       aria-label={`Delete ${c.name}`}
                       onClick={() =>
-                        setDeleteTarget({ id: c.id, label: c.name })
+                        startDeleteTarget(
+                          'contestant',
+                          c.id,
+                          c.name,
+                          setDeleteTarget,
+                        )
                       }
                     >
                       <IconTrash />
@@ -495,12 +503,15 @@ export function ContestantsAdmin() {
 
       <DeleteConfirmDialog
         open={deleteTarget != null}
-        title="Delete contestant?"
-        message={
+        title="Delete Contestant?"
+        label={deleteTarget?.label ?? ''}
+        intro={
           deleteTarget
             ? `“${deleteTarget.label}” will be removed from the catalog.`
-            : ''
+            : undefined
         }
+        relatedRecords={deleteTarget?.relatedRecords}
+        loadingRelated={deleteTarget?.loadingRelated}
         busy={deleteBusy}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}

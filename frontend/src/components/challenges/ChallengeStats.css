@@ -1,0 +1,207 @@
+.challenge-stats__meta {
+  margin: 0 0 1.25rem;
+  font-size: 0.875rem;
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-stats__section {
+  margin-bottom: 2rem;
+}
+
+.challenge-stats__section:last-child {
+  margin-bottom: 0;
+}
+
+.challenge-stats__heading {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.challenge-stats__group-head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.challenge-stats__group-head {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-stats__group-avg-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.challenge-stats__group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.85rem;
+  margin-top: 0;
+}
+
+.challenge-stats__group-card {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  padding: 0.75rem 0.85rem;
+}
+
+.challenge-stats__group-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.challenge-stats__group-row {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: var(--surface-muted, #f8fafc);
+}
+
+.challenge-stats__group-rank {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+
+.challenge-stats__group-avg {
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--activity-accent, var(--app-accent, #5782a8));
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.challenge-stats__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.challenge-stats__chip-img {
+  width: 1.5rem;
+  height: 1.5rem;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.challenge-stats__chip-img--ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-muted, #f1f5f9);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-stats__chip-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.challenge-stats__ko-scroll {
+  overflow-x: auto;
+}
+
+.challenge-stats__ko-table {
+  min-width: 100%;
+}
+
+.challenge-stats__ko-table .is-num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.challenge-stats__ko-pct {
+  --pct: 0;
+  background-color: color-mix(
+    in srgb,
+    var(--activity-accent, var(--app-accent, #5782a8)) calc(var(--pct) * 1%),
+    var(--surface, #fff)
+  );
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.challenge-stats__th-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.challenge-stats__th-btn:hover,
+.challenge-stats__th-btn:focus-visible {
+  color: var(--activity-accent, var(--app-accent, #5782a8));
+  outline: none;
+}
+
+.challenge-stats__th-btn--active {
+  color: var(--activity-accent, var(--app-accent, #5782a8));
+  font-weight: 600;
+}
+
+.challenge-stats__sort-icon {
+  font-size: 0.65rem;
+  opacity: 0.45;
+  line-height: 1;
+}
+
+.challenge-stats__th-btn--active .challenge-stats__sort-icon {
+  opacity: 1;
+}
+
+.challenge-stats__ko-table th.is-num .challenge-stats__th-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.challenge-stats__ko-team-th .challenge-stats__th-btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.challenge-stats__ko-team-th {
+  min-width: 10rem;
+}
+
+.challenge-stats__ko-team {
+  vertical-align: middle;
+}

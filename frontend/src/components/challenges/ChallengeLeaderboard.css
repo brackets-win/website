@@ -1,3 +1,19 @@
+.leaderboard-row--viewer {
+  font-weight: 700;
+}
+
+.leaderboard-row--gold {
+  background: rgba(255, 193, 7, 0.14);
+}
+
+.leaderboard-row--silver {
+  background: rgba(160, 174, 192, 0.18);
+}
+
+.leaderboard-row--bronze {
+  background: rgba(180, 120, 60, 0.14);
+}
+
 .challenge-leaderboard {
   overflow-x: auto;
 }
@@ -6,8 +22,14 @@
   min-width: 100%;
 }
 
-.challenge-leaderboard__table .is-num {
-  text-align: right;
+.challenge-leaderboard__table th.is-num,
+.challenge-leaderboard__table td.is-num {
+  text-align: center;
+}
+
+.challenge-leaderboard__table th.is-player,
+.challenge-leaderboard__table td.is-player {
+  text-align: left;
 }
 
 .challenge-leaderboard__table .is-rank {
@@ -52,7 +74,76 @@
   opacity: 1;
 }
 
+.challenge-leaderboard__player-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--app-accent, #5782a8);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.challenge-leaderboard__player-btn:hover,
+.challenge-leaderboard__player-btn:focus-visible {
+  color: var(--app-accent-hover, #466a87);
+}
+
 .challenge-leaderboard__table th.is-num .challenge-leaderboard__th-btn {
   width: 100%;
-  justify-content: flex-end;
+  justify-content: center;
+}
+
+.challenge-leaderboard__top-four-th {
+  white-space: nowrap;
+}
+
+.challenge-leaderboard__top-four {
+  vertical-align: middle;
+}
+
+.challenge-leaderboard__top-four-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.challenge-leaderboard__top-four-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.challenge-leaderboard__top-four-img {
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+}
+
+.challenge-leaderboard__top-four-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--surface-muted, #f1f5f9);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-leaderboard__top-four-empty {
+  display: inline-block;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 3px;
+  border: 1px dashed var(--border-subtle, #e2e8f0);
+  opacity: 0.35;
 }

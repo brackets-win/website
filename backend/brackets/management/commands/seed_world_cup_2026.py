@@ -121,6 +121,8 @@ class Command(BaseCommand):
             created_by=user,
             show_seeds=False,
             has_third_place_match=True,
+            points_champion=10,
+            points_third_place_winner=3,
             metadata={
                 'third_place_combinations': third_place_combinations,
                 'tournament_type': 'world_cup_2026',
@@ -160,6 +162,8 @@ class Command(BaseCommand):
             points_per_win=3,
             points_per_tie=1,
             points_per_loss=0,
+            points_per_exact_position=1,
+            points_per_advancer=0,
             ties_allowed=True,
         )
         self.stdout.write(self.style.SUCCESS(
@@ -173,6 +177,7 @@ class Command(BaseCommand):
                 'number_of_contestants': 32,
                 'contestants_advancing': 16,
                 'is_final': False,
+                'points_per_correct_pick': 1,
                 'custom_mapping': r32_mapping,
             },
             {
@@ -181,6 +186,7 @@ class Command(BaseCommand):
                 'number_of_contestants': 16,
                 'contestants_advancing': 8,
                 'is_final': False,
+                'points_per_correct_pick': 2,
             },
             {
                 'name': 'Quarter Final',
@@ -188,6 +194,7 @@ class Command(BaseCommand):
                 'number_of_contestants': 8,
                 'contestants_advancing': 4,
                 'is_final': False,
+                'points_per_correct_pick': 3,
             },
             {
                 'name': 'Semi Final',
@@ -195,6 +202,7 @@ class Command(BaseCommand):
                 'number_of_contestants': 4,
                 'contestants_advancing': 2,
                 'is_final': False,
+                'points_per_correct_pick': 4,
             },
             {
                 'name': 'Final',
@@ -202,10 +210,12 @@ class Command(BaseCommand):
                 'number_of_contestants': 2,
                 'contestants_advancing': 1,
                 'is_final': True,
+                'points_per_correct_pick': 5,
             },
         ]
 
         for stage_data in knockout_stages:
+            pick_pts = stage_data.pop('points_per_correct_pick', 1)
             knockout_stage = KnockoutStage.objects.create(
                 bracket=bracket,
                 name=stage_data['name'],
@@ -219,6 +229,7 @@ class Command(BaseCommand):
                 has_penalty_shootout=True,
                 is_final=stage_data['is_final'],
                 is_third_place=stage_data.get('is_third_place', False),
+                points_per_correct_pick=pick_pts,
             )
 
             if 'custom_mapping' in stage_data:

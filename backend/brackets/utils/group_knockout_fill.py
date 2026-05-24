@@ -18,17 +18,49 @@ MAPPING = "mapping"
 KNOCKOUT_FILL_METHODS = (STANDARD, SEEDING, MAPPING)
 
 
-def get_knockout_fill_method(knockout_stage) -> str:
+def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
+    """
+    Resolve how group finishes map into the first knockout round.
+
+    Explicit ``knockout_fill_method`` wins. Otherwise infer ``mapping`` when the
+    stage already has ``group_knockout_mapping`` or the bracket is WC 2026.
+    """
     meta = knockout_stage.metadata or {}
-    method = (meta.get("knockout_fill_method") or STANDARD).strip().lower()
-    if method not in KNOCKOUT_FILL_METHODS:
-        return STANDARD
-    return method
+    explicit = meta.get("knockout_fill_method")
+    if explicit is not None and str(explicit).strip():
+        method = str(explicit).strip().lower()
+        if method in KNOCKOUT_FILL_METHODS:
+            return method
+    if meta.get("group_knockout_mapping"):
+        return MAPPING
+    if bracket is None:
+        try:
+            bracket = knockout_stage.bracket
+        except AttributeError:
+            bracket = None
+    if bracket is not None and (bracket.metadata or {}).get(
+        "tournament_type"
+    ) == "world_cup_2026":
+        return MAPPING
+    return STANDARD
+
+
+def ensure_knockout_fill_method_persisted(
+    knockout_stage, bracket, *, method: str | None = None
+) -> None:
+    """Write inferred fill method to stage metadata when missing."""
+    resolved = method or get_knockout_fill_method(knockout_stage, bracket)
+    meta = dict(knockout_stage.metadata or {})
+    if meta.get("knockout_fill_method") == resolved:
+        return
+    meta["knockout_fill_method"] = resolved
+    knockout_stage.metadata = meta
+    knockout_stage.save(update_fields=["metadata"])
 
 
 def uses_wc_third_place_table(bracket, knockout_stage) -> bool:
     """Mapping fill + FIFA third-place combinations on the bracket."""
-    if get_knockout_fill_method(knockout_stage) != MAPPING:
+    if get_knockout_fill_method(knockout_stage, bracket) != MAPPING:
         return False
     meta = bracket.metadata or {}
     return bool(meta.get("third_place_combinations"))
@@ -47,7 +79,7 @@ def load_knockout_mapping(
     - seeding: rank-ordered slots in a normal bracket (1v32, 16v17, …)
     - mapping: explicit ``group_knockout_mapping`` in stage metadata
     """
-    method = get_knockout_fill_method(knockout_stage)
+    method = get_knockout_fill_method(knockout_stage, bracket)
     meta = knockout_stage.metadata or {}
 
     if method == MAPPING:

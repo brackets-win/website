@@ -50,6 +50,8 @@ class GroupStage(BracketStage):
     points_per_win = models.PositiveIntegerField(default=3)
     points_per_tie = models.PositiveIntegerField(default=1)
     points_per_loss = models.PositiveIntegerField(default=0)
+    points_per_exact_position = models.PositiveIntegerField(default=0)
+    points_per_advancer = models.PositiveIntegerField(default=0)
     ties_allowed = models.BooleanField(default=True)
 
     def __str__(self):

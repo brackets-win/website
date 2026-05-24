@@ -3,6 +3,7 @@ import type {
   BracketContestantInfo,
   BracketGroupPreview,
   BracketStageInfo,
+  ScoringHighlights,
 } from '../../utils/api';
 import { ApiError, patchUserBracketMetadata } from '../../utils/api';
 import { thirdPlaceAdvanceCount } from '../../utils/groupStageConfig';
@@ -11,8 +12,6 @@ type Meta = {
   group_positions: Record<string, Record<string, number | null | undefined>>;
   third_place_advancers: number[];
 };
-
-const WC_GROUPS_PER_SHELF = 3;
 
 /** Rank slot keys for a group — one per team in that group (from the API). */
 function positionKeysForGroup(g: BracketGroupPreview): string[] {
@@ -152,14 +151,6 @@ function sanitizeThirdAdvancers(
   return tp.filter((id) => allowed.has(id)).slice(0, maxCount);
 }
 
-function chunkGroups<T>(items: T[], size: number): T[][] {
-  const shelves: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    shelves.push(items.slice(i, i + size));
-  }
-  return shelves;
-}
-
 function slotLabel(index: number): string {
   const n = index + 1;
   const mod100 = n % 100;
@@ -240,7 +231,9 @@ type Props = {
   groups: BracketGroupPreview[];
   groupStage: BracketStageInfo;
   isWorldCup: boolean;
+  firstKnockoutContestants?: number;
   initialMetadata: Meta;
+  scoringHighlights?: ScoringHighlights;
   busy: boolean;
   readOnly?: boolean;
   onSaved: () => Promise<void>;
@@ -295,6 +288,7 @@ function ContestantChip({
   onClick,
   onClear,
   clearLabel,
+  scoredCorrect,
 }: {
   contestant: BracketContestantInfo;
   /** Show grip handle; drag starts from handle only. */
@@ -311,6 +305,7 @@ function ContestantChip({
   onClick?: () => void;
   onClear?: () => void;
   clearLabel?: string;
+  scoredCorrect?: boolean;
 }) {
   const canDrag = !busy && !readOnly;
   const chipDraggable = Boolean(dragFromChip && canDrag);
@@ -318,6 +313,7 @@ function ContestantChip({
     'bf-chip',
     'bf-g-chip',
     muted ? 'bf-g-chip--muted' : '',
+    scoredCorrect ? 'bf-g-chip--scored' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -349,6 +345,11 @@ function ContestantChip({
         onClick={onClick}
         disabled={busy || readOnly}
       >
+        {scoredCorrect ? (
+          <span className="bf-scored-check" aria-hidden>
+            ✓
+          </span>
+        ) : null}
         {contestant.image_url ? (
           <img className="bf-g-chip-img" src={contestant.image_url} alt="" />
         ) : (
@@ -358,7 +359,7 @@ function ContestantChip({
         )}
         <span className="bf-g-chip-name">{contestant.display_name}</span>
       </button>
-      {onClear ? (
+      {onClear && !readOnly ? (
         <button
           type="button"
           className="bf-g-chip-clear"
@@ -385,14 +386,18 @@ export function GroupStagePanel({
   groups,
   groupStage,
   isWorldCup,
+  firstKnockoutContestants,
   initialMetadata,
   busy,
+  scoringHighlights,
   readOnly = false,
   onSaved,
   onError,
   setBusy,
 }: Props) {
-  const thirdAdvanceCount = thirdPlaceAdvanceCount(groupStage);
+  const thirdAdvanceCount = thirdPlaceAdvanceCount(groupStage, {
+    firstKnockoutContestants,
+  });
   const hasThirdPlaceRail = thirdAdvanceCount > 0;
 
   const [gp, setGp] = useState<Meta['group_positions']>({});
@@ -408,7 +413,8 @@ export function GroupStagePanel({
   tpRef.current = tp;
 
   useEffect(() => {
-    if (busy) return;
+    // Do not block hydration while read-only (submitted view passes busy || locked).
+    if (busy && !readOnly) return;
     const nextGp = initialMetadata.group_positions ?? {};
     const nextTp = sanitizeThirdAdvancers(
       nextGp,
@@ -419,7 +425,7 @@ export function GroupStagePanel({
     setTp(nextTp);
     gpRef.current = nextGp;
     tpRef.current = nextTp;
-  }, [initialMetadata, userBracketId, busy, thirdAdvanceCount]);
+  }, [initialMetadata, userBracketId, busy, readOnly, thirdAdvanceCount]);
 
   const byId = useMemo(() => {
     const m = new Map<number, BracketContestantInfo>();
@@ -455,14 +461,6 @@ export function GroupStagePanel({
       .map((id) => byId.get(id))
       .filter((c): c is BracketContestantInfo => c != null);
   }, [thirdPlaceCandidateIds, byId, tp]);
-
-  const shelves = useMemo(
-    () =>
-      isWorldCup
-        ? chunkGroups(groups, WC_GROUPS_PER_SHELF)
-        : [groups],
-    [groups, isWorldCup],
-  );
 
   const finalizePicks = useCallback(
     (
@@ -707,6 +705,9 @@ export function GroupStagePanel({
             dragFromChip
             busy={busy}
             readOnly={readOnly}
+            scoredCorrect={
+              scoringHighlights?.group_advancers?.includes(c.id) === true
+            }
             onDragStart={(e) =>
               onDragStart(e, {
                 contestantId: c.id,
@@ -778,6 +779,13 @@ export function GroupStagePanel({
               baseCid != null &&
               cid != null &&
               baseCid !== cid;
+            const slotScored =
+              c != null &&
+              scoringHighlights?.group_positions?.[g.code]?.[k] === true;
+            const advScored =
+              c != null &&
+              scoringHighlights?.group_advancers?.includes(c.id) === true;
+            const scoredCorrect = slotScored || advScored;
 
             return (
               <div
@@ -809,6 +817,7 @@ export function GroupStagePanel({
                     reorderable
                     busy={busy}
                     readOnly={readOnly}
+                    scoredCorrect={scoredCorrect}
                     dragging={draggingId === c.id}
                     previewShift={previewShift}
                     onDragStart={(e) =>
@@ -910,12 +919,8 @@ export function GroupStagePanel({
 
   const groupBody = hasThirdPlaceRail ? (
     <div className="bf-g-wc-body">
-      <div className="bf-g-shelves">
-        {shelves.map((shelf, shelfIdx) => (
-          <div key={shelfIdx} className="bf-g-shelf">
-            {shelf.map((g) => renderGroupCard(g))}
-          </div>
-        ))}
+      <div className="bf-g-wc-groups">
+        {groups.map((g) => renderGroupCard(g))}
       </div>
       {thirdPlaceSection}
     </div>

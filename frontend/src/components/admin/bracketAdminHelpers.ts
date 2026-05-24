@@ -29,8 +29,11 @@ export function buildStructureConfig(opts: {
   bPtTie: number;
   bPtLoss: number;
   bTiesAllowed: boolean;
-  bGroupPickPts: number;
+  bGroupExactPts: number;
+  bGroupAdvancerPts: number;
   bGroupRandom: boolean;
+  bChampionPts: number;
+  bThirdPlacePts: number;
   bKoLegs: number;
   bKoET: boolean;
   bKoPK: boolean;
@@ -54,7 +57,8 @@ export function buildStructureConfig(opts: {
       points_per_tie: opts.bPtTie,
       points_per_loss: opts.bPtLoss,
       ties_allowed: opts.bTiesAllowed,
-      points_per_correct_pick: opts.bGroupPickPts,
+      points_per_exact_position: opts.bGroupExactPts,
+      points_per_advancer: opts.bGroupAdvancerPts,
       is_random_draw: opts.bGroupRandom,
     };
     const ng = opts.bNumGroups.trim();
@@ -63,6 +67,8 @@ export function buildStructureConfig(opts: {
     }
     cfg.group_stage = gs;
   }
+  cfg.points_champion = opts.bChampionPts;
+  cfg.points_third_place_winner = opts.bThirdPlacePts;
   return cfg;
 }
 
@@ -82,6 +88,8 @@ export function stageToAdminPatch(s: BracketStageInfo): AdminStagePatch {
     patch.points_per_win = s.group.points_per_win;
     patch.points_per_tie = s.group.points_per_tie;
     patch.points_per_loss = s.group.points_per_loss;
+    patch.points_per_exact_position = s.group.points_per_exact_position ?? 0;
+    patch.points_per_advancer = s.group.points_per_advancer ?? 0;
     patch.ties_allowed = s.group.ties_allowed;
   }
   if (s.knockout) {

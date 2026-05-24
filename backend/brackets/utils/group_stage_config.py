@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from brackets.models import Bracket, BracketStage, GroupStage
+from brackets.models import Bracket, BracketStage, GroupStage, KnockoutStage
 
 
 def get_group_stage(bracket: Bracket) -> GroupStage | None:
@@ -28,14 +28,49 @@ def group_stage_pick_requirements(
     """
     q = gs.contestants_qualifying_per_group
     n_groups = gs.number_of_groups
-    advancing = gs.contestants_advancing
-    if advancing is None:
-        return q, 0
-
     direct = n_groups * q
+    advancing = resolve_group_contestants_advancing(gs)
     extra = advancing - direct
     if extra <= 0:
         return q, 0
 
     # e.g. WC: 2 qualify per group + one 3rd-place finisher per group → pick 8 of 12
     return q + 1, extra
+
+
+def resolve_group_contestants_advancing(
+    gs: GroupStage,
+    bracket: Bracket | None = None,
+) -> int:
+    """
+    Total teams leaving the group stage (direct qualifiers + third-place pool).
+
+    Admin saves must not collapse this to ``groups × qualifying`` when the bracket
+    also sends third-place teams into the Round of 32.
+    """
+    if bracket is None:
+        bracket = gs.bracket
+    direct = gs.number_of_groups * gs.contestants_qualifying_per_group
+    current = gs.contestants_advancing
+    if current is not None and current > direct:
+        return current
+
+    uses_third_pool = bool(
+        bracket.has_third_place_match or gs.remaining_spots_strategy
+    )
+    if not uses_third_pool:
+        return direct
+
+    for stage in bracket.stages.filter(
+        stage_type=BracketStage.StageType.KNOCKOUT
+    ).order_by("order"):
+        ks = KnockoutStage.objects.filter(pk=stage.pk).first()
+        if ks and (ks.is_third_place or ks.is_final):
+            continue
+        n = stage.number_of_contestants
+        if n and n > direct:
+            return n
+
+    if gs.remaining_spots_strategy:
+        return direct + 8
+    return direct

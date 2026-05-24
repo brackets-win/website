@@ -58,9 +58,25 @@ class Matchup(models.Model):
         except KnockoutStage.DoesNotExist:
             pass
 
-        next_stage = self.user_bracket.bracket.stages.filter(
-            order=self.stage.order + 1
-        ).first()
+        from .bracket_stage import BracketStage
+
+        # Next knockout stage by order (not only order+1 — admin order gaps are allowed).
+        # Skip third-place: that game is fed by losers, not winners from the prior round.
+        next_stages = self.user_bracket.bracket.stages.filter(
+            stage_type=BracketStage.StageType.KNOCKOUT,
+            order__gt=self.stage.order,
+        ).order_by('order')
+
+        next_stage = None
+        for candidate in next_stages:
+            try:
+                ks = KnockoutStage.objects.get(pk=candidate.pk)
+            except KnockoutStage.DoesNotExist:
+                ks = None
+            if ks and ks.is_third_place:
+                continue
+            next_stage = candidate
+            break
 
         if not next_stage:
             return None
@@ -102,31 +118,59 @@ class Matchup(models.Model):
 
         loser = self.get_loser()
 
+        from brackets.utils.knockout_rebuild import remove_team_from_knockout_path
+
         # Propagate to matchups where this is source A
         for matchup in matchups_sourcing_a:
+            new_contestant = (
+                self.winner if matchup.source_a_uses_winner else loser
+            )
+            new_id = new_contestant.id if new_contestant else None
+            old_id = matchup.contestant1_id
+            if old_id and old_id != new_id:
+                remove_team_from_knockout_path(self, old_id)
             if matchup.source_a_uses_winner:
                 matchup.contestant1 = self.winner
             else:
                 matchup.contestant1 = loser
-            matchup.save()
+            matchup.save(update_fields=["contestant1"])
 
         # Propagate to matchups where this is source B
         for matchup in matchups_sourcing_b:
+            new_contestant = (
+                self.winner if matchup.source_b_uses_winner else loser
+            )
+            new_id = new_contestant.id if new_contestant else None
+            old_id = matchup.contestant2_id
+            if old_id and old_id != new_id:
+                remove_team_from_knockout_path(self, old_id)
             if matchup.source_b_uses_winner:
                 matchup.contestant2 = self.winner
             else:
                 matchup.contestant2 = loser
-            matchup.save()
+            matchup.save(update_fields=["contestant2"])
 
-        # Fallback: If no explicit sources, use position-based progression
-        if not matchups_sourcing_a and not matchups_sourcing_b:
-            next_matchup = self.get_next_matchup()
-            if next_matchup:
-                if self.is_team_a():
-                    next_matchup.contestant1 = self.winner
-                else:
-                    next_matchup.contestant2 = self.winner
-                next_matchup.save()
+        # Winner advances to the next knockout round (e.g. semi → final).
+        # Always run this even when explicit loser feeds exist (third-place game).
+        next_matchup = self.get_next_matchup()
+        if next_matchup:
+            if self.is_team_a():
+                old_id = next_matchup.contestant1_id
+                if old_id and old_id != self.winner_id:
+                    remove_team_from_knockout_path(self, old_id)
+                    next_matchup.refresh_from_db(
+                        fields=["contestant1", "contestant2", "winner"]
+                    )
+                next_matchup.contestant1 = self.winner
+            else:
+                old_id = next_matchup.contestant2_id
+                if old_id and old_id != self.winner_id:
+                    remove_team_from_knockout_path(self, old_id)
+                    next_matchup.refresh_from_db(
+                        fields=["contestant1", "contestant2", "winner"]
+                    )
+                next_matchup.contestant2 = self.winner
+            next_matchup.save(update_fields=["contestant1", "contestant2"])
 
     def save(self, *args, **kwargs):
         """Override save to auto-propagate winners."""

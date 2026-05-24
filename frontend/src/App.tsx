@@ -7,6 +7,7 @@ import {
   type ChallengeTab,
 } from './components/challenges/ChallengeView';
 import { ChallengesPage } from './components/challenges/ChallengesPage';
+import { StreakChallengeView } from './components/challenges/StreakChallengeView';
 import { AppShell, type AppPage } from './components/layout/AppShell';
 import {
   ApiError,
@@ -38,9 +39,10 @@ export default function App() {
   const initialUb = useMemo(() => readUbFromLocation(), []);
   const [activeChallenge, setActiveChallenge] = useState<{
     challengeId: number;
-    userBracketId: number;
+    userBracketId: number | null;
     initialTab?: ChallengeTab;
   } | null>(null);
+  const [activeStreakId, setActiveStreakId] = useState<number | null>(null);
   const [homeResetKey, setHomeResetKey] = useState(0);
 
   const refreshUserBrackets = useCallback(async () => {
@@ -86,6 +88,7 @@ export default function App() {
     }
     if (next === 'home') {
       setActiveChallenge(null);
+      setActiveStreakId(null);
       setHomeResetKey((k) => k + 1);
     }
     setPage(next);
@@ -93,15 +96,33 @@ export default function App() {
 
   async function openChallenge(
     challengeId: number,
-    userBracketId: number,
+    userBracketId?: number | null,
     initialTab?: ChallengeTab,
   ) {
-    setActiveChallenge({ challengeId, userBracketId, initialTab });
+    setActiveStreakId(null);
+    setActiveChallenge({
+      challengeId,
+      userBracketId: userBracketId ?? null,
+      initialTab,
+    });
     setPage('challenge');
     const params = new URLSearchParams(window.location.search);
-    params.set('ub', String(userBracketId));
+    if (userBracketId != null) {
+      params.set('ub', String(userBracketId));
+    } else {
+      params.delete('ub');
+    }
     const next = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, '', next);
+  }
+
+  function openStreak(streakChallengeId: number) {
+    setActiveChallenge(null);
+    setActiveStreakId(streakChallengeId);
+    setPage('streak');
+    const params = new URLSearchParams(window.location.search);
+    params.delete('ub');
+    window.history.replaceState(null, '', window.location.pathname);
   }
 
   async function handleLogin(username: string, password: string) {
@@ -157,17 +178,28 @@ export default function App() {
         <ChallengesPage
           key={homeResetKey}
           onOpenChallenge={openChallenge}
+          onOpenStreak={openStreak}
         />
       ) : null}
 
       {page === 'challenge' && activeChallenge != null ? (
         <ChallengeView
-          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId}-${activeChallenge.initialTab ?? 'bracket'}`}
+          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId ?? 'x'}-${activeChallenge.initialTab ?? 'bracket'}`}
           challengeId={activeChallenge.challengeId}
           userBracketId={activeChallenge.userBracketId}
           initialTab={activeChallenge.initialTab}
+          currentUser={sessionUser}
           onBack={() => navigate('home')}
           onSubmitted={() => void refreshUserBrackets()}
+        />
+      ) : null}
+
+      {page === 'streak' && activeStreakId != null ? (
+        <StreakChallengeView
+          key={activeStreakId}
+          streakChallengeId={activeStreakId}
+          currentUser={sessionUser}
+          onBack={() => navigate('home')}
         />
       ) : null}
 

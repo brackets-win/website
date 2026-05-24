@@ -4,9 +4,7 @@ from brackets.data.fwc26.r32_tree_slots import R32_TREE_SLOTS, build_r32_group_k
 from brackets.utils.bracket_seeding import bracket_seed_order, first_round_seed_pairs
 from brackets.utils.fwc26_regulations import (
     build_third_place_combinations_lookup,
-    load_knockout_matchups_raw,
     load_third_place_combinations_raw,
-    parse_knockout_matchups_tsv,
     teams_to_bit_vector,
 )
 
@@ -47,12 +45,3 @@ class Fwc26RegulationsTests(unittest.TestCase):
         self.assertEqual(by_pos[5], ("K2", "L2"))
         # M102 half: 1L
         self.assertEqual(by_pos[12][0], "L1")
-
-    def test_knockout_extract_covers_r32_through_semis(self):
-        raw = load_knockout_matchups_raw()
-        rows = parse_knockout_matchups_tsv(raw)
-        self.assertEqual(len(rows), 30)
-        m73 = next(r for r in rows if r["match_no"] == "M73")
-        self.assertEqual(m73["round"], "Round of 32")
-        self.assertIn("2A", m73["team_a"])
-        self.assertIn("2B", m73["team_b"])

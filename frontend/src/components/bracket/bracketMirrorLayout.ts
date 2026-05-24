@@ -90,6 +90,16 @@ export function buildMirrorBracketLayout(
   return { left, center, right };
 }
 
+/** First matchup position in this wing at ``stageIdx`` (left wing is always 1). */
+export function wingStagePositionMin(
+  stageIdx: number,
+  wingMin: number,
+  halfLeaves: number,
+): number {
+  if (wingMin === 1) return 1;
+  return Math.floor(halfLeaves / 2 ** stageIdx) + 1;
+}
+
 /** Vertical % within a wing column (full height, not global bracket offset). */
 export function columnMatchupCenterPct(
   stageIdx: number,
@@ -97,28 +107,31 @@ export function columnMatchupCenterPct(
   wingMin: number,
   wingMax: number,
   positionMin: number,
+  feederTopPos?: number,
+  feederBottomPos?: number,
 ): number {
   if (stageIdx === 0) {
     const count = wingMax - wingMin + 1;
     const idx = position - wingMin;
     return ((idx + 0.5) / count) * 100;
   }
-  const local = position - positionMin;
-  const feederTop = wingMin + 2 * local;
-  const feederBot = feederTop + 1;
+  const halfLeaves = wingMax - wingMin + 1;
+  const feederTop = feederTopPos ?? 2 * position - 1;
+  const feederBot = feederBottomPos ?? 2 * position;
+  const prevPosMin = wingStagePositionMin(stageIdx - 1, wingMin, halfLeaves);
   const top = columnMatchupCenterPct(
     stageIdx - 1,
     feederTop,
     wingMin,
     wingMax,
-    wingMin,
+    prevPosMin,
   );
   const bot = columnMatchupCenterPct(
     stageIdx - 1,
     feederBot,
     wingMin,
     wingMax,
-    wingMin,
+    prevPosMin,
   );
   return (top + bot) / 2;
 }

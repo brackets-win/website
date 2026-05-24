@@ -2,13 +2,11 @@ from django.db import models
 
 
 class BracketChallenge(models.Model):
-    """
-    A bracket instance where users participate.
-    Can be CHALLENGE (competitive predictions) or POLL (social voting).
-    """
+    """A room using a bracket structure: prediction pool, friend tournament, or poll."""
     INSTANCE_TYPE_CHOICES = [
-        ('CHALLENGE', 'Challenge'),
-        ('POLL', 'Poll')
+        ("CHALLENGE", "Bracket Challenge"),
+        ("TOURNAMENT", "Tournament"),
+        ("POLL", "Poll"),
     ]
 
     name = models.CharField(max_length=100)
@@ -25,6 +23,8 @@ class BracketChallenge(models.Model):
     submission_deadline = models.DateTimeField(null=True, blank=True)
     # If bracket.randomize_seeds_per_challenge is True, stores {bracket_contestant_id: actual_seed}
     seed_mapping = models.JSONField(null=True, blank=True)
+    # How many brackets each user may submit in this challenge (Bracket Challenge only).
+    max_entries = models.PositiveIntegerField(default=1)
 
     def __str__(self):
         return f"{self.name} - {self.bracket.name}"

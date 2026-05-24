@@ -179,6 +179,37 @@ def _bracket_has_group_stage(bracket) -> bool:
 
 
 @transaction.atomic
+def clear_knockout_source_wiring(
+    user_bracket: UserBracket,
+    *,
+    keep_third_place: bool = True,
+) -> int:
+    """
+    Remove explicit ``source_*_matchup`` links so winners advance by tree position
+    (1–2 → next round slot 1, 3–4 → slot 2, …). Third-place game wiring is kept.
+    """
+    cleared = 0
+    for stage in user_bracket.bracket.stages.filter(
+        stage_type=BracketStage.StageType.KNOCKOUT
+    ):
+        ks = KnockoutStage.objects.filter(pk=stage.pk).first()
+        if keep_third_place and ks and ks.is_third_place:
+            continue
+        n = (
+            Matchup.objects.filter(user_bracket=user_bracket, stage=stage)
+            .exclude(source_a_matchup__isnull=True, source_b_matchup__isnull=True)
+            .update(
+                source_a_matchup=None,
+                source_b_matchup=None,
+                source_a_uses_winner=True,
+                source_b_uses_winner=True,
+            )
+        )
+        cleared += n
+    return cleared
+
+
+@transaction.atomic
 def ensure_knockout_matchup_shell(user_bracket: UserBracket) -> List[Matchup]:
     """
     Idempotently create empty matchup rows for every knockout stage (group → knockout
@@ -218,11 +249,6 @@ def ensure_knockout_matchup_shell(user_bracket: UserBracket) -> List[Matchup]:
             )
             if was_created:
                 created.append(m)
-
-    from brackets.utils.fwc26_knockout_wiring import wire_fwc26_knockout_sources
-
-    if _bracket_has_group_stage(bracket):
-        wire_fwc26_knockout_sources(user_bracket)
 
     return created
 

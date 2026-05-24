@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_datetime
 
 from brackets.models import Bracket, BracketStage, GroupStage, KnockoutStage
 from brackets.utils.bracket_structure_config import parse_bracket_metadata
+from brackets.utils.group_stage_config import resolve_group_contestants_advancing
 
 
 def _bool_val(value: Any) -> bool:
@@ -33,6 +34,14 @@ def apply_bracket_admin_fields(bracket: Bracket, body: dict[str, Any]) -> list[s
     if "has_third_place_match" in body:
         bracket.has_third_place_match = _bool_val(body["has_third_place_match"])
         fields.append("has_third_place_match")
+
+    for key in ("points_champion", "points_third_place_winner"):
+        if key in body:
+            n = int(body[key])
+            if n < 0:
+                raise ValueError(f"{key} must be 0 or greater")
+            setattr(bracket, key, n)
+            fields.append(key)
 
     if "metadata" in body:
         bracket.metadata = parse_bracket_metadata(body["metadata"])
@@ -60,8 +69,8 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
 
     if "points_per_correct_pick" in patch:
         n = int(patch["points_per_correct_pick"])
-        if n < 1:
-            raise ValueError("points_per_correct_pick must be at least 1")
+        if n < 0:
+            raise ValueError("points_per_correct_pick must be 0 or greater")
         stage.points_per_correct_pick = n
         fields.append("points_per_correct_pick")
 
@@ -95,6 +104,8 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
             "points_per_win",
             "points_per_tie",
             "points_per_loss",
+            "points_per_exact_position",
+            "points_per_advancer",
         ):
             if key in patch:
                 n = int(patch[key])
@@ -115,9 +126,12 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
             gs_fields.append("remaining_spots_strategy")
 
         if gs_fields:
-            if "contestants_qualifying_per_group" in gs_fields:
-                stage.contestants_advancing = (
-                    gs.number_of_groups * gs.contestants_qualifying_per_group
+            if (
+                "contestants_qualifying_per_group" in gs_fields
+                or "number_of_groups" in gs_fields
+            ):
+                stage.contestants_advancing = resolve_group_contestants_advancing(
+                    gs, stage.bracket
                 )
                 fields.append("contestants_advancing")
             gs.save(update_fields=gs_fields)

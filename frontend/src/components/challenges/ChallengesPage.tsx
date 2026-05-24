@@ -3,16 +3,30 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   createChallenge,
+  createStreakChallenge,
   createUserBracket,
   joinChallenge,
+  joinStreakChallenge,
   listBrackets,
   listMyChallenges,
+  listMyStreakChallenges,
   listPublicChallenges,
+  listStreakCompetitions,
   type BracketSummary,
   type ChallengeSummary,
+  type LeaderboardPreview,
+  type LeaderboardPreviewEntry,
+  type StreakChallengeSummary,
+  type StreakCompetitionSummary,
 } from '../../utils/api';
+import {
+  INSTANCE_BRACKET_CHALLENGE,
+  INSTANCE_POLL,
+  INSTANCE_TOURNAMENT,
+} from '../../utils/challengeTypes';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 
+import { ActivityTypeIcon } from './ActivityTypeIcons';
 import type { ChallengeTab } from './ChallengeView';
 import './ChallengesPage.css';
 
@@ -27,77 +41,235 @@ function ChallengeThumb({ url, name }: { url: string | null | undefined; name: s
   );
 }
 
+function CreatedByMeta({ username }: { username: string }) {
+  if (!username) return null;
+  return <p className="challenge-card__meta">Created by {username}</p>;
+}
+
+function hasLeaderboardPreview(preview?: LeaderboardPreview): boolean {
+  return Boolean(preview && (preview.top.length > 0 || preview.viewer));
+}
+
+function ChallengeCardLeaderboardRow({ entry }: { entry: LeaderboardPreviewEntry }) {
+  return (
+    <>
+      <span className="challenge-card__leader-rank">{entry.rank}</span>
+      <span className="challenge-card__leader-name">{entry.display_name}</span>
+      <span className="challenge-card__leader-pts">
+        {entry.points_label ?? entry.points}
+      </span>
+    </>
+  );
+}
+
+function ChallengeCardLeaderboard({ preview }: { preview: LeaderboardPreview }) {
+  if (!hasLeaderboardPreview(preview)) return null;
+  return (
+    <ol className="challenge-card__leaderboard" aria-label="Leaderboard">
+      {preview.top.map((e) => (
+        <li
+          key={`top-${e.rank}-${e.display_name}`}
+          className={
+            e.is_viewer
+              ? 'challenge-card__leader-row challenge-card__leader-row--viewer'
+              : 'challenge-card__leader-row'
+          }
+        >
+          <ChallengeCardLeaderboardRow entry={e} />
+        </li>
+      ))}
+      {preview.gap_before_viewer ? (
+        <li className="challenge-card__leader-gap" aria-hidden />
+      ) : null}
+      {preview.viewer ? (
+        <li className="challenge-card__leader-row challenge-card__leader-row--viewer">
+          <ChallengeCardLeaderboardRow entry={preview.viewer} />
+        </li>
+      ) : null}
+    </ol>
+  );
+}
+
+type ActivityKey = 'bracket_challenge' | 'tournament' | 'poll' | 'streak';
+type PanelMode = 'create' | 'join';
+
+type PanelState = {
+  key: ActivityKey;
+  mode: PanelMode;
+};
+
 type Props = {
   onOpenChallenge: (
     challengeId: number,
-    userBracketId: number,
+    userBracketId?: number | null,
     initialTab?: ChallengeTab,
   ) => void;
+  onOpenStreak: (streakChallengeId: number) => void;
 };
 
-export function ChallengesPage({ onOpenChallenge }: Props) {
+function slugify(value: string): string {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'activity'
+  );
+}
+
+export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
   const [rows, setRows] = useState<ChallengeSummary[]>([]);
+  const [streakRows, setStreakRows] = useState<StreakChallengeSummary[]>([]);
+  const [streakCompetitions, setStreakCompetitions] = useState<
+    StreakCompetitionSummary[]
+  >([]);
   const [publicRows, setPublicRows] = useState<ChallengeSummary[]>([]);
   const [brackets, setBrackets] = useState<BracketSummary[]>([]);
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
-  const [joinOpen, setJoinOpen] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
-  const [joinMsg, setJoinMsg] = useState('');
-  const [joinBusy, setJoinBusy] = useState(false);
+  const [panel, setPanel] = useState<PanelState | null>(null);
+  const [formErr, setFormErr] = useState('');
+  const [busy, setBusy] = useState(false);
   const [startBusyId, setStartBusyId] = useState<number | null>(null);
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState('');
-  const [createBracketId, setCreateBracketId] = useState<number | ''>('');
-  const [createPrivate, setCreatePrivate] = useState(false);
-  const [createDeadline, setCreateDeadline] = useState('');
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createErr, setCreateErr] = useState('');
+  const [joinDisplayName, setJoinDisplayName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+
+  const [bcName, setBcName] = useState('');
+  const [bcBracketId, setBcBracketId] = useState<number | ''>('');
+  const [bcDeadline, setBcDeadline] = useState('');
+  const [bcMaxEntries, setBcMaxEntries] = useState('1');
+  const [bcPrivate, setBcPrivate] = useState(false);
+
+  const [tName, setTName] = useState('');
+  const [tSize, setTSize] = useState(8);
+  const [tThird, setTThird] = useState(false);
+  const [tPrivate, setTPrivate] = useState(false);
+
+  const [sName, setSName] = useState('');
+  const [sCompetitionId, setSCompetitionId] = useState<number | ''>('');
+  const [sPrivate, setSPrivate] = useState(false);
+
   const reload = useCallback(async () => {
     setLoadErr('');
     setLoading(true);
-    try {
-      const [{ challenges }, { challenges: pub }, { brackets: bracketRows }] =
-        await Promise.all([
-          listMyChallenges(),
-          listPublicChallenges(),
-          listBrackets(),
-        ]);
-      setRows(challenges);
-      setPublicRows(pub);
+    const errors: string[] = [];
+
+    const [challengesResult, publicResult, bracketsResult, streakResult, compResult] =
+      await Promise.allSettled([
+        listMyChallenges(),
+        listPublicChallenges(),
+        listBrackets(),
+        listMyStreakChallenges(),
+        listStreakCompetitions(),
+      ]);
+
+    if (challengesResult.status === 'fulfilled') {
+      setRows(challengesResult.value.challenges);
+    } else {
+      errors.push(
+        challengesResult.reason instanceof ApiError
+          ? challengesResult.reason.message
+          : 'Unable to load your challenges.',
+      );
+    }
+
+    if (publicResult.status === 'fulfilled') {
+      setPublicRows(publicResult.value.challenges);
+    } else {
+      errors.push(
+        publicResult.reason instanceof ApiError
+          ? publicResult.reason.message
+          : 'Unable to load public challenges.',
+      );
+    }
+
+    if (bracketsResult.status === 'fulfilled') {
+      const bracketRows = bracketsResult.value.brackets;
       setBrackets(bracketRows);
-      setCreateBracketId((prev) => {
+      setBcBracketId((prev) => {
         if (prev !== '') return prev;
         return bracketRows[0]?.id ?? '';
       });
-    } catch (e) {
-      setLoadErr(
-        e instanceof ApiError ? e.message : 'Unable to load challenges.',
+    } else {
+      errors.push(
+        bracketsResult.reason instanceof ApiError
+          ? bracketsResult.reason.message
+          : 'Unable to load brackets.',
       );
-    } finally {
-      setLoading(false);
     }
+
+    if (streakResult.status === 'fulfilled') {
+      setStreakRows(streakResult.value.streak_challenges);
+    } else {
+      setStreakRows([]);
+      errors.push(
+        streakResult.reason instanceof ApiError
+          ? streakResult.reason.message
+          : 'Unable to load streak challenges.',
+      );
+    }
+
+    if (compResult.status === 'fulfilled') {
+      const competitions = compResult.value.streak_competitions;
+      setStreakCompetitions(competitions);
+      setSCompetitionId((prev) => {
+        if (prev !== '') return prev;
+        return competitions[0]?.id ?? '';
+      });
+    } else {
+      setStreakCompetitions([]);
+      errors.push(
+        compResult.reason instanceof ApiError
+          ? compResult.reason.message
+          : 'Unable to load streak competitions.',
+      );
+    }
+
+    if (errors.length > 0) {
+      setLoadErr(errors[0]);
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  function resetCreateForm() {
-    setCreateName('');
-    setCreatePrivate(false);
-    setCreateDeadline('');
-    setCreateErr('');
+  const bracketChallengeRows = useMemo(
+    () => rows.filter((c) => c.instance_type === INSTANCE_BRACKET_CHALLENGE),
+    [rows],
+  );
+  const tournamentRows = useMemo(
+    () => rows.filter((c) => c.instance_type === INSTANCE_TOURNAMENT),
+    [rows],
+  );
+  const pollRows = useMemo(
+    () => rows.filter((c) => c.instance_type === INSTANCE_POLL),
+    [rows],
+  );
+
+  function resetForms() {
+    setFormErr('');
+    setJoinCode('');
+    setBcName('');
+    setBcDeadline('');
+    setBcMaxEntries('1');
+    setBcPrivate(false);
+    setTName('');
+    setTSize(8);
+    setTThird(false);
+    setTPrivate(false);
+    setSName('');
+    setSCompetitionId(streakCompetitions[0]?.id ?? '');
+    setSPrivate(false);
   }
 
-  const selectedBracket = useMemo(
-    () =>
-      createBracketId === ''
-        ? null
-        : brackets.find((b) => b.id === createBracketId) ?? null,
-    [brackets, createBracketId],
-  );
+  function closePanel() {
+    setPanel(null);
+    resetForms();
+  }
 
   function upsertChallenge(challenge: ChallengeSummary) {
     setRows((prev) => {
@@ -109,116 +281,124 @@ export function ChallengesPage({ onOpenChallenge }: Props) {
     });
   }
 
-  function openJoined(challenge: ChallengeSummary) {
-    if (challenge.user_bracket_id == null) return;
-    onOpenChallenge(challenge.id, challenge.user_bracket_id);
-  }
-
-  async function onJoinSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setJoinMsg('');
-    const code = joinCode.trim();
-    if (!code) {
-      setJoinMsg('Enter a join code.');
+  function openChallengeRow(c: ChallengeSummary) {
+    if (c.instance_type === INSTANCE_TOURNAMENT) {
+      onOpenChallenge(c.id, null);
       return;
     }
-    setJoinBusy(true);
-    try {
-      const { challenge } = await joinChallenge({ join_code: code });
-      upsertChallenge(challenge);
-      setJoinOpen(false);
-      setJoinCode('');
-      openJoined(challenge);
-    } catch (err) {
-      setJoinMsg(
-        err instanceof ApiError ? err.message : 'Could not join challenge.',
-      );
-    } finally {
-      setJoinBusy(false);
-    }
-  }
-
-  async function onJoinPublic(challenge: ChallengeSummary) {
-    if (!challenge.can_join) {
-      setJoinMsg('This challenge is no longer open.');
+    if (c.user_bracket_id == null) {
+      void startEntry(c);
       return;
     }
-    setJoinBusy(true);
-    setJoinMsg('');
-    try {
-      const { challenge: joined } = await joinChallenge({
-        challenge_id: challenge.id,
-      });
-      upsertChallenge(joined);
-      openJoined(joined);
-    } catch (err) {
-      setJoinMsg(
-        err instanceof ApiError ? err.message : 'Could not join challenge.',
-      );
-    } finally {
-      setJoinBusy(false);
-    }
+    onOpenChallenge(c.id, c.user_bracket_id);
   }
 
-  async function onStartPicks(challenge: ChallengeSummary) {
-    if (!challenge.can_join && !challenge.user_bracket_id) {
-      setLoadErr('This challenge is closed.');
+  async function startEntry(challenge: ChallengeSummary) {
+    const displayName = joinDisplayName.trim();
+    if (!displayName) {
+      setFormErr('Enter your name first.');
       return;
     }
     setStartBusyId(challenge.id);
+    setFormErr('');
     try {
       const { user_bracket } = await createUserBracket({
         bracket_id: challenge.bracket_id,
         challenge_id: challenge.id,
+        display_name: displayName,
       });
       const updated = { ...challenge, user_bracket_id: user_bracket.id };
       upsertChallenge(updated);
       onOpenChallenge(challenge.id, user_bracket.id);
     } catch (err) {
-      setLoadErr(
-        err instanceof ApiError ? err.message : 'Could not start picks.',
+      setFormErr(
+        err instanceof ApiError ? err.message : 'Could not start.',
       );
     } finally {
       setStartBusyId(null);
     }
   }
 
-  function openExisting(c: ChallengeSummary) {
-    if (c.user_bracket_id == null) {
-      void onStartPicks(c);
+  async function handleJoin(
+    instanceType: string | undefined,
+    challengeId?: number,
+  ) {
+    setFormErr('');
+    const displayName = joinDisplayName.trim();
+    const code = joinCode.trim();
+    if (!displayName) {
+      setFormErr('Enter your name.');
       return;
     }
-    onOpenChallenge(c.id, c.user_bracket_id);
+    if (!challengeId && !code) {
+      setFormErr('Enter a join code.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (panel?.key === 'streak') {
+        const { streak_challenge } = await joinStreakChallenge(
+          challengeId != null
+            ? { streak_challenge_id: challengeId }
+            : { join_code: code },
+        );
+        setStreakRows((prev) => {
+          const idx = prev.findIndex((s) => s.id === streak_challenge.id);
+          if (idx < 0) return [streak_challenge, ...prev];
+          const next = [...prev];
+          next[idx] = streak_challenge;
+          return next;
+        });
+        closePanel();
+        onOpenStreak(streak_challenge.id);
+        return;
+      }
+
+      const { challenge } = await joinChallenge({
+        challenge_id: challengeId,
+        join_code: code || undefined,
+        display_name: displayName,
+        instance_type: instanceType,
+      });
+      upsertChallenge(challenge);
+      closePanel();
+      openChallengeRow(challenge);
+    } catch (err) {
+      setFormErr(err instanceof ApiError ? err.message : 'Could not join.');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function onCreateSubmit(e: React.FormEvent) {
+  async function handleCreateBracketChallenge(e: React.FormEvent) {
     e.preventDefault();
-    setCreateErr('');
-    const name = createName.trim();
+    setFormErr('');
+    const name = bcName.trim();
     if (!name) {
-      setCreateErr('Name is required.');
+      setFormErr('Name is required.');
       return;
     }
-    if (createBracketId === '' || !Number.isFinite(createBracketId)) {
-      setCreateErr('Choose a bracket.');
+    if (bcBracketId === '' || !Number.isFinite(bcBracketId)) {
+      setFormErr('Choose a bracket.');
       return;
     }
-    const deadlineIso = estLocalInputToIso(createDeadline);
-    if (createDeadline.trim() && !deadlineIso) {
-      setCreateErr('Invalid submission deadline.');
+    const deadlineIso = estLocalInputToIso(bcDeadline);
+    if (bcDeadline.trim() && !deadlineIso) {
+      setFormErr('Invalid submission deadline.');
       return;
     }
-    setCreateBusy(true);
+    setBusy(true);
     try {
       const { challenge } = await createChallenge({
         name,
-        bracket_id: createBracketId,
-        is_private: createPrivate,
+        bracket_id: bcBracketId,
+        instance_type: INSTANCE_BRACKET_CHALLENGE,
+        is_private: bcPrivate,
         submission_deadline: deadlineIso ?? null,
+        max_entries: Math.max(1, parseInt(bcMaxEntries, 10) || 1),
       });
-      setRows((prev) => [challenge, ...prev]);
-      resetCreateForm();
-      setCreateOpen(false);
+      upsertChallenge(challenge);
+      closePanel();
       if (challenge.user_bracket_id != null) {
         onOpenChallenge(
           challenge.id,
@@ -227,267 +407,547 @@ export function ChallengesPage({ onOpenChallenge }: Props) {
         );
       }
     } catch (err) {
-      setCreateErr(
-        err instanceof ApiError ? err.message : 'Could not create challenge.',
-      );
+      setFormErr(err instanceof ApiError ? err.message : 'Could not create.');
     } finally {
-      setCreateBusy(false);
+      setBusy(false);
     }
+  }
+
+  async function handleCreateTournament(e: React.FormEvent) {
+    e.preventDefault();
+    setFormErr('');
+    const name = tName.trim();
+    const size = tSize;
+    const hasThird = tThird;
+    const isPrivate = tPrivate;
+    if (!name) {
+      setFormErr('Name is required.');
+      return;
+    }
+    if (!Number.isFinite(size) || size < 2) {
+      setFormErr('Choose at least 2 teams.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { challenge } = await createChallenge({
+        name,
+        instance_type: INSTANCE_TOURNAMENT,
+        is_private: isPrivate,
+        bracket_setup: {
+          structure: 'SINGLE_ELIM',
+          identifier: slugify(name),
+          bracket_name: name,
+          number_of_contestants: size,
+          has_third_place: hasThird,
+        },
+      });
+      upsertChallenge(challenge);
+      closePanel();
+      openChallengeRow(challenge);
+    } catch (err) {
+      setFormErr(err instanceof ApiError ? err.message : 'Could not create.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateStreak(e: React.FormEvent) {
+    e.preventDefault();
+    setFormErr('');
+    const name = sName.trim();
+    if (!name) {
+      setFormErr('Name is required.');
+      return;
+    }
+    if (sCompetitionId === '' || !Number.isFinite(sCompetitionId)) {
+      setFormErr('Choose a competition.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { streak_challenge } = await createStreakChallenge({
+        name,
+        streak_competition_id: sCompetitionId,
+        is_private: sPrivate,
+      });
+      setStreakRows((prev) => [streak_challenge, ...prev]);
+      closePanel();
+      onOpenStreak(streak_challenge.id);
+    } catch (err) {
+      setFormErr(err instanceof ApiError ? err.message : 'Could not create.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderActivityList(
+    items: ChallengeSummary[],
+    showDeadline: boolean,
+  ) {
+    if (items.length === 0) {
+      return <p className="activity-section__empty">None yet.</p>;
+    }
+    return (
+      <ul className="challenge-list">
+        {items.map((c) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              className="challenge-card card challenge-card--clickable"
+              disabled={startBusyId === c.id}
+              onClick={() => void openChallengeRow(c)}
+            >
+              <div className="challenge-card__body">
+                <ChallengeThumb url={c.bracket_image_url} name={c.name} />
+                <div className="challenge-card__text">
+                  <h3 className="challenge-card__name">{c.name}</h3>
+                  <p className="challenge-card__meta">{c.bracket_name}</p>
+                  <CreatedByMeta username={c.created_by_username} />
+                  {showDeadline && c.submission_deadline && !c.is_submitted ? (
+                    <p className="challenge-card__due">
+                      Due {formatDeadlineEst(c.submission_deadline)}
+                    </p>
+                  ) : null}
+                  {c.is_private ? (
+                    <span className="challenge-card__badge">Private</span>
+                  ) : null}
+                </div>
+                {hasLeaderboardPreview(c.leaderboard_preview) ? (
+                  <ChallengeCardLeaderboard preview={c.leaderboard_preview!} />
+                ) : null}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function renderStreakList() {
+    if (streakRows.length === 0) {
+      return <p className="activity-section__empty">None yet.</p>;
+    }
+    return (
+      <ul className="challenge-list">
+        {streakRows.map((s) => (
+          <li key={s.id}>
+            <button
+              type="button"
+              className="challenge-card card challenge-card--clickable"
+              onClick={() => onOpenStreak(s.id)}
+            >
+              <div className="challenge-card__body">
+                <span className="challenge-thumb challenge-thumb--ph">
+                  {s.name.charAt(0)}
+                </span>
+                <div className="challenge-card__text">
+                  <h3 className="challenge-card__name">{s.name}</h3>
+                  {s.streak_competition_name ? (
+                    <p className="challenge-card__meta">
+                      {s.streak_competition_name}
+                    </p>
+                  ) : null}
+                  <CreatedByMeta username={s.created_by_username} />
+                </div>
+                {hasLeaderboardPreview(s.leaderboard_preview) ? (
+                  <ChallengeCardLeaderboard preview={s.leaderboard_preview!} />
+                ) : null}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function renderJoinForm(instanceType?: string) {
+    const publicForType = instanceType
+      ? publicRows.filter((c) => c.instance_type === instanceType)
+      : [];
+    return (
+      <form
+        className="activity-panel__form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleJoin(instanceType);
+        }}
+      >
+        <div className="field">
+          <label htmlFor={`join-name-${instanceType ?? 'streak'}`}>Your name</label>
+          <input
+            id={`join-name-${instanceType ?? 'streak'}`}
+            className="input"
+            value={joinDisplayName}
+            onChange={(e) => setJoinDisplayName(e.target.value)}
+            maxLength={80}
+            required
+            disabled={busy}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={`join-code-${instanceType ?? 'streak'}`}>Join code</label>
+          <input
+            id={`join-code-${instanceType ?? 'streak'}`}
+            className="input"
+            value={joinCode}
+            onChange={(e) =>
+              setJoinCode(
+                e.target.value.replace(/\s/g, '').toUpperCase().slice(0, 8),
+              )
+            }
+            maxLength={8}
+            disabled={busy}
+          />
+        </div>
+        <div className="activity-panel__actions">
+          <button type="button" className="btn btn--ghost" onClick={closePanel}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn--primary" disabled={busy}>
+            {busy ? 'Joining…' : 'Join'}
+          </button>
+        </div>
+        {publicForType.length > 0 ? (
+          <div className="activity-panel__public">
+            <p className="activity-panel__public-label">Or join public</p>
+            <ul className="challenge-list challenge-list--compact">
+              {publicForType.map((c) => (
+                <li key={c.id} className="challenge-card challenge-card--compact">
+                  <div className="challenge-card__body">
+                    <div>
+                      <strong>{c.name}</strong>
+                      <span className="challenge-card__meta">{c.bracket_name}</span>
+                      <CreatedByMeta username={c.created_by_username} />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    disabled={busy || !c.can_join}
+                    onClick={() => void handleJoin(instanceType, c.id)}
+                  >
+                    Join
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </form>
+    );
+  }
+
+  function renderSection(
+    key: ActivityKey,
+    title: string,
+    list: React.ReactNode,
+    createForm: React.ReactNode,
+    joinInstanceType?: string,
+    showCreate = true,
+  ) {
+    const isOpen = panel?.key === key;
+    return (
+      <section className={`activity-section card activity-section--${key}`}>
+        <div className="activity-section__head">
+          <div className="activity-section__title-wrap">
+            <span className="activity-section__icon" aria-hidden>
+              <ActivityTypeIcon type={key} />
+            </span>
+            <h2 className="activity-section__title">{title}</h2>
+          </div>
+          {!isOpen ? (
+            <div className="activity-section__buttons">
+              {showCreate ? (
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => {
+                    resetForms();
+                    setPanel({ key, mode: 'create' });
+                  }}
+                >
+                  Create
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn--outline"
+                onClick={() => {
+                  resetForms();
+                  setPanel({ key, mode: 'join' });
+                }}
+              >
+                Join
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {isOpen ? (
+          <div className="activity-panel">
+            <h3 className="activity-panel__heading">
+              {panel.mode === 'create' && showCreate ? 'Create' : 'Join'} {title}
+            </h3>
+            {panel.mode === 'create' && showCreate
+              ? createForm
+              : renderJoinForm(joinInstanceType)}
+            {formErr ? (
+              <div className="alert alert--error" role="status">
+                {formErr}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          list
+        )}
+      </section>
+    );
   }
 
   return (
     <div className="challenges-page">
       <header className="challenges-page__hero">
-        <div>
-          <h1>My Challenges</h1>
-        </div>
-        <div className="challenges-page__actions">
-          <button
-            type="button"
-            className="btn btn--secondary challenges-page__action-btn"
-            onClick={() => {
-              setCreateOpen((v) => !v);
-              setJoinOpen(false);
-              setJoinMsg('');
-              if (createOpen) resetCreateForm();
-            }}
-          >
-            Create Challenge
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary challenges-page__action-btn"
-            onClick={() => {
-              setJoinOpen((v) => !v);
-              setCreateOpen(false);
-              resetCreateForm();
-              setJoinMsg('');
-            }}
-          >
-            Join Challenge
-          </button>
-        </div>
+        <h1>My Challenges</h1>
       </header>
 
-      {createOpen ? (
-        <section className="card challenges-page__panel">
-          <header className="challenges-page__panel-head">
-            <h2>Create challenge</h2>
-          </header>
-          <form onSubmit={onCreateSubmit} className="challenges-page__create-form">
-            <div className="field">
-              <label htmlFor="create-name">Name</label>
-              <input
-                id="create-name"
-                className="input"
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-                maxLength={100}
-                required
-                disabled={createBusy}
-              />
-            </div>
+      {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
 
-            <div className="field">
-              <label htmlFor="create-bracket">Bracket</label>
-              <select
-                id="create-bracket"
-                className="select"
-                value={createBracketId === '' ? '' : String(createBracketId)}
-                onChange={(e) =>
-                  setCreateBracketId(
-                    e.target.value ? parseInt(e.target.value, 10) : '',
-                  )
-                }
-                disabled={createBusy || brackets.length === 0}
-                required
-              >
-                {brackets.length === 0 ? (
-                  <option value="">No brackets available</option>
-                ) : (
-                  brackets.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              {selectedBracket ? (
-                <div className="challenge-bracket-preview">
-                  <ChallengeThumb
-                    url={selectedBracket.image_url}
-                    name={selectedBracket.name}
-                  />
-                  <span>{selectedBracket.name}</span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="field">
-              <label htmlFor="create-deadline">
-                Submission deadline <span className="field__hint">(US Eastern)</span>
-              </label>
-              <input
-                id="create-deadline"
-                className="input"
-                type="datetime-local"
-                value={createDeadline}
-                onChange={(e) => setCreateDeadline(e.target.value)}
-                disabled={createBusy}
-              />
-            </div>
-
-            <label className="checkbox-row challenges-page__public-row">
-              <input
-                type="checkbox"
-                checked={createPrivate}
-                onChange={(e) => setCreatePrivate(e.target.checked)}
-                disabled={createBusy}
-              />
-              Private (invite-only with a join code)
-            </label>
-
-            <div className="challenges-page__create-actions">
-              <button
-                type="submit"
-                className="btn btn--primary"
-                disabled={createBusy || brackets.length === 0}
-              >
-                {createBusy ? 'Creating…' : 'Create challenge'}
-              </button>
-            </div>
-          </form>
-          {createErr ? (
-            <div className="alert alert--error" role="status">
-              {createErr}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {joinOpen ? (
-        <section className="card challenges-page__panel">
-          <div className="challenges-page__join-private">
-            <h3 className="challenges-page__join-section-title">
-              Join Private Challenge
-            </h3>
-            <form onSubmit={onJoinSubmit} className="challenges-page__join-form">
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="join-code">Join code</label>
-              <input
-                id="join-code"
-                className="input"
-                value={joinCode}
-                onChange={(e) =>
-                  setJoinCode(
-                    e.target.value.replace(/\s/g, '').toUpperCase().slice(0, 8),
-                  )
-                }
-                placeholder="Enter code"
-                autoComplete="off"
-                maxLength={8}
-                disabled={joinBusy}
-              />
-            </div>
-            <button
-              type="submit"
-              className="btn btn--primary"
-              disabled={joinBusy}
-            >
-              {joinBusy ? 'Joining…' : 'Join'}
-            </button>
-          </form>
-          </div>
-
-          {publicRows.length > 0 ? (
-            <div className="challenges-page__public-list">
-              <h3 className="challenges-page__join-section-title">
-                Join Public Challenge
-              </h3>
-              <ul className="challenge-list challenge-list--compact">
-                {publicRows.map((c) => (
-                  <li key={c.id} className="challenge-card challenge-card--compact">
-                    <div className="challenge-card__body">
-                      <ChallengeThumb url={c.bracket_image_url} name={c.name} />
-                      <div>
-                        <strong>{c.name}</strong>
-                        <span className="challenge-card__meta">{c.bracket_name}</span>
-                        {!c.is_submitted && c.submission_deadline ? (
-                          <span className="challenge-card__due">
-                            Due {formatDeadlineEst(c.submission_deadline)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn--secondary"
-                      disabled={joinBusy || !c.can_join}
-                      onClick={() => void onJoinPublic(c)}
-                    >
-                      Join
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {joinMsg ? (
-            <p className="challenges-page__join-msg" role="status">
-              {joinMsg}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      {loadErr ? (
-        <div className="alert alert--error">{loadErr}</div>
-      ) : null}
-
-      {!createOpen && !joinOpen && loading ? (
+      {loading ? (
         <p className="challenges-page__muted">Loading…</p>
-      ) : !createOpen && !joinOpen && rows.length === 0 ? (
-        <div className="card empty-state">
-          <strong>No challenges yet</strong>
-          Create a challenge or join one with a code.
+      ) : (
+        <div className="challenges-page__sections">
+          {renderSection(
+            'bracket_challenge',
+            'Bracket Challenge',
+            renderActivityList(bracketChallengeRows, true),
+            <form className="activity-panel__form" onSubmit={handleCreateBracketChallenge}>
+              <div className="field">
+                <label htmlFor="bc-name">Challenge name</label>
+                <input
+                  id="bc-name"
+                  className="input"
+                  value={bcName}
+                  onChange={(e) => setBcName(e.target.value)}
+                  required
+                  disabled={busy}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bc-bracket">Bracket</label>
+                <select
+                  id="bc-bracket"
+                  className="select"
+                  value={bcBracketId === '' ? '' : String(bcBracketId)}
+                  onChange={(e) =>
+                    setBcBracketId(
+                      e.target.value ? parseInt(e.target.value, 10) : '',
+                    )
+                  }
+                  required
+                  disabled={busy || brackets.length === 0}
+                >
+                  {brackets.length === 0 ? (
+                    <option value="">No brackets available</option>
+                  ) : (
+                    brackets.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="bc-deadline">Submission deadline (US Eastern)</label>
+                <input
+                  id="bc-deadline"
+                  className="input"
+                  type="datetime-local"
+                  value={bcDeadline}
+                  onChange={(e) => setBcDeadline(e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bc-max">Entries per person</label>
+                <input
+                  id="bc-max"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={bcMaxEntries}
+                  onChange={(e) => setBcMaxEntries(e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={bcPrivate}
+                  onChange={(e) => setBcPrivate(e.target.checked)}
+                  disabled={busy}
+                />
+                Private (join code)
+              </label>
+              <div className="activity-panel__actions">
+                <button type="button" className="btn btn--ghost" onClick={closePanel}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={busy || brackets.length === 0}
+                >
+                  {busy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>,
+            INSTANCE_BRACKET_CHALLENGE,
+          )}
+
+          {renderSection(
+            'tournament',
+            'Tournament',
+            renderActivityList(tournamentRows, false),
+            <form
+              className="activity-panel__form"
+              onSubmit={(e) => void handleCreateTournament(e)}
+            >
+              <div className="field">
+                <label htmlFor="t-name">Tournament name</label>
+                <input
+                  id="t-name"
+                  className="input"
+                  value={tName}
+                  onChange={(e) => setTName(e.target.value)}
+                  required
+                  disabled={busy}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="t-size">Teams</label>
+                <select
+                  id="t-size"
+                  className="select"
+                  value={tSize}
+                  onChange={(e) => setTSize(parseInt(e.target.value, 10))}
+                  disabled={busy}
+                >
+                  {[4, 8, 16, 32].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={tThird}
+                  onChange={(e) => setTThird(e.target.checked)}
+                  disabled={busy}
+                />
+                Third-place match
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={tPrivate}
+                  onChange={(e) => setTPrivate(e.target.checked)}
+                  disabled={busy}
+                />
+                Private (join code)
+              </label>
+              <div className="activity-panel__actions">
+                <button type="button" className="btn btn--ghost" onClick={closePanel}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary" disabled={busy}>
+                  {busy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>,
+            INSTANCE_TOURNAMENT,
+          )}
+
+          {renderSection(
+            'poll',
+            'Poll',
+            renderActivityList(pollRows, false),
+            null,
+            INSTANCE_POLL,
+            false,
+          )}
+
+          {renderSection(
+            'streak',
+            'Streak Challenge',
+            renderStreakList(),
+            <form className="activity-panel__form" onSubmit={handleCreateStreak}>
+              <div className="field">
+                <label htmlFor="s-competition">Competition</label>
+                {streakCompetitions.length === 0 ? (
+                  <p className="activity-panel__hint">
+                    No competitions available yet.
+                  </p>
+                ) : (
+                  <select
+                    id="s-competition"
+                    className="select"
+                    value={sCompetitionId === '' ? '' : String(sCompetitionId)}
+                    onChange={(e) =>
+                      setSCompetitionId(
+                        e.target.value ? parseInt(e.target.value, 10) : '',
+                      )
+                    }
+                    disabled={busy}
+                    required
+                  >
+                    {streakCompetitions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="field">
+                <label htmlFor="s-name">Challenge name</label>
+                <input
+                  id="s-name"
+                  className="input"
+                  value={sName}
+                  onChange={(e) => setSName(e.target.value)}
+                  required
+                  disabled={busy || streakCompetitions.length === 0}
+                />
+              </div>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={sPrivate}
+                  onChange={(e) => setSPrivate(e.target.checked)}
+                  disabled={busy}
+                />
+                Private (join code)
+              </label>
+              <div className="activity-panel__actions">
+                <button type="button" className="btn btn--ghost" onClick={closePanel}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={busy || streakCompetitions.length === 0}
+                >
+                  {busy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>,
+          )}
         </div>
-      ) : !createOpen && !joinOpen ? (
-        <ul className="challenge-list">
-          {rows.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className="challenge-card card challenge-card--clickable"
-                disabled={startBusyId === c.id}
-                aria-busy={startBusyId === c.id}
-                onClick={() => void openExisting(c)}
-              >
-                <div className="challenge-card__body">
-                  <ChallengeThumb url={c.bracket_image_url} name={c.name} />
-                  <div className="challenge-card__text">
-                    <h2 className="challenge-card__name">{c.name}</h2>
-                    <p className="challenge-card__meta">{c.bracket_name}</p>
-                    {!c.is_submitted && c.submission_deadline ? (
-                      <p className="challenge-card__due">
-                        Due {formatDeadlineEst(c.submission_deadline)}
-                      </p>
-                    ) : null}
-                    {c.is_private ? (
-                      <span className="challenge-card__badge">Private</span>
-                    ) : null}
-                    {c.is_submitted ? (
-                      <span className="challenge-card__badge">Submitted</span>
-                    ) : c.deadline_passed ? (
-                      <span className="challenge-card__badge">Closed</span>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      )}
     </div>
   );
 }

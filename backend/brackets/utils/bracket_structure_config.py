@@ -144,8 +144,42 @@ def resolved_group_stage_options(
             if "points_per_correct_pick" in gs
             else 1
         ),
+        "points_per_exact_position": (
+            _non_negative_int(gs["points_per_exact_position"], "points_per_exact_position")
+            if "points_per_exact_position" in gs
+            else (
+                _non_negative_int(
+                    gs["points_per_correct_pick"], "points_per_correct_pick"
+                )
+                if "points_per_correct_pick" in gs
+                else 1
+            )
+        ),
+        "points_per_advancer": (
+            _non_negative_int(gs["points_per_advancer"], "points_per_advancer")
+            if "points_per_advancer" in gs
+            else 0
+        ),
         "is_random_draw": _bool_val(gs.get("is_random_draw"), False),
         "metadata": parse_bracket_metadata(gs.get("metadata")),
+    }
+
+
+def resolved_bracket_scoring(config: dict[str, Any] | None) -> dict[str, int]:
+    cfg = config or {}
+    return {
+        "points_champion": (
+            _non_negative_int(cfg["points_champion"], "points_champion")
+            if "points_champion" in cfg
+            else 0
+        ),
+        "points_third_place_winner": (
+            _non_negative_int(
+                cfg["points_third_place_winner"], "points_third_place_winner"
+            )
+            if "points_third_place_winner" in cfg
+            else 0
+        ),
     }
 
 

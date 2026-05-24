@@ -45,6 +45,21 @@ class KnockoutFillMethodTests(TestCase):
     def test_default_is_standard(self):
         self.assertEqual(get_knockout_fill_method(_Stage()), STANDARD)
 
+    def test_infers_mapping_when_custom_mapping_present(self):
+        stage = _Stage(
+            metadata={
+                "group_knockout_mapping": {
+                    "1": {"team_a": "E1", "team_b": "3E"},
+                },
+            }
+        )
+        self.assertEqual(get_knockout_fill_method(stage), MAPPING)
+
+    def test_infers_mapping_for_wc_bracket_without_explicit_method(self):
+        stage = _Stage()
+        bracket = _Bracket(metadata={"tournament_type": "world_cup_2026"})
+        self.assertEqual(get_knockout_fill_method(stage, bracket), MAPPING)
+
     def test_invalid_method_falls_back(self):
         self.assertEqual(
             get_knockout_fill_method(
@@ -62,6 +77,20 @@ class KnockoutMappingLoadTests(TestCase):
             bracket, stage, num_groups=4
         )
         self.assertEqual(mapping[0], (1, "A1", "B2"))
+
+    def test_custom_mapping_without_method_uses_fifa_slots(self):
+        stage = _Stage(
+            metadata={
+                "group_knockout_mapping": {
+                    "1": {"team_a": "E1", "team_b": "3E"},
+                    "3": {"team_a": "A2", "team_b": "B2"},
+                },
+            }
+        )
+        bracket = _Bracket(metadata={"tournament_type": "world_cup_2026"})
+        mapping = load_knockout_mapping(bracket, stage)
+        self.assertEqual(mapping[0], (1, "E1", "3E"))
+        self.assertEqual(mapping[2], (3, "A2", "B2"))
 
     def test_seeding_eight_groups(self):
         stage = _Stage(metadata={"knockout_fill_method": SEEDING})

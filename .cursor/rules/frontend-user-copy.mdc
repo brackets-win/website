@@ -20,4 +20,9 @@ The UI is for **end users**. Do **not** ship explanatory text that answers imple
 - Minimal empty states and labels; round names stay whatever the backend sends—no meta-commentary
 - Put setup notes, data-flow explanations, and debugging steps in **README**, internal docs, or chat—not in `App.tsx` / bracket UI
 
+**Buttons and primary actions**
+
+- Use **Title Case** on every button label (e.g. `Create Competition`, `Delete Challenge`, `Add Question`)—never sentence case like `New competition` or `Delete challenge`.
+- Use **Create**, not **New**, for add flows (match `Create Bracket`, `Create Contestant`): toolbar `createLabel`, submit buttons, and form headings.
+
 When unsure, treat copy as **production-facing**.

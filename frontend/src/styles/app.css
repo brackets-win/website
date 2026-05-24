@@ -15,7 +15,8 @@
   --app-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.08);
   --app-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --app-header-h: 64px;
-  --app-max: 1120px;
+  /* Grows on wide desktops; caps so ultra-wide monitors stay readable */
+  --app-max: clamp(1120px, calc(100vw - 2.5rem), 1920px);
 }
 
 *,
@@ -146,6 +147,18 @@ body {
 
 .btn--secondary:hover:not(:disabled) {
   background: #f6f7f9;
+}
+
+.btn--outline {
+  color: var(--app-accent);
+  background: transparent;
+  border-color: var(--app-accent);
+}
+
+.btn--outline:hover:not(:disabled) {
+  color: var(--app-accent-hover);
+  background: rgba(var(--app-accent-rgb), 0.1);
+  border-color: var(--app-accent);
 }
 
 .btn--ghost {

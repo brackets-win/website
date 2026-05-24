@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 
 import type { ApiUser } from '../../utils/api';
+import { BracketsLogoMark } from '../BracketsLogoMark';
 
 import './AppShell.css';
 
-export type AppPage = 'home' | 'challenge' | 'admin';
+export type AppPage = 'home' | 'challenge' | 'streak' | 'admin';
 
 type Props = {
   user: ApiUser;
@@ -32,8 +33,8 @@ export function AppShell({
             className="shell__logo"
             onClick={() => onNavigate('home')}
           >
-            <span className="shell__logo-mark" aria-hidden>
-              {'}'} {'{'}
+            <span className="shell__logo-mark">
+              <BracketsLogoMark />
             </span>
             <span className="shell__logo-text">brackets.win</span>
           </button>

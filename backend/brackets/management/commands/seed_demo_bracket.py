@@ -35,10 +35,11 @@ class Command(BaseCommand):
         )
 
         tpl, _ = BracketTemplate.objects.get_or_create(
-            name="Single Elimination",
+            name="8 Single-Elimination Knockout",
             defaults={
                 "template_type": "SINGLE_ELIM",
-                "description": "Pure knockout bracket.",
+                "default_number_of_contestants": 8,
+                "description": "Semifinals and final.",
                 "created_by": system_user,
                 "is_system": True,
             },

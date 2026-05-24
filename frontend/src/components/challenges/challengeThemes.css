@@ -1,0 +1,140 @@
+/**
+ * Per–challenge-type accent colors (home activity sections + challenge detail pages).
+ */
+
+.challenge-theme,
+.activity-section {
+  --activity-accent: var(--app-accent);
+  --activity-accent-rgb: var(--app-accent-rgb);
+  --activity-accent-bg: rgba(var(--app-accent-rgb), 0.12);
+  --activity-btn: var(--app-accent);
+  --activity-btn-hover: var(--app-accent-hover);
+}
+
+.challenge-theme--tournament,
+.activity-section--tournament {
+  --activity-accent: #5a8470;
+  --activity-accent-rgb: 90, 132, 112;
+  --activity-accent-bg: rgba(90, 132, 112, 0.12);
+  --activity-btn: #5a8470;
+  --activity-btn-hover: #4d7361;
+}
+
+.challenge-theme--poll,
+.activity-section--poll {
+  --activity-accent: #7d68a8;
+  --activity-accent-rgb: 125, 104, 168;
+  --activity-accent-bg: rgba(125, 104, 168, 0.12);
+  --activity-btn: #7d68a8;
+  --activity-btn-hover: #6b5894;
+}
+
+.challenge-theme--streak,
+.activity-section--streak {
+  --activity-accent: #c2584a;
+  --activity-accent-rgb: 194, 88, 74;
+  --activity-accent-bg: rgba(194, 88, 74, 0.12);
+  --activity-btn: #c2584a;
+  --activity-btn-hover: #ab5042;
+}
+
+/* Home activity sections (not individual challenge cards) */
+.card.activity-section {
+  border-top-width: 3px;
+  border-top-style: solid;
+  border-top-color: var(--activity-accent);
+}
+
+/* Home activity section buttons */
+.activity-section .btn--primary {
+  background: var(--activity-btn);
+  border-color: var(--activity-btn);
+}
+
+.activity-section .btn--primary:hover:not(:disabled) {
+  background: var(--activity-btn-hover);
+  border-color: var(--activity-btn-hover);
+}
+
+.activity-section .btn--outline {
+  color: var(--activity-btn);
+  border-color: var(--activity-btn);
+}
+
+.activity-section .btn--outline:hover:not(:disabled) {
+  color: var(--activity-btn-hover);
+  background: var(--activity-accent-bg);
+  border-color: var(--activity-btn-hover);
+}
+
+.activity-section__icon {
+  color: var(--activity-accent);
+  background: var(--activity-accent-bg);
+}
+
+/* Challenge detail pages */
+.challenge-theme .challenge-view__head,
+.challenge-theme .streak-view__head {
+  border-top: 3px solid var(--activity-accent);
+}
+
+.challenge-theme .challenge-view__type {
+  color: var(--activity-accent);
+}
+
+.challenge-theme .challenge-view__tab--active,
+.challenge-theme .challenge-view__entry-tab--active {
+  background: var(--activity-btn);
+  border-color: var(--activity-btn);
+  color: #fff;
+}
+
+.challenge-theme .btn--primary {
+  background: var(--activity-btn);
+  border-color: var(--activity-btn);
+}
+
+.challenge-theme .btn--primary:hover:not(:disabled) {
+  background: var(--activity-btn-hover);
+  border-color: var(--activity-btn-hover);
+}
+
+.challenge-theme .btn--secondary:hover:not(:disabled) {
+  border-color: var(--activity-btn);
+  color: var(--activity-btn);
+}
+
+.challenge-theme .streak-leaderboard__player {
+  color: var(--activity-btn);
+}
+
+.challenge-theme .streak-leaderboard__player:hover {
+  color: var(--activity-btn-hover);
+}
+
+.challenge-theme .challenge-leaderboard__th-btn:hover,
+.challenge-theme .challenge-leaderboard__th-btn:focus-visible {
+  color: var(--activity-accent);
+}
+
+.challenge-theme .challenge-leaderboard__th-btn--active {
+  color: var(--activity-accent);
+}
+
+.challenge-theme .challenge-leaderboard__player-btn {
+  color: var(--activity-btn);
+}
+
+.challenge-theme .challenge-leaderboard__player-btn:hover {
+  color: var(--activity-btn-hover);
+}
+
+.challenge-theme .challenge-stats__group-avg {
+  color: var(--activity-accent);
+}
+
+.challenge-theme .challenge-stats__th-btn:hover,
+.challenge-theme .challenge-stats__th-btn:focus-visible,
+.challenge-theme .challenge-stats__th-btn--active {
+  color: var(--activity-accent);
+}

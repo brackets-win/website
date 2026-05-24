@@ -1,9 +1,9 @@
 """
 World Cup 2026 Round of 32: group-finish codes at each bracket tree position.
 
-Derived from knockout_matchups.tsv winner feeders. Tree position 1 is the top
-R32 game; (1,2)→R16-1, (3,4)→R16-2, … Left half (pos 1–8) feeds SF M101;
-right half (pos 9–16) feeds SF M102.
+Static R32 tree slot pairings (group-finish codes → bracket position 1–16).
+Later rounds use normal tree progression: R32 positions (1,2)→R16-1, (3,4)→R16-2, …
+Left half (pos 1–8) and right half (pos 9–16) follow standard bracket geometry.
 
 Examples (same half → M101): M73 (2A/2B), M77 (1I), M83 (2K/2L).
 """

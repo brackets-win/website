@@ -6,6 +6,14 @@ from .bracket_template import BracketTemplate
 from .matchup import Matchup, UserPick
 from .group import Group, GroupMembership
 from .bracket_challenge import BracketChallenge, ChallengeParticipant
+from .streak_challenge import (
+    StreakChallenge,
+    StreakCompetition,
+    StreakParticipant,
+    StreakPick,
+    StreakQuestion,
+    StreakQuestionChoice,
+)
 from .activity import ActivityLog
 
 __all__ = [
@@ -26,5 +34,11 @@ __all__ = [
     'GroupMembership',
     'BracketChallenge',
     'ChallengeParticipant',
+    'StreakChallenge',
+    'StreakCompetition',
+    'StreakParticipant',
+    'StreakQuestion',
+    'StreakQuestionChoice',
+    'StreakPick',
     'ActivityLog',
 ]

@@ -10,6 +10,7 @@ from brackets.api.serializers import bracket_groups_preview
 from brackets.models import BracketContestant, BracketStage, Matchup, UserBracket
 from brackets.utils.fwc26_regulations import teams_to_bit_vector
 from brackets.utils.group_knockout_fill import (
+    ensure_knockout_fill_method_persisted,
     load_knockout_mapping,
     uses_wc_third_place_table,
 )
@@ -164,6 +165,66 @@ def _resolve_position_code(
     return row.get(pos)
 
 
+def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[int]:
+    """
+    Bracket contestant ids that would occupy the first knockout round from
+    ``group_positions`` metadata (without reading or writing matchups).
+    """
+    bracket = user_bracket.bracket
+    if not bracket.stages.filter(stage_type=BracketStage.StageType.GROUP).exists():
+        return set()
+
+    first_ko = _get_first_knockout_stage(bracket)
+    if first_ko is None:
+        return set()
+
+    metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
+    placements = _placement_map(bracket, metadata)
+    if not placements:
+        return set()
+
+    mapping = load_knockout_mapping(bracket, first_ko)
+    if not mapping:
+        return set()
+
+    is_wc = uses_wc_third_place_table(bracket, first_ko)
+    wc_pairings: dict[str, str] | None = None
+    if is_wc:
+        third_codes = _third_place_group_codes(metadata, placements)
+        wc_pairings = _wc_third_place_pairings(bracket, third_codes)
+
+    ids: set[int] = set()
+    for _position, team_a_code, team_b_code in mapping:
+        bc_a_id = _resolve_position_code(
+            team_a_code,
+            placements=placements,
+            wc_pairings=wc_pairings,
+            partner_code=team_b_code,
+            is_wc=is_wc,
+        )
+        bc_b_id = _resolve_position_code(
+            team_b_code,
+            placements=placements,
+            wc_pairings=wc_pairings,
+            partner_code=team_a_code,
+            is_wc=is_wc,
+        )
+        if bc_a_id is not None:
+            ids.add(bc_a_id)
+        if bc_b_id is not None:
+            ids.add(bc_b_id)
+    return ids
+
+
+def contestants_in_stage_for_scoring(user_bracket: UserBracket, stage) -> set[int]:
+    """Teams credited for a knockout stage, including projected R32 from group picks."""
+    ids = set(user_bracket.get_contestants_in_stage(stage))
+    first_ko = _get_first_knockout_stage(user_bracket.bracket)
+    if first_ko is not None and stage.pk == first_ko.pk:
+        ids |= projected_first_knockout_contestant_ids(user_bracket)
+    return ids
+
+
 @transaction.atomic
 def sync_first_knockout_from_group_picks(
     user_bracket: UserBracket,
@@ -185,6 +246,8 @@ def sync_first_knockout_from_group_picks(
 
     if ensure_shell:
         ensure_knockout_matchup_shell(user_bracket)
+
+    ensure_knockout_fill_method_persisted(first_ko, bracket)
 
     metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
     placements = _placement_map(bracket, metadata)
@@ -252,9 +315,6 @@ def sync_first_knockout_from_group_picks(
         updated += 1
 
     if updated:
-        from brackets.utils.fwc26_knockout_wiring import wire_fwc26_knockout_sources
-
-        wire_fwc26_knockout_sources(user_bracket)
         rebuild_knockout_from_first_round(user_bracket)
 
     return updated

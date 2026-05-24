@@ -8,6 +8,13 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from brackets.models import BracketChallenge, UserBracket
+from brackets.utils.challenge_types import (
+    CHALLENGE,
+    POLL,
+    TOURNAMENT,
+    creates_user_bracket,
+    uses_bracket_submission,
+)
 
 EASTERN = ZoneInfo("America/New_York")
 
@@ -45,19 +52,26 @@ def deadline_passed(challenge: BracketChallenge, *, now: datetime | None = None)
 
 
 def assert_can_join(challenge: BracketChallenge) -> None:
-    if challenge.instance_type != "CHALLENGE":
-        raise ValueError("This challenge is not open for joining")
-    if deadline_passed(challenge):
+    if challenge.instance_type not in (CHALLENGE, TOURNAMENT, POLL):
+        raise ValueError("This activity is not open for joining")
+    if challenge.instance_type == CHALLENGE and deadline_passed(challenge):
         raise ValueError("The submission deadline has passed")
 
 
 def assert_can_edit_picks(ub: UserBracket) -> None:
     if ub.is_master:
         return
-    if ub.submitted_at is not None:
-        raise ValueError("Bracket already submitted")
     if ub.challenge_id is None:
         return
     challenge = ub.challenge
-    if challenge and deadline_passed(challenge):
-        raise ValueError("The submission deadline has passed")
+    if challenge is None:
+        return
+    if uses_bracket_submission(challenge.instance_type):
+        if ub.submitted_at is not None:
+            raise ValueError("Bracket already submitted")
+        if deadline_passed(challenge):
+            raise ValueError("The submission deadline has passed")
+        return
+    if challenge.instance_type == POLL:
+        return
+    raise ValueError("Cannot edit picks for this activity")

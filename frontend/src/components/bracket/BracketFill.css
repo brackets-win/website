@@ -87,17 +87,94 @@
   z-index: 1;
 }
 
-.bf-center-slot-label {
+.bf-center-slot-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.bf-center-slot-anchor--up {
+  transform: translateY(-100%);
+}
+
+.bf-center-slot-anchor--centered {
+  transform: translateY(-50%);
+}
+
+.bf-center-slot-anchor--below {
+  transform: none;
+}
+
+.bf-center-slot--final {
+  z-index: 2;
+}
+
+.bf-center-slot--champion {
+  z-index: 3;
+}
+
+.bf-center-slot--third {
+  z-index: 1;
+}
+
+.bf-center-slot-stack--third {
+  gap: var(--bf-third-stack-gap, 0.55rem);
+}
+
+.bf-third-place-winner-placeholder {
+  min-height: 3.25rem;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  box-sizing: border-box;
+}
+
+/* Match card stays put; title + winner box float above it. */
+.bf-center-third-match {
+  position: relative;
+  width: 100%;
+}
+
+.bf-center-third-above {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 100%;
-  margin: 0 0 0.35rem;
-  transform: none;
+  margin-bottom: var(--bf-third-above-match-gap, 0.65rem);
 }
 
-.bf-center-slot--champion .bf-champion-placeholder {
-  display: block;
+.bf-third-place-section--stacked {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.bf-third-place-section--stacked .bf-center-third-above {
+  position: relative;
+  bottom: auto;
+  margin-bottom: var(--bf-third-above-match-gap, 0.65rem);
+}
+
+.bf-third-place-section--stacked .bf-center-third-match {
+  position: relative;
+}
+
+.bf-center-slot-anchor .bf-stage-title {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+.bf-center-slot-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--bf-center-stack-gap, 0.35rem);
+}
+
+.bf-center-slot-stack .bf-winner-reveal {
+  margin-bottom: 0;
 }
 
 .bf-center-matchup-wrap {
@@ -106,10 +183,6 @@
   left: 0;
   right: 0;
   transform: translateY(-50%);
-}
-
-.bf-center-matchup-wrap--up {
-  transform: translateY(-100%);
 }
 
 .bf-center-slot--champion .bf-champion-box {
@@ -146,6 +219,7 @@
 
 .bf-matchup .bf-chip--winner {
   background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.1);
+  font-weight: 600;
 }
 
 .bf-matchup .bf-slot--pending {
@@ -300,6 +374,18 @@
   background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.1);
 }
 
+.bf-winner-reveal {
+  flex-shrink: 0;
+}
+
+.bf-third-place-section .bf-center-slot-stack {
+  gap: var(--bf-center-stack-gap, 0.35rem);
+}
+
+.bf-third-place-section .bf-winner-reveal {
+  margin-bottom: 0;
+}
+
 .bf-champion-name {
   font-weight: 600;
   color: var(--bf-text);
@@ -323,8 +409,24 @@
   margin-bottom: 0;
 }
 
-.bf-toolbar__submit {
+.bf-toolbar__end {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem 1rem;
   margin-left: auto;
+}
+
+.bf-toolbar__points {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--bf-muted, #64748b);
+  white-space: nowrap;
+}
+
+.bf-toolbar__submit {
+  margin-left: 0;
 }
 
 .bf-champion-placeholder {
@@ -449,6 +551,54 @@
 .bf-chip--winner {
   border-color: rgba(var(--app-accent-rgb, 87, 130, 168), 0.45);
   background: linear-gradient(180deg, #f7f9fb 0%, #eef3f7 100%);
+}
+
+.bf-g-chip--scored,
+.bf-chip--scored,
+.bf-matchup .bf-chip.bf-chip--scored,
+.bf-matchup .bf-chip.bf-chip--ko.bf-chip--scored {
+  background: #ecfdf5 !important;
+  border-color: #22c55e !important;
+  box-shadow: inset 0 0 0 1px #86efac;
+}
+
+.bf-matchup .bf-chip.bf-chip--winner.bf-chip--scored {
+  background: #dcfce7 !important;
+  border-color: #16a34a !important;
+}
+
+.bf-champion-box--scored {
+  background: #ecfdf5;
+  border-color: #22c55e;
+}
+
+.bf-scored-check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: 0.25rem;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bf-chip--ko .bf-scored-check,
+.bf-g-chip .bf-scored-check {
+  margin-right: 0.35rem;
+}
+
+.bf-champion-box .bf-scored-check {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  margin: 0;
+  z-index: 1;
 }
 
 .bf-error {
@@ -934,33 +1084,38 @@
   color: var(--bf-muted);
 }
 
-/* World Cup: shelves (3 groups × 4 rows) + third-place rail */
+/* World Cup: 4 groups per row on wide layouts + third-place rail */
 .bf-g--wc .bf-g-hint {
   margin-bottom: 0.75rem;
 }
 
 .bf-g-wc-body {
+  container-type: inline-size;
   display: flex;
   gap: 1rem;
   align-items: flex-start;
-  min-width: min-content;
-  overflow-x: auto;
+  min-width: 0;
   padding-bottom: 0.35rem;
-  -webkit-overflow-scrolling: touch;
 }
 
-.bf-g-shelves {
+.bf-g-wc-groups {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 0.65rem;
+  grid-template-columns: 1fr;
 }
 
-.bf-g-shelf {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
-  gap: 0.65rem;
+@container (min-width: 520px) {
+  .bf-g-wc-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 1000px) {
+  .bf-g-wc-groups {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .bf-g-card--wc {
@@ -1033,7 +1188,8 @@
 }
 
 @media (max-width: 720px) {
-  .bf-g-shelf {
+  .bf-g-grid,
+  .bf-g-wc-groups {
     grid-template-columns: 1fr;
   }
 

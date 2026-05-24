@@ -53,7 +53,6 @@ def _ensure_third_place_stage(bracket: Bracket) -> KnockoutStage:
         stage_type=BracketStage.StageType.KNOCKOUT,
         number_of_contestants=2,
         contestants_advancing=1,
-        is_random_draw=False,
         is_final=False,
         is_third_place=True,
         **ko_defaults,

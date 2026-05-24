@@ -5,6 +5,7 @@ import {
   ApiError,
   adminCreateBracket,
   adminDeleteBracket,
+  adminListBracketTemplates,
   adminListContestants,
   adminUpdateBracket,
   adminUpdateBracketStages,
@@ -13,10 +14,12 @@ import {
   type BracketStageInfo,
   type BracketStructureType,
   type BracketSummary,
+  type BracketTemplateSummary,
   type ContestantCatalog,
 } from '../../utils/api';
 
 import { AdminBackBar } from './AdminBackBar';
+import { AdminNumberInput } from './AdminNumberInput';
 import { BracketStageEditor } from './BracketStageEditor';
 import {
   buildStructureConfig,
@@ -27,9 +30,32 @@ import {
 import { AdminCatalogToolbar } from './AdminCatalogToolbar';
 import { IconPencil, IconTrash } from './AdminIcons';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import {
+  startDeleteTarget,
+  type AdminDeleteTarget,
+} from './deleteDialogHelpers';
 import './admin-shared.css';
 
 type AssignRow = { seed: string; contestant_id: string };
+
+type BracketTemplateChoice = number | 'custom';
+
+function structureKindLabel(kind: BracketStructureType): string {
+  return kind === 'GROUP_KNOCKOUT'
+    ? 'Group stage + knockout'
+    : 'Single elimination';
+}
+
+function applyBracketTemplate(
+  tpl: BracketTemplateSummary,
+  setStructureKind: (k: BracketStructureType) => void,
+  setBN: (n: number) => void,
+) {
+  setStructureKind(tpl.template_type);
+  if (tpl.default_number_of_contestants != null) {
+    setBN(tpl.default_number_of_contestants);
+  }
+}
 
 function buildAssignRows(
   count: number,
@@ -47,9 +73,15 @@ function buildAssignRows(
 
 export function BracketsAdmin() {
   const [brackets, setBrackets] = useState<BracketSummary[]>([]);
+  const [bracketTemplates, setBracketTemplates] = useState<
+    BracketTemplateSummary[]
+  >([]);
   const [contestants, setContestants] = useState<ContestantCatalog[]>([]);
   const [loadErr, setLoadErr] = useState('');
 
+  const [bTemplateId, setBTemplateId] = useState<BracketTemplateChoice | ''>(
+    '',
+  );
   const [structureKind, setStructureKind] =
     useState<BracketStructureType>('SINGLE_ELIM');
   const [bIdentifier, setBIdentifier] = useState('');
@@ -67,8 +99,11 @@ export function BracketsAdmin() {
   const [bPtTie, setBPtTie] = useState(1);
   const [bPtLoss, setBPtLoss] = useState(0);
   const [bTiesAllowed, setBTiesAllowed] = useState(true);
-  const [bGroupPickPts, setBGroupPickPts] = useState(1);
+  const [bGroupExactPts, setBGroupExactPts] = useState(1);
+  const [bGroupAdvancerPts, setBGroupAdvancerPts] = useState(0);
   const [bGroupRandom, setBGroupRandom] = useState(false);
+  const [bChampionPts, setBChampionPts] = useState(0);
+  const [bThirdPlacePts, setBThirdPlacePts] = useState(0);
   const [bKoLegs, setBKoLegs] = useState(1);
   const [bKoET, setBKoET] = useState(true);
   const [bKoPK, setBKoPK] = useState(true);
@@ -100,6 +135,8 @@ export function BracketsAdmin() {
   const [editShowSeeds, setEditShowSeeds] = useState(true);
   const [editRand, setEditRand] = useState(false);
   const [editThird, setEditThird] = useState(false);
+  const [editChampionPts, setEditChampionPts] = useState(0);
+  const [editThirdPlacePts, setEditThirdPlacePts] = useState(0);
   const [editMetadata, setEditMetadata] = useState('');
   const [editStages, setEditStages] = useState<BracketStageInfo[]>([]);
   const firstKnockoutStageId = useMemo(() => {
@@ -112,25 +149,68 @@ export function BracketsAdmin() {
   }, [editStages]);
   const [editLoadBusy, setEditLoadBusy] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{
-    id: number;
-    label: string;
-  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminDeleteTarget | null>(
+    null,
+  );
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const selectedTemplate = useMemo(() => {
+    if (bTemplateId === '' || bTemplateId === 'custom') return null;
+    return bracketTemplates.find((t) => t.id === bTemplateId) ?? null;
+  }, [bTemplateId, bracketTemplates]);
 
   const reload = useCallback(async () => {
     setLoadErr('');
-    try {
-      const [c, b] = await Promise.all([
+    const errors: string[] = [];
+
+    const [contestantsResult, bracketsResult, templatesResult] =
+      await Promise.allSettled([
         adminListContestants(),
         listBrackets(),
+        adminListBracketTemplates(),
       ]);
-      setContestants(c.contestants);
-      setBrackets(b.brackets);
-    } catch (e) {
-      setLoadErr(
-        e instanceof ApiError ? e.message : 'Unable to load contestants.',
+
+    if (contestantsResult.status === 'fulfilled') {
+      setContestants(contestantsResult.value.contestants);
+    } else {
+      errors.push(
+        contestantsResult.reason instanceof ApiError
+          ? contestantsResult.reason.message
+          : 'Unable to load contestants.',
       );
+    }
+
+    if (bracketsResult.status === 'fulfilled') {
+      setBrackets(bracketsResult.value.brackets);
+    } else {
+      errors.push(
+        bracketsResult.reason instanceof ApiError
+          ? bracketsResult.reason.message
+          : 'Unable to load brackets.',
+      );
+    }
+
+    if (templatesResult.status === 'fulfilled') {
+      const templates = templatesResult.value.templates;
+      setBracketTemplates(templates);
+      setBTemplateId((prev) => {
+        if (prev === 'custom') return prev;
+        if (typeof prev === 'number' && templates.some((t) => t.id === prev)) {
+          return prev;
+        }
+        return templates[0]?.id ?? 'custom';
+      });
+    } else {
+      setBracketTemplates([]);
+      errors.push(
+        templatesResult.reason instanceof ApiError
+          ? templatesResult.reason.message
+          : 'Unable to load bracket templates.',
+      );
+    }
+
+    if (errors.length > 0) {
+      setLoadErr(errors[0]);
     }
   }, []);
 
@@ -199,7 +279,21 @@ export function BracketsAdmin() {
     setBDesc('');
     setBImage(null);
     setPageMsg(null);
+    const first = bracketTemplates[0];
+    if (first) {
+      setBTemplateId(first.id);
+      applyBracketTemplate(first, setStructureKind, setBN);
+    } else {
+      setBTemplateId('custom');
+    }
     setView('create');
+  }
+
+  function onTemplateChange(next: BracketTemplateChoice) {
+    setBTemplateId(next);
+    if (next === 'custom') return;
+    const tpl = bracketTemplates.find((t) => t.id === next);
+    if (tpl) applyBracketTemplate(tpl, setStructureKind, setBN);
   }
 
   async function onCreate(e: React.FormEvent) {
@@ -279,8 +373,11 @@ export function BracketsAdmin() {
         bPtTie,
         bPtLoss,
         bTiesAllowed,
-        bGroupPickPts,
+        bGroupExactPts,
+        bGroupAdvancerPts,
         bGroupRandom,
+        bChampionPts,
+        bThirdPlacePts: bThird ? bThirdPlacePts : 0,
         bKoLegs,
         bKoET,
         bKoPK,
@@ -289,7 +386,11 @@ export function BracketsAdmin() {
       });
 
       const fd = new FormData();
-      fd.append('structure', structureKind);
+      if (bTemplateId !== 'custom' && typeof bTemplateId === 'number') {
+        fd.append('template_id', String(bTemplateId));
+      } else {
+        fd.append('structure', structureKind);
+      }
       fd.append('identifier', identifier);
       fd.append('name', name);
       if (bDesc.trim()) fd.append('description', bDesc.trim());
@@ -334,6 +435,8 @@ export function BracketsAdmin() {
     setEditShowSeeds(b.show_seeds !== false);
     setEditRand(b.randomize_seeds_per_challenge);
     setEditThird(b.has_third_place_match ?? false);
+    setEditChampionPts(b.points_champion ?? 0);
+    setEditThirdPlacePts(b.points_third_place_winner ?? 0);
     setEditMetadata(metadataToText(b.metadata));
     setEditStages([]);
     setEditLoadBusy(true);
@@ -342,6 +445,8 @@ export function BracketsAdmin() {
       setEditShowSeeds(bracket.show_seeds !== false);
       setEditRand(bracket.randomize_seeds_per_challenge);
       setEditThird(bracket.has_third_place_match ?? false);
+      setEditChampionPts(bracket.points_champion ?? 0);
+      setEditThirdPlacePts(bracket.points_third_place_winner ?? 0);
       setEditMetadata(metadataToText(bracket.metadata));
       setEditStages(
         [...bracket.stages].sort((a, c) => a.order - c.order),
@@ -375,6 +480,8 @@ export function BracketsAdmin() {
       fd.append('show_seeds', editShowSeeds ? 'true' : 'false');
       fd.append('randomize_seeds_per_challenge', editRand ? 'true' : 'false');
       fd.append('has_third_place_match', editThird ? 'true' : 'false');
+      fd.append('points_champion', String(editChampionPts));
+      fd.append('points_third_place_winner', String(editThird ? editThirdPlacePts : 0));
       fd.append('metadata', JSON.stringify(metadata));
       if (editImage) fd.append('image', editImage);
       await adminUpdateBracket(editBracketId, fd);
@@ -394,6 +501,8 @@ export function BracketsAdmin() {
                 show_seeds: bracket.show_seeds,
                 randomize_seeds_per_challenge: bracket.randomize_seeds_per_challenge,
                 has_third_place_match: bracket.has_third_place_match,
+                points_champion: bracket.points_champion,
+                points_third_place_winner: bracket.points_third_place_winner,
                 metadata: bracket.metadata,
                 challenge_count:
                   r.challenge_count ?? bracket.challenge_count ?? 0,
@@ -477,19 +586,61 @@ export function BracketsAdmin() {
             ) : null}
 
             <div className="field">
-              <label htmlFor="bracket-structure">Bracket Type</label>
+              <label htmlFor="bracket-template">Structure template</label>
               <select
-                id="bracket-structure"
+                id="bracket-template"
                 className="select"
-                value={structureKind}
-                onChange={(e) =>
-                  setStructureKind(e.target.value as BracketStructureType)
+                value={
+                  bTemplateId === '' ? '' : String(bTemplateId)
                 }
-                disabled={createBusy}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === 'custom') {
+                    onTemplateChange('custom');
+                    return;
+                  }
+                  const id = parseInt(raw, 10);
+                  if (Number.isFinite(id)) onTemplateChange(id);
+                }}
+                required
+                disabled={createBusy || bracketTemplates.length === 0}
               >
-                <option value="SINGLE_ELIM">Single elimination</option>
-                <option value="GROUP_KNOCKOUT">Group stage + knockout</option>
+                {bracketTemplates.length === 0 ? (
+                  <option value="custom">Custom structure</option>
+                ) : (
+                  bracketTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))
+                )}
+                <option value="custom">Custom structure…</option>
               </select>
+              {selectedTemplate?.description ? (
+                <p className="field__hint">{selectedTemplate.description}</p>
+              ) : null}
+              {bTemplateId === 'custom' ? (
+                <div className="field" style={{ marginTop: '0.75rem' }}>
+                  <label htmlFor="bracket-structure">Structure</label>
+                  <select
+                    id="bracket-structure"
+                    className="select"
+                    value={structureKind}
+                    onChange={(e) =>
+                      setStructureKind(e.target.value as BracketStructureType)
+                    }
+                    disabled={createBusy}
+                  >
+                    <option value="SINGLE_ELIM">Single elimination</option>
+                    <option value="GROUP_KNOCKOUT">Group stage + knockout</option>
+                  </select>
+                </div>
+              ) : selectedTemplate ? (
+                <p className="field__hint">
+                  {structureKindLabel(selectedTemplate.template_type)} — stages
+                  are created automatically from the team count.
+                </p>
+              ) : null}
             </div>
 
             <div className="field">
@@ -571,16 +722,36 @@ export function BracketsAdmin() {
             </div>
 
             {isSingleElim || structureKind === 'GROUP_KNOCKOUT' ? (
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={bThird}
-                  onChange={(e) => setBThird(e.target.checked)}
-                  disabled={createBusy}
-                />
-                Third-place match (semifinal losers)
-              </label>
+              <div className="form-grid form-grid--2 form-grid--align-end">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bThird}
+                    onChange={(e) => setBThird(e.target.checked)}
+                    disabled={createBusy}
+                  />
+                  Third-place match
+                </label>
+                <div className="field">
+                  <label htmlFor="b-third-place-pts">Points for 3rd place winner</label>
+                  <AdminNumberInput
+                    id="b-third-place-pts"
+                    value={bThirdPlacePts}
+                    onChange={setBThirdPlacePts}
+                    disabled={createBusy || !bThird}
+                  />
+                </div>
+              </div>
             ) : null}
+            <div className="field">
+              <label htmlFor="b-champion-pts">Points for champion</label>
+              <AdminNumberInput
+                id="b-champion-pts"
+                value={bChampionPts}
+                onChange={setBChampionPts}
+                disabled={createBusy}
+              />
+            </div>
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -663,16 +834,20 @@ export function BracketsAdmin() {
                         />
                       </div>
                       <div className="field">
-                        <label htmlFor="b-group-pick-pts">Points per correct pick</label>
-                        <input
-                          id="b-group-pick-pts"
-                          className="input"
-                          type="number"
-                          min={1}
-                          value={bGroupPickPts}
-                          onChange={(e) =>
-                            setBGroupPickPts(parseInt(e.target.value, 10) || 1)
-                          }
+                        <label htmlFor="b-group-exact-pts">Points per exact position</label>
+                        <AdminNumberInput
+                          id="b-group-exact-pts"
+                          value={bGroupExactPts}
+                          onChange={setBGroupExactPts}
+                          disabled={createBusy}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="b-group-advancer-pts">Points per advancer</label>
+                        <AdminNumberInput
+                          id="b-group-advancer-pts"
+                          value={bGroupAdvancerPts}
+                          onChange={setBGroupAdvancerPts}
                           disabled={createBusy}
                         />
                       </div>
@@ -887,7 +1062,10 @@ export function BracketsAdmin() {
         <section className="card">
           <header className="card__header">
             <h2>Master bracket — {fillBracketName}</h2>
-            <p>Official results used for scoring after the deadline.</p>
+            <p>
+              Official results used for scoring. You can fill this anytime
+              (before or after the player deadline).
+            </p>
           </header>
           <div className="card__body">
             <BracketFill userBracketId={fillMasterUbId} allowMasterEdit />
@@ -986,15 +1164,35 @@ export function BracketsAdmin() {
                 />
                 Randomize seeds for each challenge
               </label>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={editThird}
-                  onChange={(e) => setEditThird(e.target.checked)}
+              <div className="form-grid form-grid--2 form-grid--align-end">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={editThird}
+                    onChange={(e) => setEditThird(e.target.checked)}
+                    disabled={editBusy || editLoadBusy}
+                  />
+                  Third-place match
+                </label>
+                <div className="field">
+                  <label htmlFor="edit-third-place-pts">Points for 3rd place winner</label>
+                  <AdminNumberInput
+                    id="edit-third-place-pts"
+                    value={editThirdPlacePts}
+                    onChange={setEditThirdPlacePts}
+                    disabled={editBusy || editLoadBusy || !editThird}
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="edit-champion-pts">Points for champion</label>
+                <AdminNumberInput
+                  id="edit-champion-pts"
+                  value={editChampionPts}
+                  onChange={setEditChampionPts}
                   disabled={editBusy || editLoadBusy}
                 />
-                Third-place match (adds a knockout stage after the final when creating)
-              </label>
+              </div>
               <div className="field">
                 <label htmlFor="edit-bracket-metadata">Bracket metadata (JSON)</label>
                 <textarea
@@ -1079,7 +1277,6 @@ export function BracketsAdmin() {
           ) : (
             <ul className="catalog-list">
               {filteredBrackets.map((b) => {
-                const canDelete = (b.challenge_count ?? 0) === 0;
                 return (
                 <li key={b.id} className="catalog-list__row catalog-shelf__row">
                   <div className="catalog-shelf__main">
@@ -1118,19 +1315,17 @@ export function BracketsAdmin() {
                     >
                       {'}'} {'{'}
                     </button>
-                    {canDelete ? (
-                      <button
-                        type="button"
-                        className="btn-icon btn-icon--danger"
-                        title="Delete"
-                        aria-label={`Delete ${b.name}`}
-                        onClick={() =>
-                          setDeleteTarget({ id: b.id, label: b.name })
-                        }
-                      >
-                        <IconTrash />
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      className="btn-icon btn-icon--danger"
+                      title="Delete"
+                      aria-label={`Delete ${b.name}`}
+                      onClick={() =>
+                        startDeleteTarget('bracket', b.id, b.name, setDeleteTarget)
+                      }
+                    >
+                      <IconTrash />
+                    </button>
                   </div>
                 </li>
                 );
@@ -1143,12 +1338,10 @@ export function BracketsAdmin() {
 
       <DeleteConfirmDialog
         open={deleteTarget != null}
-        title="Delete bracket?"
-        message={
-          deleteTarget
-            ? `“${deleteTarget.label}” will be permanently removed.`
-            : ''
-        }
+        title="Delete Bracket?"
+        label={deleteTarget?.label ?? ''}
+        relatedRecords={deleteTarget?.relatedRecords}
+        loadingRelated={deleteTarget?.loadingRelated}
         busy={deleteBusy}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDeleteBracket()}

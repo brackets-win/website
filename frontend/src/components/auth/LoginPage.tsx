@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { BracketsLogoMark } from '../BracketsLogoMark';
+
 import './LoginPage.css';
 
 type Props = {
@@ -21,8 +23,8 @@ export function LoginPage({ onLogin, error, busy }: Props) {
     <div className="login">
       <div className="login__card card">
         <div className="login__brand">
-          <span className="login__mark" aria-hidden>
-            {'}'} {'{'}
+          <span className="login__mark">
+            <BracketsLogoMark />
           </span>
           <div>
             <h1 className="login__title">brackets.win</h1>
