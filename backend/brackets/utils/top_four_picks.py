@@ -6,6 +6,7 @@ from typing import Any
 
 from brackets.models import BracketContestant, BracketStage, KnockoutStage, UserBracket
 from brackets.utils.knockout_tree import _semifinal_stage_before_final
+from brackets.utils.contestant_images import resolve_contestant_image_url
 
 
 def _pick_payload(bc: BracketContestant | None) -> dict[str, Any] | None:
@@ -14,13 +15,8 @@ def _pick_payload(bc: BracketContestant | None) -> dict[str, Any] | None:
     name = bc.name_override or (
         bc.contestant.name if bc.contestant else f"Contestant {bc.id}"
     )
-    img: str | None = None
     c = bc.contestant
-    if c:
-        if getattr(c, "photo", None) and c.photo:
-            img = c.photo.url
-        elif c.image_url:
-            img = c.image_url
+    img = resolve_contestant_image_url(c) if c else None
     return {
         "bracket_contestant_id": bc.id,
         "image_url": img,

@@ -27,19 +27,15 @@ from brackets.utils.challenge_types import (
     uses_bracket_submission,
     uses_prediction_scoring,
 )
+from brackets.utils.contestant_images import resolve_contestant_image_url
 
 
 def contestant_public(bc: BracketContestant) -> dict[str, Any]:
     name = bc.name_override or (
         bc.contestant.name if bc.contestant else f"Contestant {bc.id}"
     )
-    img: str | None = None
     c = bc.contestant
-    if c:
-        if getattr(c, "photo", None) and c.photo:
-            img = c.photo.url
-        elif c.image_url:
-            img = c.image_url
+    img = resolve_contestant_image_url(c) if c else None
     return {
         "id": bc.id,
         "display_name": name,
@@ -147,6 +143,12 @@ def bracket_image_url(b: Bracket, request=None) -> str | None:
     return b.image.url
 
 
+def streak_competition_image_url(competition, request=None) -> str | None:
+    if not competition.image:
+        return None
+    return competition.image.url
+
+
 def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
     challenge_count = getattr(b, "challenge_count", None)
     if challenge_count is None:
@@ -165,6 +167,7 @@ def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
         "show_seeds": b.show_seeds,
         "metadata": b.metadata,
         "challenge_count": challenge_count,
+        "is_reusable": b.is_reusable,
     }
 
 
@@ -285,12 +288,7 @@ def contestant_catalog(c: Contestant, request=None) -> dict[str, Any]:
         "metadata": c.metadata,
         "tags": [contestant_tag_public(t) for t in c.tags.all()],
     }
-    if c.photo:
-        out["photo_url"] = c.photo.url
-    elif c.image_url:
-        out["photo_url"] = c.image_url
-    else:
-        out["photo_url"] = None
+    out["photo_url"] = resolve_contestant_image_url(c)
     return out
 
 
@@ -326,7 +324,20 @@ def challenge_summary(
 ) -> dict[str, Any]:
     passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
-    submitted = ub is not None and ub.submitted_at is not None
+    entries = user_entries or []
+    submitted = any(e.submitted_at is not None for e in entries) or (
+        ub is not None and ub.submitted_at is not None
+    )
+    from brackets.utils.challenge_entries import user_has_submitted_challenge
+
+    can_view_peer_brackets = (
+        user is not None
+        and (
+            c.instance_type != CHALLENGE
+            or user_has_submitted_challenge(user, c)
+            or getattr(user, "is_staff", False)
+        )
+    )
     complete = False
     if ub is not None:
         complete, _ = user_bracket_is_complete(ub)
@@ -348,6 +359,18 @@ def challenge_summary(
         and not (c.instance_type == CHALLENGE and passed)
         and entry_count < c.max_entries
     )
+    tournament_team_count = None
+    teams_configured = None
+    if c.instance_type == TOURNAMENT:
+        from brackets.utils.tournament_teams import (
+            tournament_team_capacity,
+            tournament_teams_public,
+        )
+
+        tournament_team_count = tournament_team_capacity(c.bracket)
+        required = tournament_team_count or 0
+        configured = len(tournament_teams_public(c.bracket))
+        teams_configured = required > 0 and configured >= required
     is_creator = user is not None and c.created_by_id == user.id
     can_join = can_add_entry
     can_edit = False
@@ -385,6 +408,7 @@ def challenge_summary(
             _user_entry_payload(ub) for ub in (user_entries or [])
         ],
         "is_submitted": submitted,
+        "can_view_peer_brackets": can_view_peer_brackets,
         "is_complete": complete,
         "can_join": can_join,
         "can_add_entry": can_add_entry,
@@ -397,6 +421,8 @@ def challenge_summary(
             else None
         ),
         "master_user_bracket_id": master_user_bracket_id,
+        "tournament_team_count": tournament_team_count,
+        "teams_configured": teams_configured,
         "leaderboard_preview": bracket_challenge_leaderboard_preview(c, user),
     }
 

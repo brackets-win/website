@@ -46,6 +46,8 @@ type Props = {
   onChange: (stage: BracketStageInfo) => void;
   disabled?: boolean;
   isFirstKnockout?: boolean;
+  /** Group → knockout fill only applies when a group stage exists. */
+  hasGroupStage?: boolean;
 };
 
 function metadataText(value: unknown): string {
@@ -68,6 +70,7 @@ export function BracketStageEditor({
   onChange,
   disabled,
   isFirstKnockout = false,
+  hasGroupStage = false,
 }: Props) {
   const isGroup = stage.stage_type === 'GROUP';
   const isKo = stage.stage_type === 'KNOCKOUT';
@@ -357,7 +360,7 @@ export function BracketStageEditor({
             />
             Final
           </label>
-          {isFirstKnockout ? (
+          {isFirstKnockout && hasGroupStage ? (
             <div className="field" style={{ marginTop: '0.75rem' }}>
               <label htmlFor={`ko-fill-${stage.id}`}>
                 Group → knockout fill

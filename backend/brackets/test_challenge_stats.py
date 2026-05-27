@@ -70,6 +70,7 @@ class ChallengeStatsTests(TestCase):
 
         col_keys = [c["key"] for c in stats["knockout"]["columns"]]
         self.assertEqual(col_keys[-1], "group_winner")
+        self.assertEqual(col_keys[0], "progression_score")
         row0 = next(
             r
             for r in stats["knockout"]["rows"]
@@ -138,8 +139,9 @@ class ChallengeStatsTests(TestCase):
 
         stats = compute_challenge_stats(self.challenge)
         col_keys = [c["key"] for c in stats["knockout"]["columns"]]
-        self.assertEqual(col_keys[0], "champion")
-        self.assertEqual(col_keys[1], "runner_up")
+        self.assertEqual(col_keys[0], "progression_score")
+        self.assertEqual(col_keys[1], "champion")
+        self.assertEqual(col_keys[2], "runner_up")
 
         row4 = next(
             r
@@ -153,6 +155,36 @@ class ChallengeStatsTests(TestCase):
             if r["bracket_contestant_id"] == self.teams[0].id
         )
         self.assertEqual(row0["percentages"]["runner_up"], 0.0)
+
+    def test_progression_score_prefers_deeper_advancement(self):
+        ub1 = self._submit_with_groups(
+            self.u1,
+            {"A": {"1": self.teams[0].id, "2": self.teams[1].id, "3": self.teams[2].id, "4": self.teams[3].id},
+             "B": {"1": self.teams[4].id, "2": self.teams[5].id, "3": self.teams[6].id, "4": self.teams[7].id}},
+        )
+        ub2 = self._submit_with_groups(
+            self.u2,
+            {"A": {"1": self.teams[0].id, "2": self.teams[1].id, "3": self.teams[2].id, "4": self.teams[3].id},
+             "B": {"1": self.teams[4].id, "2": self.teams[5].id, "3": self.teams[6].id, "4": self.teams[7].id}},
+        )
+        semifinal = KnockoutStage.objects.get(bracket=self.bracket, number_of_contestants=4)
+        for ub in (ub1, ub2):
+            sm = ub.matchup_set.get(stage=semifinal, position=1)
+            sm.contestant1 = self.teams[1]
+            sm.contestant2 = self.teams[4]
+            sm.save(update_fields=["contestant1", "contestant2"])
+
+        stats = compute_challenge_stats(self.challenge)
+        row_group_winner_only = next(
+            r for r in stats["knockout"]["rows"] if r["bracket_contestant_id"] == self.teams[0].id
+        )
+        row_second_plus_advancement = next(
+            r for r in stats["knockout"]["rows"] if r["bracket_contestant_id"] == self.teams[1].id
+        )
+        self.assertGreater(
+            row_second_plus_advancement["progression_score"],
+            row_group_winner_only["progression_score"],
+        )
 
     def test_stats_api_requires_auth(self):
         res = self.client.get(f"/brackets/api/challenges/{self.challenge.id}/stats")

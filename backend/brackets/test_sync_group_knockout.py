@@ -1,6 +1,8 @@
 """Tests for group-pick → knockout sync."""
 
-from django.test import TestCase
+import json
+
+from django.test import Client, TestCase
 
 from brackets.models import BracketContestant, Contestant, Matchup, User
 from brackets.utils.bracket_factory import create_bracket_with_structure
@@ -66,6 +68,38 @@ class SyncGroupKnockoutTests(TestCase):
             "C": [self.contestants[i].id for i in range(8, 12)],
             "D": [self.contestants[i].id for i in range(12, 16)],
         }
+
+    def test_master_patch_syncs_first_knockout(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        master = self.bracket.get_master_bracket()
+        ensure_knockout_matchup_shell(master)
+        g = self._group_bc_ids()
+        client = Client()
+        client.force_login(self.user)
+        res = client.patch(
+            f"/brackets/api/user-brackets/{master.id}",
+            data=json.dumps(
+                {
+                    "group_positions": {
+                        "A": {"1": g["A"][0], "2": g["A"][1]},
+                        "B": {"1": g["B"][0], "2": g["B"][1]},
+                        "C": {"1": g["C"][0], "2": g["C"][1]},
+                        "D": {"1": g["D"][0], "2": g["D"][1]},
+                    }
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        first_ko = (
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        m1 = Matchup.objects.get(
+            user_bracket=master, stage=first_ko, position=1
+        )
+        self.assertEqual(m1.contestant1_id, g["A"][0])
+        self.assertEqual(m1.contestant2_id, g["B"][1])
 
     def test_standard_group_knockout_fills_r16(self):
         g = self._group_bc_ids()

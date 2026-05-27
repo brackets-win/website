@@ -133,6 +133,7 @@ function openingCenterPct(
   }
   const feederTop = 2 * position - 1;
   const feederBot = 2 * position;
+  const halfLeaves = wingMax - wingMin + 1;
   const prevPosMin = wingStagePositionMin(stageIdx - 1, wingMin, halfLeaves);
   return centerPctBetweenFeeders(
     stageIdx,

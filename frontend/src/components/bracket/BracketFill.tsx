@@ -850,7 +850,9 @@ function linearStageColumn(
     positionMax: matchupsInStage,
     side: 'left',
     wingMin: 1,
-    wingMax: matchupsInStage,
+    // Keep every linear column on the opening-round vertical scale so
+    // quarterfinals/semifinals/final align and connectors land correctly.
+    wingMax: leaves,
   };
 }
 

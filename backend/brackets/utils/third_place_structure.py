@@ -5,9 +5,18 @@ from __future__ import annotations
 from django.db import transaction
 from django.db.models import Max
 
-from brackets.models import Bracket, BracketStage, KnockoutStage, UserBracket
+from brackets.models import (
+    Bracket,
+    BracketStage,
+    KnockoutStage,
+    Matchup,
+    UserBracket,
+)
 from brackets.utils.bracket_structure_config import resolved_knockout_defaults
-from brackets.utils.knockout_tree import ensure_third_place_matchup_wired
+from brackets.utils.knockout_tree import (
+    _semifinal_stage_before_final,
+    ensure_third_place_matchup_wired,
+)
 
 
 def get_third_place_stage(bracket: Bracket) -> KnockoutStage | None:
@@ -63,8 +72,24 @@ def _remove_third_place_stage(bracket: Bracket) -> None:
     KnockoutStage.objects.filter(bracket=bracket, is_third_place=True).delete()
 
 
+def _semifinal_matchups_ready(user_bracket: UserBracket, bracket: Bracket) -> bool:
+    """True when both semifinal slots exist (wiring can run safely)."""
+    final = KnockoutStage.objects.filter(bracket=bracket, is_final=True).first()
+    if not final:
+        return False
+    final_stage = BracketStage.objects.get(pk=final.pk)
+    sf_stage = _semifinal_stage_before_final(bracket, final_stage)
+    if not sf_stage:
+        return False
+    return (
+        Matchup.objects.filter(user_bracket=user_bracket, stage=sf_stage).count() == 2
+    )
+
+
 def _ensure_matchups_for_all_user_brackets(
     bracket: Bracket, stage: KnockoutStage
 ) -> None:
     for ub in UserBracket.objects.filter(bracket=bracket):
+        if not _semifinal_matchups_ready(ub, bracket):
+            continue
         ensure_third_place_matchup_wired(ub, stage, bracket=bracket)

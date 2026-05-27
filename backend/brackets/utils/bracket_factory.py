@@ -31,6 +31,7 @@ def create_bracket_with_structure(
     metadata: dict[str, Any] | None = None,
     randomize_seeds_per_challenge: bool = False,
     structure_config: dict[str, Any] | None = None,
+    is_reusable: bool = True,
 ) -> Bracket:
     """
     Build a bracket and all stages for ``template_type`` (same values as
@@ -50,6 +51,7 @@ def create_bracket_with_structure(
         show_seeds=show_seeds,
         metadata=metadata,
         randomize_seeds_per_challenge=randomize_seeds_per_challenge,
+        is_reusable=is_reusable,
         **scoring,
     )
 

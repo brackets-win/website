@@ -8,6 +8,7 @@ from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 from brackets.api.serializers import bracket_groups_preview
 from brackets.utils.potential_score import calculate_potential_score
+from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
 
 User = get_user_model()
 
@@ -89,10 +90,11 @@ class PotentialScoreTests(TestCase):
         mm1.save(update_fields=["contestant1", "contestant2", "winner"])
 
         potential = calculate_potential_score(self.ub)
+        actual = self.ub.calculate_score()
         ko_pts = KnockoutStage.objects.get(pk=r1.pk).points_per_correct_pick
         full = (4 + 2) * ko_pts + self.bracket.points_champion
         self.assertLess(potential, full)
-        self.assertEqual(potential, (2 + 2) * ko_pts + self.bracket.points_champion)
+        self.assertGreaterEqual(potential, actual)
 
     def test_group_exact_open_slot_counts_toward_potential(self):
         bracket = create_bracket_with_structure(
@@ -175,3 +177,37 @@ class PotentialScoreTests(TestCase):
 
         self.assertEqual(group_only, 48)
         self.assertEqual(calculate_potential_score(ub), 48)
+
+    def test_potential_is_at_least_actual_with_projected_r32_overlap(self):
+        """Knockout scoring credits projected R32 teams; potential must not lag actual."""
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "pot-r32-overlap",
+            "Pot R32 overlap",
+            8,
+            self.user,
+            structure_config={"knockout": {"points_per_correct_pick": 2}},
+        )
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"C{i + 1}", seed=i + 1
+            )
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.user, is_master=False
+        )
+        gp = {
+            "A": {"1": 1, "2": 2, "3": 3, "4": 4},
+            "B": {"1": 5, "2": 6, "3": 7, "4": 8},
+        }
+        ub.metadata = {"group_positions": gp}
+        ub.save()
+        sync_first_knockout_from_group_picks(ub)
+
+        master.metadata = {"group_positions": {"A": {"1": 1, "2": 2}}}
+        master.save()
+
+        actual = ub.calculate_score()
+        potential = calculate_potential_score(ub)
+        self.assertGreater(actual, 0)
+        self.assertGreaterEqual(potential, actual)

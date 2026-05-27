@@ -31,6 +31,13 @@ class Bracket(models.Model):
     )
     # Store bracket-specific metadata (e.g., World Cup third-place combinations)
     metadata = models.JSONField(null=True, blank=True)
+    is_reusable = models.BooleanField(
+        default=True,
+        help_text=(
+            "Reusable brackets appear in the admin catalog and can back bracket "
+            "challenges. Tournament and poll brackets are one-off (not reusable)."
+        ),
+    )
 
     def __str__(self):
         return self.name

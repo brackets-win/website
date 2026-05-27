@@ -1,8 +1,10 @@
 """API tests for streak challenges."""
 
 import json
+from io import BytesIO
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.utils import timezone
 
@@ -36,6 +38,28 @@ class StreakCompetitionAdminApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.competition.refresh_from_db()
         self.assertEqual(self.competition.name, "WC Props")
+
+    def test_staff_can_upload_competition_image(self):
+        self.client.force_login(self.staff)
+        image = SimpleUploadedFile(
+            "cup.png",
+            BytesIO(
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+                b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+                b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+                b"\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+            ).getvalue(),
+            content_type="image/png",
+        )
+        res = self.client.post(
+            "/brackets/api/streak-competitions",
+            data={"name": "With image", "image": image},
+        )
+        self.assertEqual(res.status_code, 201)
+        payload = res.json()["streak_competition"]
+        self.assertTrue(payload["image_url"])
+        competition = StreakCompetition.objects.get(pk=payload["id"])
+        self.assertTrue(competition.image.name.endswith(".png"))
 
     def test_staff_can_delete_competition_without_challenges(self):
         self.client.force_login(self.staff)
@@ -146,6 +170,35 @@ class StreakCompetitionAdminApiTests(TestCase):
         self.assertEqual(question.correct_choice_id, b.id)
         self.assertEqual(question.resolved_at, first_resolved_at)
 
+    def test_staff_can_clear_resolved_answer(self):
+        question = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Winner?",
+            closes_at=timezone.now() - timezone.timedelta(hours=1),
+            order=1,
+        )
+        a = StreakQuestionChoice.objects.create(
+            question=question, label="A", order=1
+        )
+        StreakQuestionChoice.objects.create(question=question, label="B", order=2)
+        self.client.force_login(self.staff)
+        resolve_res = self.client.post(
+            f"/brackets/api/streak-questions/{question.id}/resolve",
+            data=json.dumps({"correct_choice_id": a.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(resolve_res.status_code, 200)
+
+        clear_res = self.client.post(
+            f"/brackets/api/streak-questions/{question.id}/resolve",
+            data=json.dumps({"correct_choice_id": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(clear_res.status_code, 200)
+        question.refresh_from_db()
+        self.assertIsNone(question.correct_choice_id)
+        self.assertIsNone(question.resolved_at)
+
     def test_staff_can_resolve_past_deadline_question(self):
         question = StreakQuestion.objects.create(
             streak_competition=self.competition,
@@ -167,6 +220,64 @@ class StreakCompetitionAdminApiTests(TestCase):
         question.refresh_from_db()
         self.assertEqual(question.correct_choice_id, yes.id)
         self.assertIsNotNone(question.resolved_at)
+
+
+class StreakQuestionPickPctTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username="player", password="x")
+        self.other = User.objects.create_user(username="other", password="x")
+        self.competition = StreakCompetition.objects.create(name="Cup")
+        self.challenge = StreakChallenge.objects.create(
+            name="Pool",
+            streak_competition=self.competition,
+            created_by=self.user,
+            is_public=True,
+        )
+        StreakParticipant.objects.create(
+            streak_challenge=self.challenge, user=self.user
+        )
+        StreakParticipant.objects.create(
+            streak_challenge=self.challenge, user=self.other
+        )
+
+    def test_resolved_question_includes_pick_pct_per_choice(self):
+        question = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Winner?",
+            closes_at=timezone.now() - timezone.timedelta(hours=1),
+            order=1,
+        )
+        yes = StreakQuestionChoice.objects.create(
+            question=question, label="Yes", order=1
+        )
+        no = StreakQuestionChoice.objects.create(question=question, label="No", order=2)
+        question.correct_choice = yes
+        question.resolved_at = timezone.now()
+        question.save(update_fields=["correct_choice", "resolved_at"])
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=question,
+            user=self.user,
+            choice=yes,
+        )
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=question,
+            user=self.other,
+            choice=no,
+        )
+        self.client.force_login(self.user)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}"
+        )
+        self.assertEqual(res.status_code, 200)
+        payload = next(
+            q for q in res.json()["questions"] if q["id"] == question.id
+        )
+        by_label = {c["label"]: c["pick_pct"] for c in payload["choices"]}
+        self.assertEqual(by_label["Yes"], 50)
+        self.assertEqual(by_label["No"], 50)
 
 
 class StreakParticipantPicksApiTests(TestCase):
@@ -233,6 +344,10 @@ class StreakParticipantPicksApiTests(TestCase):
         picks = res.json()["picks"]
         self.assertEqual(len(picks), 1)
         self.assertEqual(picks[0]["text"], "Resolved Q")
+        self.assertEqual(len(picks[0]["choices"]), 2)
+        self.assertEqual(picks[0]["pick_choice_id"], yes.id)
+        self.assertEqual(picks[0]["correct_choice_id"], yes.id)
+        self.assertTrue(picks[0]["is_correct"])
 
 
 class StreakChallengeDeleteApiTests(TestCase):

@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 from django.db import DatabaseError, IntegrityError, transaction
+from collections import defaultdict
+
 from django.db.models import Count
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -14,7 +16,9 @@ from django.views.decorators.http import require_http_methods
 from brackets.api import serializers
 from brackets.api.views import (
     _generate_join_code,
+    _is_multipart,
     _json_error,
+    _multipart_post_files,
     _normalize_join_code,
     _parse_json,
     _require_user,
@@ -31,7 +35,16 @@ from brackets.utils.leaderboard_preview import (
     streak_challenge_leaderboard_preview,
     streak_participant_sort_key,
 )
-from brackets.utils.streak_scoring import recalculate_streak_competition, resolve_question
+from brackets.utils.streak_deadlines import (
+    closes_at_key,
+    open_deadline_pick_map,
+    other_open_pick_at_same_deadline,
+)
+from brackets.utils.streak_scoring import (
+    clear_question_resolution,
+    recalculate_streak_competition,
+    resolve_question,
+)
 
 
 def _streak_participant_or_none(challenge: StreakChallenge, user):
@@ -58,6 +71,7 @@ def _competition_public(
     return {
         "id": c.id,
         "name": c.name,
+        "image_url": serializers.streak_competition_image_url(c),
         "question_count": c.questions.count(),
         "challenge_count": challenge_count,
     }
@@ -95,12 +109,56 @@ def _streak_summary(
     }
 
 
-def _choices_payload(question: StreakQuestion) -> list[dict[str, Any]]:
-    return [{"id": c.id, "label": c.label} for c in question.choices.all()]
+def _pick_pct_by_question(
+    streak_challenge_id: int, question_ids: list[int]
+) -> dict[int, dict[int, int]]:
+    """question_id -> choice_id -> whole-number percent of picks in this challenge."""
+    if not question_ids:
+        return {}
+    rows = (
+        StreakPick.objects.filter(
+            streak_challenge_id=streak_challenge_id,
+            question_id__in=question_ids,
+        )
+        .values("question_id", "choice_id")
+        .annotate(count=Count("id"))
+    )
+    counts: dict[int, dict[int, int]] = defaultdict(dict)
+    for row in rows:
+        counts[row["question_id"]][row["choice_id"]] = row["count"]
+    result: dict[int, dict[int, int]] = {}
+    for question_id, choice_counts in counts.items():
+        total = sum(choice_counts.values())
+        if total == 0:
+            result[question_id] = {}
+            continue
+        result[question_id] = {
+            choice_id: round(count * 100 / total)
+            for choice_id, count in choice_counts.items()
+        }
+    return result
+
+
+def _choices_payload(
+    question: StreakQuestion,
+    pick_pcts: dict[int, int] | None = None,
+) -> list[dict[str, Any]]:
+    rows = []
+    for choice in question.choices.all():
+        item: dict[str, Any] = {"id": choice.id, "label": choice.label}
+        if pick_pcts is not None:
+            item["pick_pct"] = pick_pcts.get(choice.id, 0)
+        rows.append(item)
+    return rows
 
 
 def _question_public(
-    q: StreakQuestion, user, streak_challenge_id: int
+    q: StreakQuestion,
+    user,
+    streak_challenge_id: int,
+    *,
+    deadline_picks: dict | None = None,
+    pick_pcts: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     pick = (
         StreakPick.objects.filter(
@@ -110,17 +168,32 @@ def _question_public(
         .first()
     )
     correct_label = q.correct_choice.label if q.correct_choice_id else None
+    is_open = q.resolved_at is None
+    locked_by_question_id = None
+    deadline_locked = False
+    if is_open and deadline_picks is not None:
+        locked_by_question_id = deadline_picks.get(closes_at_key(q.closes_at))
+        deadline_locked = (
+            locked_by_question_id is not None
+            and locked_by_question_id != q.id
+            and pick is None
+        )
     return {
         "id": q.id,
         "text": q.text,
         "closes_at": q.closes_at.isoformat(),
         "resolved_at": q.resolved_at.isoformat() if q.resolved_at else None,
-        "choices": _choices_payload(q),
+        "choices": _choices_payload(
+            q, pick_pcts if q.resolved_at is not None else None
+        ),
         "correct_choice_id": q.correct_choice_id,
         "correct_answer": correct_label,
         "user_choice_id": pick.choice_id if pick else None,
         "user_answer": pick.choice.label if pick else None,
-        "is_open": q.resolved_at is None,
+        "is_open": is_open,
+        "deadline_locked": deadline_locked,
+        "locked_by_question_id": locked_by_question_id,
+        "can_clear_pick": is_open and pick is not None,
     }
 
 
@@ -178,16 +251,26 @@ def streak_competitions_list_create(request: HttpRequest) -> JsonResponse:
         denied = _require_staff(user)
         if denied is not None:
             return denied
-        try:
-            body = _parse_json(request)
-        except json.JSONDecodeError:
-            return _json_error("Invalid JSON body", 400)
 
-        name = (body.get("name") or "").strip()
+        image_file = None
+        if _is_multipart(request):
+            post, files = _multipart_post_files(request)
+            name = (post.get("name") or "").strip()
+            image_file = files.get("image")
+        else:
+            try:
+                body = _parse_json(request)
+            except json.JSONDecodeError:
+                return _json_error("Invalid JSON body", 400)
+            name = (body.get("name") or "").strip()
+
         if not name:
             return _json_error("name is required", 400)
 
         competition = StreakCompetition.objects.create(name=name)
+        if image_file:
+            competition.image = image_file
+            competition.save(update_fields=["image"])
         return JsonResponse(
             {"streak_competition": _competition_public(competition)},
             status=201,
@@ -259,16 +342,33 @@ def streak_competition_detail(
         return JsonResponse({"ok": True})
 
     if request.method == "PATCH":
-        try:
-            body = _parse_json(request)
-        except json.JSONDecodeError:
-            return _json_error("Invalid JSON body", 400)
+        update_fields: list[str] = []
 
-        name = (body.get("name") or "").strip()
-        if not name:
+        if _is_multipart(request):
+            post, files = _multipart_post_files(request)
+            name = (post.get("name") or "").strip()
+            if name:
+                competition.name = name
+                update_fields.append("name")
+            image_file = files.get("image")
+            if image_file:
+                competition.image = image_file
+                update_fields.append("image")
+        else:
+            try:
+                body = _parse_json(request)
+            except json.JSONDecodeError:
+                return _json_error("Invalid JSON body", 400)
+
+            name = (body.get("name") or "").strip()
+            if not name:
+                return _json_error("name is required", 400)
+            competition.name = name
+            update_fields.append("name")
+
+        if not update_fields:
             return _json_error("name is required", 400)
-        competition.name = name
-        competition.save(update_fields=["name"])
+        competition.save(update_fields=update_fields)
         return JsonResponse(
             {"streak_competition": _competition_public(competition)}
         )
@@ -428,11 +528,25 @@ def streak_challenge_detail(
         return JsonResponse({"ok": True})
 
     participant = _streak_participant_or_none(challenge, user)
-    questions = [
-        _question_public(q, user, challenge.id)
-        for q in _questions_queryset().filter(
+    deadline_picks = (
+        open_deadline_pick_map(challenge.id, user.id) if participant else {}
+    )
+    question_rows = list(
+        _questions_queryset().filter(
             streak_competition_id=challenge.streak_competition_id
         )
+    )
+    resolved_ids = [q.id for q in question_rows if q.resolved_at is not None]
+    pick_pct_map = _pick_pct_by_question(challenge.id, resolved_ids)
+    questions = [
+        _question_public(
+            q,
+            user,
+            challenge.id,
+            deadline_picks=deadline_picks,
+            pick_pcts=pick_pct_map.get(q.id),
+        )
+        for q in question_rows
     ]
     return JsonResponse(
         {
@@ -493,7 +607,8 @@ def streak_participant_picks(
             question__resolved_at__isnull=False,
         )
         .select_related("question", "choice", "question__correct_choice")
-        .order_by("question__closes_at", "question__order", "question__id")
+        .prefetch_related("question__choices")
+        .order_by("-question__closes_at", "-question__order", "-question__id")
     )
     rows = []
     for pick in picks:
@@ -506,6 +621,9 @@ def streak_participant_picks(
                 "question_id": q.id,
                 "text": q.text,
                 "closes_at": q.closes_at.isoformat(),
+                "choices": _choices_payload(q),
+                "pick_choice_id": pick.choice_id,
+                "correct_choice_id": q.correct_choice_id,
                 "pick_label": pick.choice.label,
                 "correct_answer": correct_label,
                 "is_correct": pick.choice_id == q.correct_choice_id,
@@ -551,20 +669,19 @@ def streak_challenges_join(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"streak_challenge": _streak_summary(challenge, user)})
 
 
-@require_http_methods(["POST"])
-def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
+def _streak_pick_context(request: HttpRequest, question_id: int):
     user = _require_user(request)
     if user is None:
-        return _json_error("Authentication required", 401)
+        return None, _json_error("Authentication required", 401)
 
     try:
         body = _parse_json(request)
     except json.JSONDecodeError:
-        return _json_error("Invalid JSON body", 400)
+        return None, _json_error("Invalid JSON body", 400)
 
     streak_challenge_id_raw = body.get("streak_challenge_id")
     if streak_challenge_id_raw is None:
-        return _json_error("streak_challenge_id is required", 400)
+        return None, _json_error("streak_challenge_id is required", 400)
 
     question = get_object_or_404(
         _questions_queryset().select_related("streak_competition"),
@@ -578,10 +695,38 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
     try:
         _assert_streak_member(challenge, user)
     except PermissionError:
-        return _json_error("Forbidden", 403)
+        return None, _json_error("Forbidden", 403)
+
+    return (user, body, question, challenge), None
+
+
+@require_http_methods(["POST", "DELETE"])
+def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
+    ctx, err = _streak_pick_context(request, question_id)
+    if err is not None:
+        return err
+    user, body, question, challenge = ctx
 
     if question.resolved_at is not None:
         return _json_error("This question is closed", 400)
+
+    deadline_picks = open_deadline_pick_map(challenge.id, user.id)
+
+    if request.method == "DELETE":
+        StreakPick.objects.filter(
+            streak_challenge=challenge,
+            question=question,
+            user=user,
+        ).delete()
+        deadline_picks = open_deadline_pick_map(challenge.id, user.id)
+        question = _questions_queryset().get(pk=question.pk)
+        return JsonResponse(
+            {
+                "question": _question_public(
+                    question, user, challenge.id, deadline_picks=deadline_picks
+                )
+            }
+        )
 
     choice_id_raw = body.get("choice_id")
     if choice_id_raw is None:
@@ -597,15 +742,26 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
     if choice is None:
         return _json_error("choice_id is invalid for this question", 400)
 
+    if other_open_pick_at_same_deadline(challenge, user.id, question) is not None:
+        return _json_error(
+            "You already picked another question for this deadline. Clear that pick first.",
+            409,
+        )
+
     StreakPick.objects.update_or_create(
         streak_challenge=challenge,
         question=question,
         user=user,
         defaults={"choice": choice},
     )
+    deadline_picks = open_deadline_pick_map(challenge.id, user.id)
     question = _questions_queryset().get(pk=question.pk)
     return JsonResponse(
-        {"question": _question_public(question, user, challenge.id)}
+        {
+            "question": _question_public(
+                question, user, challenge.id, deadline_picks=deadline_picks
+            )
+        }
     )
 
 
@@ -678,16 +834,17 @@ def streak_question_resolve(
     except json.JSONDecodeError:
         return _json_error("Invalid JSON body", 400)
 
-    choice_id_raw = body.get("correct_choice_id")
-    if choice_id_raw is None:
+    if "correct_choice_id" not in body:
         return _json_error("correct_choice_id is required", 400)
-    try:
-        choice_id = int(choice_id_raw)
-    except (TypeError, ValueError):
-        return _json_error("correct_choice_id must be an integer", 400)
+    choice_id_raw = body.get("correct_choice_id")
 
     try:
-        resolve_question(question, choice_id)
+        if choice_id_raw is None:
+            clear_question_resolution(question)
+        else:
+            resolve_question(question, int(choice_id_raw))
+    except (TypeError, ValueError):
+        return _json_error("correct_choice_id must be an integer or null", 400)
     except ValueError as e:
         return _json_error(str(e), 400)
 

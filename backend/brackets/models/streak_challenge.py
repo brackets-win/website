@@ -5,6 +5,9 @@ class StreakCompetition(models.Model):
     """Admin-managed question set; grading is shared across linked challenges."""
 
     name = models.CharField(max_length=100)
+    image = models.ImageField(
+        upload_to="streak-competitions/images/", blank=True, null=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -15,6 +15,7 @@ from brackets.models import (
 from brackets.utils.streak_scoring import (
     _apply_batch,
     recalculate_participant_stats,
+    clear_question_resolution,
     resolve_question,
 )
 
@@ -62,7 +63,8 @@ class StreakScoringTests(TestCase):
     def test_apply_batch_extends_loss_streak(self):
         self.assertEqual(_apply_batch(-1, 0, 2), -3)
 
-    def test_recalculate_same_close_time_mixed(self):
+    def test_recalculate_one_pick_per_deadline(self):
+        """Only the lowest-order question counts when legacy dupes share a deadline."""
         q1, c1 = _make_question(
             self.competition, "Q1", ["Yes", "No"], closes_at=self.closes, order=1
         )
@@ -92,8 +94,27 @@ class StreakScoringTests(TestCase):
         self.participant.refresh_from_db()
         self.assertEqual(self.participant.streak_signed, 1)
         self.assertEqual(self.participant.wins, 1)
-        self.assertEqual(self.participant.losses, 1)
+        self.assertEqual(self.participant.losses, 0)
         self.assertEqual(self.participant.best_win_streak, 1)
+
+    def test_clear_question_resolution_reopens_and_recalculates(self):
+        q, choices = _make_question(self.competition, "Win?", ["Yes", "No"], order=1)
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=q,
+            user=self.user,
+            choice=choices[0],
+        )
+        resolve_question(q, choices[0].id)
+        self.participant.refresh_from_db()
+        self.assertEqual(self.participant.streak_signed, 1)
+
+        clear_question_resolution(q)
+        q.refresh_from_db()
+        self.participant.refresh_from_db()
+        self.assertIsNone(q.correct_choice_id)
+        self.assertIsNone(q.resolved_at)
+        self.assertEqual(self.participant.streak_signed, 0)
 
     def test_resolve_question_updates_all_linked_challenges(self):
         other = StreakChallenge.objects.create(

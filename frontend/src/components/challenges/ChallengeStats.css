@@ -102,9 +102,10 @@
 }
 
 .challenge-stats__chip-img {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.375rem;
+  height: 1.0625rem;
   object-fit: cover;
+  object-position: center;
   border-radius: 3px;
   flex-shrink: 0;
 }
@@ -114,7 +115,7 @@
   align-items: center;
   justify-content: center;
   background: var(--surface-muted, #f1f5f9);
-  font-size: 0.65rem;
+  font-size: 0.5625rem;
   font-weight: 700;
   color: var(--text-muted, #64748b);
 }
@@ -132,7 +133,14 @@
 }
 
 .challenge-stats__ko-table {
+  width: 100%;
   min-width: 100%;
+  table-layout: fixed;
+}
+
+.challenge-stats__ko-table th,
+.challenge-stats__ko-table td {
+  width: auto;
 }
 
 .challenge-stats__ko-table .is-num {
@@ -153,7 +161,7 @@
 
 .challenge-stats__th-btn {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.35rem;
   margin: 0;
   padding: 0;
@@ -165,6 +173,15 @@
   letter-spacing: inherit;
   cursor: pointer;
   border-radius: 4px;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.challenge-stats__th-btn > span:first-child {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .challenge-stats__th-btn:hover,
@@ -199,7 +216,7 @@
 }
 
 .challenge-stats__ko-team-th {
-  min-width: 10rem;
+  min-width: 0;
 }
 
 .challenge-stats__ko-team {

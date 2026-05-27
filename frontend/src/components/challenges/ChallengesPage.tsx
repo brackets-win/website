@@ -158,12 +158,12 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
 
     const [challengesResult, publicResult, bracketsResult, streakResult, compResult] =
       await Promise.allSettled([
-        listMyChallenges(),
-        listPublicChallenges(),
-        listBrackets(),
-        listMyStreakChallenges(),
-        listStreakCompetitions(),
-      ]);
+      listMyChallenges(),
+      listPublicChallenges(),
+      listBrackets(),
+      listMyStreakChallenges(),
+      listStreakCompetitions(),
+    ]);
 
     if (challengesResult.status === 'fulfilled') {
       setRows(challengesResult.value.challenges);
@@ -863,7 +863,11 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
                 <button type="button" className="btn btn--ghost" onClick={closePanel}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn--primary" disabled={busy}>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={busy}
+                >
                   {busy ? 'Creating…' : 'Create'}
                 </button>
               </div>

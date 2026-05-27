@@ -7,6 +7,7 @@ from django.test import Client, TestCase
 from brackets.models import (
     BracketChallenge,
     BracketContestant,
+    ChallengeParticipant,
     User,
     UserBracket,
 )
@@ -45,6 +46,40 @@ class ChallengeMaxEntriesTests(TestCase):
                 {"join_code": "MULTI123", "display_name": display_name}
             ),
             content_type="application/json",
+        )
+
+    def _join_by_id(self, user: User, display_name: str):
+        self.client.force_login(user)
+        return self.client.post(
+            "/brackets/api/challenges/join",
+            data=json.dumps(
+                {
+                    "challenge_id": self.challenge.id,
+                    "display_name": display_name,
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def test_private_challenge_add_entry_by_id_for_participant(self):
+        self._join(self.player, "Alice")
+        res = self._join_by_id(self.player, "Bob")
+        self.assertEqual(res.status_code, 200)
+        self.assertNotEqual(
+            res.json()["challenge"]["user_bracket_id"],
+            UserBracket.objects.get(
+                user=self.player, challenge=self.challenge, display_name="Alice"
+            ).id,
+        )
+
+    def test_private_challenge_join_by_id_blocked_for_non_participant(self):
+        stranger = User.objects.create_user(username="stranger", password="secret")
+        res = self._join_by_id(stranger, "Intruder")
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(
+            ChallengeParticipant.objects.filter(
+                challenge=self.challenge, user=stranger
+            ).exists()
         )
 
     def test_multiple_entries_with_distinct_names(self):

@@ -46,6 +46,19 @@ class ThirdPlaceStructureTests(TestCase):
             KnockoutStage.objects.filter(bracket=bracket, is_third_place=True).exists()
         )
 
+    def test_single_elim_third_place_at_create_does_not_raise(self):
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "tp-se-16",
+            "TP SE 16",
+            16,
+            self.user,
+            has_third_place=True,
+        )
+        self.assertTrue(
+            KnockoutStage.objects.filter(bracket=bracket, is_third_place=True).exists()
+        )
+
     def test_enable_on_existing_bracket_wires_master(self):
         bracket = create_bracket_with_structure(
             "GROUP_KNOCKOUT",

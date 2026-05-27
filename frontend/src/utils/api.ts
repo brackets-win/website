@@ -69,6 +69,7 @@ export type ChallengeSummary = {
   user_bracket_id: number | null;
   user_entries: ChallengeUserEntry[];
   is_submitted: boolean;
+  can_view_peer_brackets?: boolean;
   is_complete: boolean;
   can_join: boolean;
   can_add_entry: boolean;
@@ -77,12 +78,21 @@ export type ChallengeSummary = {
   is_creator?: boolean;
   max_entries_minimum?: number | null;
   master_user_bracket_id?: number | null;
+  tournament_team_count?: number | null;
+  teams_configured?: boolean | null;
   leaderboard_preview?: LeaderboardPreview;
+};
+
+export type TournamentTeamRow = {
+  id?: number;
+  name: string;
+  seed: number | null;
 };
 
 export type StreakCompetitionSummary = {
   id: number;
   name: string;
+  image_url?: string | null;
   question_count: number;
   challenge_count?: number;
 };
@@ -90,6 +100,8 @@ export type StreakCompetitionSummary = {
 export type StreakQuestionChoiceInfo = {
   id: number;
   label: string;
+  /** Whole-number share of challenge picks; present on resolved questions only. */
+  pick_pct?: number;
 };
 
 export type StreakCompetitionQuestionAdmin = {
@@ -133,6 +145,9 @@ export type StreakQuestionInfo = {
   user_choice_id: number | null;
   user_answer: string | null;
   is_open: boolean;
+  deadline_locked: boolean;
+  locked_by_question_id: number | null;
+  can_clear_pick: boolean;
 };
 
 export type StreakLeaderboardEntry = {
@@ -157,6 +172,9 @@ export type StreakParticipantPickRow = {
   question_id: number;
   text: string;
   closes_at: string;
+  choices: StreakQuestionChoiceInfo[];
+  pick_choice_id: number;
+  correct_choice_id: number | null;
   pick_label: string;
   correct_answer: string | null;
   is_correct: boolean;
@@ -216,6 +234,7 @@ export type BracketSummary = {
   show_seeds?: boolean;
   metadata: unknown;
   challenge_count?: number;
+  is_reusable?: boolean;
 };
 
 export type BracketContestantInfo = {
@@ -509,6 +528,20 @@ export async function deleteChallenge(
   return apiFetch('DELETE', `challenges/${challengeId}`);
 }
 
+export async function getChallengeTeams(challengeId: number): Promise<{
+  team_count: number;
+  teams: TournamentTeamRow[];
+}> {
+  return apiFetch('GET', `challenges/${challengeId}/teams`);
+}
+
+export async function saveChallengeTeams(
+  challengeId: number,
+  body: { teams: Array<{ name: string; seed?: number }> },
+): Promise<{ team_count: number; teams: TournamentTeamRow[] }> {
+  return apiFetch('PUT', `challenges/${challengeId}/teams`, body);
+}
+
 export async function getChallengeLeaderboard(challengeId: number): Promise<{
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
@@ -533,6 +566,7 @@ export type ChallengeStatsKnockoutRow = {
   bracket_contestant_id: number;
   display_name: string;
   image_url: string | null;
+  progression_score: number;
   percentages: Record<string, number>;
 };
 
@@ -628,9 +662,18 @@ export async function streakPick(
   });
 }
 
-export async function adminCreateStreakCompetition(body: {
-  name: string;
-}): Promise<{ streak_competition: StreakCompetitionSummary }> {
+export async function clearStreakPick(
+  streakChallengeId: number,
+  questionId: number,
+): Promise<{ question: StreakQuestionInfo }> {
+  return apiFetch('DELETE', `streak-questions/${questionId}/pick`, {
+    streak_challenge_id: streakChallengeId,
+  });
+}
+
+export async function adminCreateStreakCompetition(
+  body: FormData | { name: string },
+): Promise<{ streak_competition: StreakCompetitionSummary }> {
   return apiFetch('POST', 'streak-competitions', body);
 }
 
@@ -645,7 +688,7 @@ export async function adminGetStreakCompetition(
 
 export async function adminUpdateStreakCompetition(
   streakCompetitionId: number,
-  body: { name: string },
+  body: FormData | { name: string },
 ): Promise<{ streak_competition: StreakCompetitionSummary }> {
   return apiFetch('PATCH', `streak-competitions/${streakCompetitionId}`, body);
 }
@@ -669,7 +712,7 @@ export async function adminAddStreakCompetitionQuestion(
 
 export async function adminResolveStreakQuestion(
   questionId: number,
-  correct_choice_id: number,
+  correct_choice_id: number | null,
 ): Promise<{ question: StreakCompetitionQuestionAdmin }> {
   return apiFetch('POST', `streak-questions/${questionId}/resolve`, {
     correct_choice_id,
@@ -874,6 +917,12 @@ export type BracketStructureConfig = {
     is_random_draw?: boolean;
   };
 };
+
+export async function listBracketTemplates(): Promise<{
+  templates: BracketTemplateSummary[];
+}> {
+  return apiFetch('GET', 'bracket-templates');
+}
 
 export async function adminListBracketTemplates(): Promise<{
   templates: BracketTemplateSummary[];

@@ -260,6 +260,18 @@ def ensure_knockout_structure_for_user_bracket(user_bracket: UserBracket) -> Lis
     """
     bracket = user_bracket.bracket
     if _is_single_elim_knockout_only(bracket):
+        first_ko = (
+            bracket.stages.filter(stage_type=BracketStage.StageType.KNOCKOUT)
+            .order_by("order")
+            .first()
+        )
+        if first_ko is None:
+            raise ValueError("Bracket has no knockout stages.")
+        contestant_count = BracketContestant.objects.filter(bracket=bracket).count()
+        # Allow tournament-style setup before contestants are assigned:
+        # create the knockout shell so the bracket UI is immediately visible.
+        if contestant_count != first_ko.number_of_contestants:
+            return ensure_knockout_matchup_shell(user_bracket)
         return ensure_full_knockout_matchups(user_bracket)
     if _bracket_has_group_stage(bracket):
         return ensure_knockout_matchup_shell(user_bracket)

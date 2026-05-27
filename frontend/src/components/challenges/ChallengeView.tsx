@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BracketFill } from '../bracket/BracketFill';
 import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
@@ -30,11 +30,13 @@ import { formatDeadlineEst } from '../../utils/est';
 import { ChallengeLeaderboard } from './ChallengeLeaderboard';
 import { ChallengeStats as ChallengeStatsPanel } from './ChallengeStats';
 import { CopyJoinCode } from './CopyJoinCode';
+import { TournamentTeamsPanel } from './TournamentTeamsPanel';
 import './challengeThemes.css';
 import './ChallengeView.css';
 
 export type ChallengeTab =
   | 'bracket'
+  | 'teams'
   | 'official'
   | 'leaderboard'
   | 'stats'
@@ -79,6 +81,8 @@ export function ChallengeView({
   const [maxEntriesDraft, setMaxEntriesDraft] = useState('1');
   const [maxEntriesBusy, setMaxEntriesBusy] = useState(false);
   const [maxEntriesErr, setMaxEntriesErr] = useState('');
+  const [bracketRevision, setBracketRevision] = useState(0);
+  const autoTeamsTabDone = useRef(false);
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -89,7 +93,10 @@ export function ChallengeView({
         const board = await getChallengeLeaderboard(challengeId);
         setColumns(board.columns);
         setEntries(board.entries);
-        if (c.instance_type === INSTANCE_BRACKET_CHALLENGE) {
+        if (
+          c.instance_type === INSTANCE_BRACKET_CHALLENGE &&
+          c.can_view_peer_brackets
+        ) {
           setStats(await getChallengeStats(challengeId));
         } else {
           setStats(null);
@@ -111,6 +118,29 @@ export function ChallengeView({
   }, [reload]);
 
   useEffect(() => {
+    autoTeamsTabDone.current = false;
+  }, [challengeId]);
+
+  const teamsNeedSetup =
+    challenge?.instance_type === INSTANCE_TOURNAMENT &&
+    challenge.can_manage_bracket === true &&
+    challenge.teams_configured === false;
+
+  useEffect(() => {
+    if (!challenge || autoTeamsTabDone.current || initialTab != null) return;
+    if (teamsNeedSetup) {
+      setTab('teams');
+      autoTeamsTabDone.current = true;
+    }
+  }, [challenge, teamsNeedSetup, initialTab]);
+
+  function handleTeamsSaved() {
+    void reload();
+    setBracketRevision((n) => n + 1);
+    setTab('bracket');
+  }
+
+  useEffect(() => {
     if (userBracketId != null) {
       setActiveBracketId(userBracketId);
     }
@@ -122,6 +152,17 @@ export function ChallengeView({
       setMaxEntriesErr('');
     }
   }, [challenge?.id, challenge?.max_entries]);
+
+  useEffect(() => {
+    if (!challenge || challenge.can_view_peer_brackets) return;
+    const showBoard = challenge.uses_prediction_leaderboard !== false;
+    if (tab === 'stats') {
+      setTab(showBoard ? 'leaderboard' : 'bracket');
+    }
+    if (viewingPlayer != null) {
+      setViewingPlayer(null);
+    }
+  }, [challenge, tab, viewingPlayer]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -251,6 +292,21 @@ export function ChallengeView({
     : activeBracketId ?? challenge.user_bracket_id;
 
   const canEditResults = isTournament && challenge.can_manage_bracket === true;
+  const showTeamsTab = canEditResults;
+  const tournamentTeamCount = challenge.tournament_team_count ?? 0;
+
+  const headerSubtitle = (() => {
+    const title = challenge.name.trim();
+    const bracket = challenge.bracket_name.trim();
+    if (bracket && bracket.toLowerCase() !== title.toLowerCase()) {
+      return bracket;
+    }
+    if (isTournament && tournamentTeamCount > 0) {
+      const label = tournamentTeamCount === 1 ? 'team' : 'teams';
+      return `${tournamentTeamCount} ${label}`;
+    }
+    return null;
+  })();
 
   const showOwnScoring =
     isBracketChallenge &&
@@ -270,6 +326,7 @@ export function ChallengeView({
       : 'My Bracket';
 
   const showLeaderboard = challenge.uses_prediction_leaderboard !== false;
+  const canViewPeerBrackets = challenge.can_view_peer_brackets === true;
   const showOfficial =
     isBracketChallenge && masterId != null && !isTournament;
 
@@ -312,7 +369,9 @@ export function ChallengeView({
               {challenge.instance_type_label ?? challenge.instance_type}
             </p>
             <h1>{challenge.name}</h1>
-            <p className="challenge-view__meta">{challenge.bracket_name}</p>
+            {headerSubtitle ? (
+              <p className="challenge-view__meta">{headerSubtitle}</p>
+            ) : null}
             {isBracketChallenge && challenge.submission_deadline ? (
               <p className="challenge-view__deadline">
                 Submit by{' '}
@@ -428,6 +487,19 @@ export function ChallengeView({
             {challenge.bracket_name}
           </button>
         ) : null}
+        {showTeamsTab ? (
+          <button
+            type="button"
+            className={
+              tab === 'teams'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => setTab('teams')}
+          >
+            Teams
+          </button>
+        ) : null}
         {primaryBracketId != null ? (
           <button
             type="button"
@@ -441,7 +513,7 @@ export function ChallengeView({
             {bracketTabLabel}
           </button>
         ) : null}
-        {showLeaderboard && isBracketChallenge ? (
+        {showLeaderboard && isBracketChallenge && canViewPeerBrackets ? (
           <button
             type="button"
             className={
@@ -490,9 +562,24 @@ export function ChallengeView({
         </section>
       ) : null}
 
+      {!viewingPlayer && tab === 'teams' && showTeamsTab ? (
+        <section className="card challenge-view__settings challenge-view__teams-panel">
+          <h2 className="challenge-view__settings-heading">Teams</h2>
+          {tournamentTeamCount > 0 ? (
+            <TournamentTeamsPanel
+              challengeId={challengeId}
+              teamCount={tournamentTeamCount}
+              onSaved={handleTeamsSaved}
+            />
+          ) : (
+            <p className="challenge-view__muted">Unable to load team slots.</p>
+          )}
+        </section>
+      ) : null}
+
       {!viewingPlayer && tab === 'bracket' && primaryBracketId != null ? (
         <BracketFill
-          key={primaryBracketId}
+          key={`${primaryBracketId}-${bracketRevision}`}
           userBracketId={primaryBracketId}
           readOnly={isTournament ? !canEditResults : false}
           allowMasterEdit={canEditResults}
@@ -516,13 +603,22 @@ export function ChallengeView({
 
       {!viewingPlayer && tab === 'leaderboard' && showLeaderboard ? (
         <section className="card challenge-view__board">
+          {!canViewPeerBrackets && isBracketChallenge ? (
+            <p className="challenge-view__muted challenge-view__peer-gate">
+              Submit your bracket to view other players&apos; brackets.
+            </p>
+          ) : null}
           <ChallengeLeaderboard
             columns={columns}
             entries={entries}
             viewerUsername={currentUser.username}
-            onSelectPlayer={(id, name) => {
-              setViewingPlayer({ userBracketId: id, name });
-            }}
+            onSelectPlayer={
+              canViewPeerBrackets
+                ? (id, name) => {
+                    setViewingPlayer({ userBracketId: id, name });
+                  }
+                : undefined
+            }
           />
         </section>
       ) : null}

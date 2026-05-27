@@ -38,6 +38,49 @@
   padding: 1.25rem 1.5rem;
 }
 
+.challenge-view__teams-form {
+  margin-top: 1rem;
+}
+
+.challenge-view__teams-panel .challenge-view__settings-heading {
+  margin-bottom: 0;
+}
+
+.challenge-view__teams-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 720px) {
+  .challenge-view__teams-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(var(--teams-per-col, 1), auto);
+    grid-auto-flow: column;
+  }
+}
+
+.challenge-view__teams-row {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.challenge-view__teams-seed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text-muted, #64748b);
+  user-select: none;
+}
+
 .challenge-view__settings-form {
   margin-top: 1.5rem;
   padding-top: 1.5rem;

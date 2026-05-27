@@ -42,13 +42,18 @@ function TeamChip({
 
 function formatAverage(avg: number | null): string {
   if (avg == null) return '—';
-  return Number.isInteger(avg) ? String(avg) : avg.toFixed(2);
+  return Number(avg.toFixed(2)).toString();
 }
 
 function formatPct(value: number): string {
   if (value === 0) return '0%';
   if (value === 100) return '100%';
   return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`;
+}
+
+function formatProgression(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2);
 }
 
 const BRACKET_HEAT_RGB = [87, 130, 168] as const;
@@ -102,6 +107,10 @@ function compareKnockoutRows(
       sensitivity: 'base',
     });
   } else {
+    if (key === 'progression_score') {
+      result = a.progression_score - b.progression_score;
+      return direction === 'asc' ? result : -result;
+    }
     result = (a.percentages[key] ?? 0) - (b.percentages[key] ?? 0);
     return direction === 'asc' ? result : -result;
   }
@@ -156,7 +165,7 @@ function SortableHeader({
 export function ChallengeStats({ stats }: Props) {
   const { submitted_count, group_stage, knockout } = stats;
   const [sort, setSort] = useState<SortState>({
-    key: 'champion',
+    key: 'progression_score',
     direction: 'desc',
   });
 
@@ -271,6 +280,13 @@ export function ChallengeStats({ stats }: Props) {
                       />
                     </td>
                     {knockout.columns.map((col) => {
+                      if (col.key === 'progression_score') {
+                        return (
+                          <td key={col.key} className="is-num challenge-stats__ko-pct">
+                            {formatProgression(row.progression_score)}
+                          </td>
+                        );
+                      }
                       const pct = row.percentages[col.key] ?? 0;
                       return (
                         <td

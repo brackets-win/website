@@ -137,6 +137,12 @@
   }
 }
 
+@media (min-width: 1280px) {
+  .challenge-list:not(.challenge-list--compact) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .challenge-card {
   display: flex;
   align-items: center;

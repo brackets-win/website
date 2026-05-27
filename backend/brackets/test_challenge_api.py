@@ -5,9 +5,11 @@ import json
 from django.test import Client, TestCase
 
 from brackets.models import (
+    Bracket,
     BracketChallenge,
     BracketContestant,
     ChallengeParticipant,
+    Matchup,
     User,
     UserBracket,
 )
@@ -111,3 +113,62 @@ class ChallengeJoinApiTests(TestCase):
         self.assertTrue(
             BracketChallenge.objects.filter(pk=self.challenge.pk).exists()
         )
+
+    def test_create_tournament_builds_master_knockout_shell(self):
+        self.client.force_login(self.creator)
+        res = self.client.post(
+            "/brackets/api/challenges",
+            data=json.dumps(
+                {
+                    "name": "Test Tourney",
+                    "instance_type": "TOURNAMENT",
+                    "bracket_setup": {
+                        "structure": "SINGLE_ELIM",
+                        "identifier": "test-tourney-shell",
+                        "bracket_name": "Test Tourney",
+                        "number_of_contestants": 8,
+                    },
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 201)
+        payload = res.json()["challenge"]
+        master_id = payload.get("master_user_bracket_id")
+        self.assertIsNotNone(master_id)
+        self.assertIsNone(payload.get("user_bracket_id"))
+        self.assertGreater(
+            Matchup.objects.filter(user_bracket_id=master_id).count(), 0
+        )
+
+    def test_create_tournament_reuses_taken_identifier_with_suffix(self):
+        self.client.force_login(self.creator)
+        payload = {
+            "name": "Repeat Tourney",
+            "instance_type": "TOURNAMENT",
+            "bracket_setup": {
+                "structure": "SINGLE_ELIM",
+                "identifier": "repeat-tourney",
+                "bracket_name": "Repeat Tourney",
+                "number_of_contestants": 8,
+            },
+        }
+        first = self.client.post(
+            "/brackets/api/challenges",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post(
+            "/brackets/api/challenges",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(second.status_code, 201)
+        ids = list(
+            Bracket.objects.filter(identifier__startswith="repeat-tourney").values_list(
+                "identifier", flat=True
+            )
+        )
+        self.assertIn("repeat-tourney", ids)
+        self.assertIn("repeat-tourney-2", ids)

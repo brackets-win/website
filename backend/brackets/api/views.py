@@ -59,6 +59,11 @@ from brackets.utils.knockout_tree import (
     ensure_knockout_structure_for_user_bracket,
 )
 from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
+from brackets.utils.tournament_teams import (
+    apply_tournament_teams,
+    tournament_team_capacity,
+    tournament_teams_public,
+)
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import (
     assert_can_edit_picks,
@@ -190,6 +195,27 @@ def _normalize_join_code(raw: str) -> str | None:
     return code
 
 
+def _next_available_bracket_identifier(raw_identifier: str) -> str:
+    """
+    Return a unique bracket identifier, adding numeric suffixes when needed.
+    """
+    base = (
+        "".join(
+            c if c.isalnum() or c in "-_" else "-" for c in (raw_identifier or "").lower()
+        ).strip("-")[:48]
+        or "tournament"
+    )
+    if not Bracket.objects.filter(identifier=base).exists():
+        return base
+    for n in range(2, 1000):
+        suffix = f"-{n}"
+        trimmed = base[: max(1, 48 - len(suffix))]
+        candidate = f"{trimmed}{suffix}"
+        if not Bracket.objects.filter(identifier=candidate).exists():
+            return candidate
+    raise ValueError("Could not allocate a unique bracket identifier.")
+
+
 def _master_user_bracket_id_for_bracket(bracket_id: int) -> int | None:
     master = UserBracket.objects.filter(
         bracket_id=bracket_id, is_master=True
@@ -280,10 +306,17 @@ def _user_can_view_challenge_bracket(viewer, ub: UserBracket) -> bool:
         return True
     if ub.challenge_id is None:
         return False
-    return ChallengeParticipant.objects.filter(
+    if not ChallengeParticipant.objects.filter(
         user=viewer,
         challenge_id=ub.challenge_id,
-    ).exists()
+    ).exists():
+        return False
+    challenge = BracketChallenge.objects.filter(pk=ub.challenge_id).first()
+    if challenge is None:
+        return False
+    from brackets.utils.challenge_entries import user_has_submitted_challenge
+
+    return user_has_submitted_challenge(viewer, challenge)
 
 
 def _enroll_user_in_challenge(
@@ -371,7 +404,8 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["GET"])
 def brackets_list(request: HttpRequest) -> JsonResponse:
     rows = (
-        Bracket.objects.annotate(challenge_count=Count("bracketchallenge"))
+        Bracket.objects.filter(is_reusable=True)
+        .annotate(challenge_count=Count("bracketchallenge"))
         .order_by("-created_at")[:100]
     )
     return JsonResponse(
@@ -508,8 +542,7 @@ def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonRespo
                     ub.bracket, ub.metadata, body
                 )
                 ub.save(update_fields=["metadata"])
-                if not ub.is_master:
-                    sync_first_knockout_from_group_picks(ub)
+                sync_first_knockout_from_group_picks(ub)
         except ValueError as e:
             return _json_error(str(e), 400)
         return JsonResponse(
@@ -595,7 +628,15 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
 
         bracket_id = body.get("bracket_id")
         if bracket_id:
+            if instance_type in (TOURNAMENT, POLL):
+                return _json_error(
+                    "Tournaments and polls must create their own bracket.", 400
+                )
             bracket = get_object_or_404(Bracket, pk=int(bracket_id))
+            if not bracket.is_reusable:
+                return _json_error(
+                    "That bracket is not available for bracket challenges.", 400
+                )
         elif instance_type in (TOURNAMENT, POLL):
             setup = body.get("bracket_setup")
             if not isinstance(setup, dict):
@@ -619,10 +660,11 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     "For group & knockout, number_of_contestants must be a multiple of 4",
                     400,
                 )
-            raw_id = (setup.get("identifier") or name).strip().lower()
-            identifier = "".join(
-                c if c.isalnum() or c in "-_" else "-" for c in raw_id
-            ).strip("-")[:48] or "tournament"
+            raw_id = (setup.get("identifier") or name).strip()
+            try:
+                identifier = _next_available_bracket_identifier(raw_id)
+            except ValueError as e:
+                return _json_error(str(e), 400)
             bracket_name = (setup.get("bracket_name") or name).strip()[:100]
             has_third = bool(setup.get("has_third_place"))
             try:
@@ -640,6 +682,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     user,
                     has_third_place=has_third,
                     structure_config=structure_config,
+                    is_reusable=False,
                 )
             except ValueError as e:
                 return _json_error(str(e), 400)
@@ -676,6 +719,8 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     challenge,
                     display_name=(user.username or "Host")[:80],
                 )
+            if instance_type == TOURNAMENT:
+                _try_sync_knockout_master(bracket)
         except IntegrityError:
             return _json_error("Could not create challenge", 409)
         except ValueError as e:
@@ -842,6 +887,52 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
     )
 
 
+@require_http_methods(["GET", "PUT"])
+def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if challenge.instance_type != TOURNAMENT:
+        return _json_error("Only tournaments support team setup", 400)
+    if not _can_manage_bracket(user, challenge):
+        return _json_error("Forbidden", 403)
+
+    bracket = challenge.bracket
+    if request.method == "GET":
+        capacity = tournament_team_capacity(bracket)
+        return JsonResponse(
+            {
+                "team_count": capacity,
+                "teams": tournament_teams_public(bracket),
+            }
+        )
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    raw = body.get("teams")
+    if not isinstance(raw, list):
+        return _json_error("teams must be a list", 400)
+    rows = [r for r in raw if isinstance(r, dict)]
+    try:
+        teams = apply_tournament_teams(bracket, rows)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    return JsonResponse(
+        {
+            "team_count": tournament_team_capacity(bracket),
+            "teams": teams,
+        }
+    )
+
+
 @require_http_methods(["GET"])
 def challenge_leaderboard(
     request: HttpRequest, challenge_id: int
@@ -863,7 +954,11 @@ def challenge_leaderboard(
     if not uses_prediction_scoring(challenge.instance_type):
         return JsonResponse({"columns": [], "entries": []})
 
+    from brackets.utils.challenge_entries import user_has_submitted_challenge
     from brackets.utils.top_four_picks import serialize_top_four_picks
+
+    can_view_peers = user_has_submitted_challenge(user, challenge)
+    hidden_top_four: list[None] = [None, None, None, None]
 
     master = challenge.bracket.get_master_bracket()
     stages = list(challenge.bracket.stages.order_by("order"))
@@ -922,7 +1017,11 @@ def challenge_leaderboard(
                 score=score,
                 potential=potential,
                 stage_scores=stage_scores,
-                top_four_picks=serialize_top_four_picks(ub),
+                top_four_picks=(
+                    serialize_top_four_picks(ub)
+                    if can_view_peers
+                    else hidden_top_four
+                ),
                 submitted_at=ub.submitted_at,
             )
         )
@@ -957,6 +1056,11 @@ def challenge_stats(request: HttpRequest, challenge_id: int) -> JsonResponse:
             }
         )
 
+    from brackets.utils.challenge_entries import user_has_submitted_challenge
+
+    if not user_has_submitted_challenge(user, challenge):
+        return _json_error("Submit your bracket to view stats.", 403)
+
     return JsonResponse(compute_challenge_stats(challenge))
 
 
@@ -979,7 +1083,9 @@ def challenges_join(request: HttpRequest) -> JsonResponse:
         ).first()
         if challenge is None:
             return _json_error("Challenge not found", 404)
-        if not challenge.is_public:
+        if not challenge.is_public and not ChallengeParticipant.objects.filter(
+            challenge=challenge, user=user
+        ).exists():
             return _json_error("This challenge is not public", 403)
     else:
         join_code = _normalize_join_code(body.get("join_code") or "")
@@ -1384,12 +1490,7 @@ def admin_delete_impact(
     return JsonResponse({"related": impact_fn(obj)})
 
 
-@require_http_methods(["GET"])
-def admin_bracket_templates_list(request: HttpRequest) -> JsonResponse:
-    user, err = _staff_user_or_error(request)
-    if err is not None:
-        return err
-
+def _bracket_templates_json() -> JsonResponse:
     rows = BracketTemplate.objects.order_by("-is_system", "name")
     return JsonResponse(
         {
@@ -1398,6 +1499,21 @@ def admin_bracket_templates_list(request: HttpRequest) -> JsonResponse:
             ]
         }
     )
+
+
+@require_http_methods(["GET"])
+def bracket_templates_list(request: HttpRequest) -> JsonResponse:
+    if _require_user(request) is None:
+        return _json_error("Authentication required", 401)
+    return _bracket_templates_json()
+
+
+@require_http_methods(["GET"])
+def admin_bracket_templates_list(request: HttpRequest) -> JsonResponse:
+    user, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+    return _bracket_templates_json()
 
 
 def _bool_request_field(raw: Any) -> bool:

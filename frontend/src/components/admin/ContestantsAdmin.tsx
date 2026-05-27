@@ -36,7 +36,8 @@ function appendContestantExtras(
   },
 ) {
   fd.append('image_url', opts.imageUrl.trim());
-  fd.append('metadata', opts.metadata.trim() || 'null');
+  // Empty string keeps metadata optional (or clears it on edit).
+  fd.append('metadata', opts.metadata.trim());
   fd.append('tag_ids', JSON.stringify(opts.selectedTagIds));
   if (opts.newTagNames.trim()) {
     fd.append('tag_names', opts.newTagNames.trim());

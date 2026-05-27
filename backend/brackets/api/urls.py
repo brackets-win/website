@@ -7,6 +7,7 @@ urlpatterns = [
     path("auth/login", views.auth_login),
     path("auth/logout", views.auth_logout),
     path("brackets", views.brackets_list),
+    path("bracket-templates", views.bracket_templates_list),
     path("brackets/<int:bracket_id>", views.bracket_detail),
     path("user-brackets", views.user_brackets_list_create),
     path("user-brackets/<int:user_bracket_id>", views.user_bracket_detail),
@@ -18,6 +19,7 @@ urlpatterns = [
     path("challenges/public", views.challenges_public_list),
     path("challenges/join", views.challenges_join),
     path("challenges/<int:challenge_id>", views.challenge_detail),
+    path("challenges/<int:challenge_id>/teams", views.challenge_teams),
     path(
         "challenges/<int:challenge_id>/leaderboard",
         views.challenge_leaderboard,

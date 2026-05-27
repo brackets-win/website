@@ -147,6 +147,10 @@ export function BracketsAdmin() {
       .sort((a, b) => a.order - b.order);
     return ko[0]?.id ?? null;
   }, [editStages]);
+  const editHasGroupStage = useMemo(
+    () => editStages.some((s) => s.stage_type === 'GROUP'),
+    [editStages],
+  );
   const [editLoadBusy, setEditLoadBusy] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminDeleteTarget | null>(
@@ -1062,10 +1066,6 @@ export function BracketsAdmin() {
         <section className="card">
           <header className="card__header">
             <h2>Master bracket — {fillBracketName}</h2>
-            <p>
-              Official results used for scoring. You can fill this anytime
-              (before or after the player deadline).
-            </p>
           </header>
           <div className="card__body">
             <BracketFill userBracketId={fillMasterUbId} allowMasterEdit />
@@ -1213,6 +1213,7 @@ export function BracketsAdmin() {
                       key={stage.id}
                       stage={stage}
                       isFirstKnockout={stage.id === firstKnockoutStageId}
+                      hasGroupStage={editHasGroupStage}
                       disabled={editBusy || editLoadBusy}
                       onChange={(next) =>
                         setEditStages((rows) =>

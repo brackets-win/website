@@ -20,6 +20,18 @@ def user_entries_for_challenge(user, challenge: BracketChallenge):
     ).order_by("-created_at")
 
 
+def user_has_submitted_challenge(user, challenge: BracketChallenge) -> bool:
+    """True when the user has at least one submitted entry in this challenge."""
+    if challenge.instance_type != CHALLENGE:
+        return True
+    return UserBracket.objects.filter(
+        user=user,
+        challenge=challenge,
+        is_master=False,
+        submitted_at__isnull=False,
+    ).exists()
+
+
 def can_add_challenge_entry(user, challenge: BracketChallenge) -> bool:
     return user_entry_count(user, challenge) < challenge.max_entries
 

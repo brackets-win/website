@@ -10,6 +10,7 @@ from __future__ import annotations
 from brackets.api.serializers import bracket_groups_preview
 from brackets.models import BracketStage, GroupStage, KnockoutStage, Matchup, UserBracket
 from brackets.utils.group_stage_config import group_stage_pick_requirements
+from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
 
 
 def _slots_per_group(gs: GroupStage) -> int:
@@ -35,10 +36,13 @@ def calculate_potential_score(user_bracket: UserBracket) -> int | None:
 
     for stage in _main_knockout_stages(bracket):
         ks = KnockoutStage.objects.get(pk=stage.pk)
-        user_ids = user_bracket.get_contestants_in_stage(stage)
         pts = ks.points_per_correct_pick
+        user_ids = contestants_in_stage_for_scoring(user_bracket, stage)
+        master_ids = contestants_in_stage_for_scoring(master, stage)
         for team_id in user_ids:
-            if _team_can_reach_knockout_stage(
+            if team_id in master_ids:
+                total += pts
+            elif _team_can_reach_knockout_stage(
                 user_bracket, master, team_id, stage
             ):
                 total += pts

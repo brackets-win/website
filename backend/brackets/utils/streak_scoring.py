@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime
 
 from django.db import transaction
 from django.utils import timezone
 
 from brackets.models import StreakParticipant, StreakPick, StreakQuestion, StreakQuestionChoice
+from brackets.utils.streak_deadlines import closes_at_key
 
 
 def _is_correct(pick: StreakPick, question: StreakQuestion) -> bool:
@@ -62,29 +62,27 @@ def recalculate_participant_stats(participant: StreakParticipant) -> None:
     best_win_streak = 0
     best_loss_streak = 0
 
-    batches: dict[datetime, list[tuple[StreakQuestion, StreakPick]]] = defaultdict(
-        list
-    )
+    # At most one scored pick per deadline; prefer lowest order when legacy dupes exist.
+    deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
     for q in questions:
         pick = picks_by_q.get(q.id)
         if pick is None:
             continue
-        key = q.closes_at
-        if timezone.is_naive(key):
-            key = timezone.make_aware(key)
-        batches[key].append((q, pick))
+        key = closes_at_key(q.closes_at)
+        prev = deadline_pick.get(key)
+        if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
+            deadline_pick[key] = (q, pick)
 
-    for _closes_at in sorted(batches.keys()):
-        batch = batches[_closes_at]
-        batch_wins = 0
-        batch_losses = 0
-        for q, pick in batch:
-            if _is_correct(pick, q):
-                wins += 1
-                batch_wins += 1
-            else:
-                losses += 1
-                batch_losses += 1
+    for _closes_at in sorted(deadline_pick.keys()):
+        q, pick = deadline_pick[_closes_at]
+        if _is_correct(pick, q):
+            wins += 1
+            batch_wins = 1
+            batch_losses = 0
+        else:
+            losses += 1
+            batch_wins = 0
+            batch_losses = 1
         streak_signed = _apply_batch(streak_signed, batch_wins, batch_losses)
         if streak_signed > 0:
             best_win_streak = max(best_win_streak, streak_signed)
@@ -123,6 +121,14 @@ def recalculate_streak_competition(streak_competition_id: int) -> None:
     ).values_list("id", flat=True)
     for challenge_id in challenge_ids:
         recalculate_streak_challenge(challenge_id)
+
+
+def clear_question_resolution(question: StreakQuestion) -> None:
+    """Remove the correct answer and reopen the question (e.g. accidental admin pick)."""
+    question.correct_choice = None
+    question.resolved_at = None
+    question.save(update_fields=["correct_choice", "resolved_at"])
+    recalculate_streak_competition(question.streak_competition_id)
 
 
 def resolve_question(question: StreakQuestion, correct_choice_id: int) -> None:

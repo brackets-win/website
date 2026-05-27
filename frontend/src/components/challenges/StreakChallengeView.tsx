@@ -7,6 +7,7 @@ import {
   getStreakChallenge,
   getStreakLeaderboard,
   getStreakParticipantPicks,
+  clearStreakPick,
   streakPick,
   type ApiUser,
   type StreakLeaderboardEntry,
@@ -22,6 +23,7 @@ import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
 
 import { CopyJoinCode } from './CopyJoinCode';
+import { StreakQuestionChoices } from './StreakQuestionChoices';
 import './challengeThemes.css';
 import './StreakChallengeView.css';
 import '../challenges/ChallengeView.css';
@@ -48,7 +50,27 @@ function streakRankCompare(
   return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
 }
 
-type Tab = 'leaderboard' | 'picks' | 'settings';
+type Tab = 'leaderboard' | 'make' | 'past' | 'settings';
+
+function compareClosesAtAsc(
+  a: { closes_at: string; id: number },
+  b: { closes_at: string; id: number },
+): number {
+  const diff =
+    new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime();
+  if (diff !== 0) return diff;
+  return a.id - b.id;
+}
+
+function compareClosesAtDesc(
+  a: { closes_at: string; id: number },
+  b: { closes_at: string; id: number },
+): number {
+  const diff =
+    new Date(b.closes_at).getTime() - new Date(a.closes_at).getTime();
+  if (diff !== 0) return diff;
+  return b.id - a.id;
+}
 
 type SelectedPlayer = {
   userId: number;
@@ -105,6 +127,34 @@ export function StreakChallengeView({
     [entries],
   );
 
+  const { makeQuestions, pastQuestions } = useMemo(() => {
+    const past: StreakQuestionInfo[] = [];
+    const make: StreakQuestionInfo[] = [];
+    for (const q of questions) {
+      if (q.resolved_at != null) {
+        if (q.user_choice_id != null) {
+          past.push(q);
+        }
+      } else {
+        make.push(q);
+      }
+    }
+    make.sort(compareClosesAtAsc);
+    past.sort(compareClosesAtDesc);
+    return { makeQuestions: make, pastQuestions: past };
+  }, [questions]);
+
+  const sortedPlayerPicks = useMemo(
+    () =>
+      [...playerPicks].sort((a, b) =>
+        compareClosesAtDesc(
+          { closes_at: a.closes_at, id: a.question_id },
+          { closes_at: b.closes_at, id: b.question_id },
+        ),
+      ),
+    [playerPicks],
+  );
+
   useEffect(() => {
     if (selectedPlayer == null) {
       setPlayerPicks([]);
@@ -140,6 +190,82 @@ export function StreakChallengeView({
     } catch (e) {
       setLoadErr(e instanceof ApiError ? e.message : 'Could not save pick.');
     }
+  }
+
+  async function onClearPick(questionId: number) {
+    try {
+      await clearStreakPick(streakChallengeId, questionId);
+      await reload();
+    } catch (e) {
+      setLoadErr(e instanceof ApiError ? e.message : 'Could not clear pick.');
+    }
+  }
+
+  function renderQuestion(
+    q: StreakQuestionInfo,
+    mode: 'make' | 'past',
+  ) {
+    const resolved = q.resolved_at != null;
+    const deadlineLocked = mode === 'make' && q.deadline_locked;
+    return (
+      <li
+        key={q.id}
+        className={
+          deadlineLocked
+            ? 'card streak-question streak-question--locked'
+            : 'card streak-question'
+        }
+      >
+        <div className="streak-question__head">
+          <div className="streak-question__head-main">
+            <p className="streak-question__text">{q.text}</p>
+            <p className="streak-question__meta">
+              Closes {formatDeadlineEst(q.closes_at)}
+            </p>
+          </div>
+          {deadlineLocked ? (
+            <p className="streak-question__locked">
+              <svg
+                className="streak-question__lock-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Multiple picks cannot share a deadline
+            </p>
+          ) : null}
+        </div>
+        <StreakQuestionChoices
+          choices={q.choices}
+          userChoiceId={q.user_choice_id}
+          correctChoiceId={q.correct_choice_id}
+          resolved={resolved}
+          showPickPct={mode === 'past'}
+          disabled={mode === 'past' || !q.is_open}
+          deadlineLocked={deadlineLocked}
+          canClearPick={mode === 'make' && q.can_clear_pick}
+          onPick={
+            mode === 'make' && q.is_open && !q.deadline_locked
+              ? (choiceId) => void onPick(q.id, choiceId)
+              : undefined
+          }
+          onClearPick={
+            mode === 'make' && q.can_clear_pick
+              ? () => void onClearPick(q.id)
+              : undefined
+          }
+        />
+      </li>
+    );
   }
 
   async function handleDeleteChallenge() {
@@ -196,24 +322,23 @@ export function StreakChallengeView({
           ) : null}
           {playerPicksBusy ? (
             <p className="streak-view__muted">Loading…</p>
-          ) : playerPicks.length === 0 ? (
-            <p className="streak-view__muted">No graded picks yet.</p>
+          ) : sortedPlayerPicks.length === 0 ? (
+            <p className="streak-view__muted">No picks yet.</p>
           ) : (
             <ul className="streak-player-picks__list">
-              {playerPicks.map((row) => (
-                <li
-                  key={row.question_id}
-                  className={`streak-player-picks__item streak-player-picks__item--${row.is_correct ? 'correct' : 'wrong'}`}
-                >
+              {sortedPlayerPicks.map((row) => (
+                <li key={row.question_id} className="streak-player-picks__item">
                   <p className="streak-player-picks__question">{row.text}</p>
                   <p className="streak-player-picks__meta">
-                    Pick: {row.pick_label}
-                    {row.correct_answer
-                      ? ` · Result: ${row.correct_answer}`
-                      : null}
-                    {' · '}
                     Closed {formatDeadlineEst(row.closes_at)}
                   </p>
+                  <StreakQuestionChoices
+                    choices={row.choices}
+                    userChoiceId={row.pick_choice_id}
+                    correctChoiceId={row.correct_choice_id}
+                    resolved
+                    disabled
+                  />
                 </li>
               ))}
             </ul>
@@ -268,13 +393,24 @@ export function StreakChallengeView({
         <button
           type="button"
           className={
-            tab === 'picks'
+            tab === 'make'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('picks')}
+          onClick={() => setTab('make')}
         >
-          My Picks
+          Make Picks
+        </button>
+        <button
+          type="button"
+          className={
+            tab === 'past'
+              ? 'challenge-view__tab challenge-view__tab--active'
+              : 'challenge-view__tab'
+          }
+          onClick={() => setTab('past')}
+        >
+          Past Picks
         </button>
         <button
           type="button"
@@ -345,46 +481,24 @@ export function StreakChallengeView({
         </section>
       ) : null}
 
-      {tab === 'picks' ? (
+      {tab === 'make' ? (
+        <section className="streak-view__questions streak-view__questions--make">
+          <ul className="streak-question-list">
+            {makeQuestions.map((q) => renderQuestion(q, 'make'))}
+          </ul>
+          {makeQuestions.length === 0 ? (
+            <p className="streak-view__muted">No open questions right now.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === 'past' ? (
         <section className="streak-view__questions">
           <ul className="streak-question-list">
-            {questions.map((q) => (
-              <li key={q.id} className="card streak-question">
-                <p className="streak-question__text">{q.text}</p>
-                <p className="streak-question__meta">
-                  Closes {formatDeadlineEst(q.closes_at)}
-                </p>
-                {q.resolved_at ? (
-                  <p className="streak-question__result">
-                    Result: {q.correct_answer}
-                    {q.user_answer
-                      ? ` · Your pick: ${q.user_answer}`
-                      : null}
-                  </p>
-                ) : (
-                  <div className="streak-question__actions">
-                    {q.choices.map((choice) => (
-                      <button
-                        key={choice.id}
-                        type="button"
-                        className={
-                          q.user_choice_id === choice.id
-                            ? 'btn btn--primary'
-                            : 'btn btn--secondary'
-                        }
-                        disabled={!q.is_open}
-                        onClick={() => void onPick(q.id, choice.id)}
-                      >
-                        {choice.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </li>
-            ))}
+            {pastQuestions.map((q) => renderQuestion(q, 'past'))}
           </ul>
-          {questions.length === 0 ? (
-            <p className="streak-view__muted">No questions yet.</p>
+          {pastQuestions.length === 0 ? (
+            <p className="streak-view__muted">No picks yet.</p>
           ) : null}
         </section>
       ) : null}

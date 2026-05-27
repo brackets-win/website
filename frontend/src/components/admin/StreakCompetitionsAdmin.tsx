@@ -51,7 +51,7 @@ function QuestionTile({
   busy: boolean;
   onEdit: (question: StreakCompetitionQuestionAdmin) => void;
   onDelete: (question: StreakCompetitionQuestionAdmin) => void;
-  onResolve: (questionId: number, choiceId: number) => void;
+  onResolve: (questionId: number, choiceId: number | null) => void;
 }) {
   const past = isPastDeadline(q.closes_at);
   const resolved = q.resolved_at != null;
@@ -104,7 +104,17 @@ function QuestionTile({
                 : 'btn btn--ghost streak-question-tile__choice'
             }
             disabled={busy}
-            onClick={() => onResolve(q.id, choice.id)}
+            title={
+              resolved && q.correct_choice_id === choice.id
+                ? 'Click again to clear'
+                : undefined
+            }
+            onClick={() =>
+              onResolve(
+                q.id,
+                resolved && q.correct_choice_id === choice.id ? null : choice.id,
+              )
+            }
           >
             {choice.label}
           </button>
@@ -124,10 +134,17 @@ export function StreakCompetitionsAdmin() {
   const [search, setSearch] = useState('');
 
   const [createName, setCreateName] = useState('');
+  const [createImage, setCreateImage] = useState<File | null>(null);
+  const [createImagePreview, setCreateImagePreview] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
 
   const [editId, setEditId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
+  const [editImage, setEditImage] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [editExistingImageUrl, setEditExistingImageUrl] = useState<string | null>(
+    null,
+  );
   const [editBusy, setEditBusy] = useState(false);
 
   const [questionsId, setQuestionsId] = useState<number | null>(null);
@@ -187,6 +204,26 @@ export function StreakCompetitionsAdmin() {
     void reloadList();
   }, [reloadList]);
 
+  useEffect(() => {
+    if (!createImage) {
+      setCreateImagePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(createImage);
+    setCreateImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [createImage]);
+
+  useEffect(() => {
+    if (!editImage) {
+      setEditImagePreview(editExistingImageUrl);
+      return;
+    }
+    const url = URL.createObjectURL(editImage);
+    setEditImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [editImage, editExistingImageUrl]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -205,6 +242,8 @@ export function StreakCompetitionsAdmin() {
   function openEdit(row: StreakCompetitionSummary) {
     setEditId(row.id);
     setEditName(row.name);
+    setEditImage(null);
+    setEditExistingImageUrl(row.image_url ?? null);
     setView('edit');
     setPageMsg(null);
   }
@@ -216,9 +255,13 @@ export function StreakCompetitionsAdmin() {
     setCreateBusy(true);
     setPageMsg(null);
     try {
-      const { streak_competition } = await adminCreateStreakCompetition({ name });
+      const payload = new FormData();
+      payload.append('name', name);
+      if (createImage) payload.append('image', createImage);
+      const { streak_competition } = await adminCreateStreakCompetition(payload);
       await reloadList();
       setCreateName('');
+      setCreateImage(null);
       setView('list');
       setPageMsg({ type: 'ok', text: `Created “${streak_competition.name}”.` });
     } catch (err) {
@@ -239,9 +282,13 @@ export function StreakCompetitionsAdmin() {
     setEditBusy(true);
     setPageMsg(null);
     try {
-      const { streak_competition } = await adminUpdateStreakCompetition(editId, {
-        name,
-      });
+      const payload = new FormData();
+      payload.append('name', name);
+      if (editImage) payload.append('image', editImage);
+      const { streak_competition } = await adminUpdateStreakCompetition(
+        editId,
+        payload,
+      );
       await reloadList();
       setView('list');
       setPageMsg({ type: 'ok', text: `Saved “${streak_competition.name}”.` });
@@ -313,7 +360,7 @@ export function StreakCompetitionsAdmin() {
     }
   }
 
-  async function handleResolve(questionId: number, choiceId: number) {
+  async function handleResolve(questionId: number, choiceId: number | null) {
     if (questionsId == null) return;
     setQuestionsBusy(true);
     setPageMsg(null);
@@ -424,6 +471,25 @@ export function StreakCompetitionsAdmin() {
                   disabled={createBusy}
                 />
               </div>
+              <div className="field">
+                <label htmlFor="streak-comp-image">Image</label>
+                <input
+                  id="streak-comp-image"
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  disabled={createBusy}
+                  onChange={(e) => setCreateImage(e.target.files?.[0] ?? null)}
+                />
+                {createImagePreview ? (
+                  <div className="photo-preview">
+                    <img src={createImagePreview} alt="" />
+                    {createImage ? (
+                      <span className="photo-preview__label">{createImage.name}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <div className="form-actions">
                 <button
                   type="button"
@@ -476,6 +542,25 @@ export function StreakCompetitionsAdmin() {
                   required
                   disabled={editBusy}
                 />
+              </div>
+              <div className="field">
+                <label htmlFor="streak-edit-image">Image</label>
+                <input
+                  id="streak-edit-image"
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  disabled={editBusy}
+                  onChange={(e) => setEditImage(e.target.files?.[0] ?? null)}
+                />
+                {editImagePreview ? (
+                  <div className="photo-preview">
+                    <img src={editImagePreview} alt="" />
+                    {editImage ? (
+                      <span className="photo-preview__label">{editImage.name}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="form-actions">
                 <button
@@ -780,6 +865,17 @@ export function StreakCompetitionsAdmin() {
                     className="catalog-list__row catalog-shelf__row"
                   >
                     <div className="catalog-shelf__main">
+                      {row.image_url ? (
+                        <img
+                          className="catalog-list__avatar"
+                          src={row.image_url}
+                          alt=""
+                        />
+                      ) : (
+                        <span className="catalog-list__avatar catalog-list__avatar--ph">
+                          {row.name.charAt(0)}
+                        </span>
+                      )}
                       <span className="catalog-list__main">
                         <span className="catalog-list__name">{row.name}</span>
                         <span className="catalog-list__id">
