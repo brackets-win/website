@@ -1,8 +1,7 @@
 /** JSON API client for the Django backend (session cookies). */
 
-const apiRoot = import.meta.env.DEV
-  ? `${window.location.origin}/brackets/api`
-  : 'https://brackets-win.fly.dev/brackets/api';
+/** Same origin in dev (Vite proxy) and prod (brackets.win → Fly proxy). */
+const apiRoot = `${window.location.origin}/brackets/api`;
 
 export type ApiUser = {
   id: number;
@@ -121,6 +120,7 @@ export type StreakChallengeSummary = {
   name: string;
   streak_competition_id: number;
   streak_competition_name: string;
+  image_url: string | null;
   created_by_username: string;
   is_public: boolean;
   is_private: boolean;
@@ -417,10 +417,7 @@ async function apiFetch<T>(
 
 /** Legacy ping endpoint (`POST /brackets/test`). */
 export async function testAPI(value1: number, value2: number): Promise<number> {
-  const apiHost = import.meta.env.DEV
-    ? window.location.origin
-    : 'https://brackets-win.fly.dev';
-  const res = await fetch(`${apiHost}/brackets/test`, {
+  const res = await fetch(`${window.location.origin}/brackets/test`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -442,6 +439,13 @@ export async function authLogin(
   password: string,
 ): Promise<{ user: ApiUser }> {
   return apiFetch('POST', 'auth/login', { username, password });
+}
+
+export async function authRegister(
+  username: string,
+  password: string,
+): Promise<{ user: ApiUser }> {
+  return apiFetch('POST', 'auth/register', { username, password });
 }
 
 export async function authLogout(): Promise<{ ok: boolean }> {

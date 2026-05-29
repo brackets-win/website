@@ -52,7 +52,7 @@ export function resolveFeederMatchups(
       : prev.find((x) => x.position === 2 * np) ?? null;
 
   if (!rawTop || !rawBottom) {
-    return { top: rawTop, bottom: rawBottom };
+    return { top: rawTop ?? null, bottom: rawBottom ?? null };
   }
 
   if (rawTop.position <= rawBottom.position) {
@@ -124,7 +124,7 @@ function openingCenterPct(
   position: number,
   wingMin: number,
   wingMax: number,
-  positionMin: number,
+  _positionMin: number,
 ): number {
   if (stageIdx === 0) {
     const count = wingMax - wingMin + 1;

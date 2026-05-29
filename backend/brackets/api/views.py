@@ -8,6 +8,8 @@ import string
 from typing import Any
 
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch
 from django.utils import timezone
@@ -28,6 +30,7 @@ from brackets.models import (
     Matchup,
     StreakCompetition,
     StreakQuestion,
+    User,
     UserBracket,
     UserPick,
 )
@@ -393,6 +396,32 @@ def auth_login(request: HttpRequest) -> JsonResponse:
 
     login(request, user)
     return JsonResponse({"user": serializers.auth_user(user)})
+
+
+@require_http_methods(["POST"])
+def auth_register(request: HttpRequest) -> JsonResponse:
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    if not username or not password:
+        return _json_error("username and password required", 400)
+    if len(username) > 150:
+        return _json_error("username is too long", 400)
+    if User.objects.filter(username__iexact=username).exists():
+        return _json_error("That username is already taken", 409)
+
+    try:
+        validate_password(password)
+    except ValidationError as exc:
+        return _json_error(" ".join(exc.messages), 400)
+
+    user = User.objects.create_user(username=username, password=password)
+    login(request, user)
+    return JsonResponse({"user": serializers.auth_user(user)}, status=201)
 
 
 @require_http_methods(["POST"])

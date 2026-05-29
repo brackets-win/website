@@ -73,8 +73,7 @@
 }
 
 /* Challenge detail pages */
-.challenge-theme .challenge-view__head,
-.challenge-theme .streak-view__head {
+.challenge-theme .challenge-view__head {
   border-top: 3px solid var(--activity-accent);
 }
 

@@ -713,10 +713,11 @@ export function ChallengeView({
       <DeleteConfirmDialog
         open={deleteOpen}
         title="Delete Challenge?"
-        message={
+        label={challenge?.name ?? ''}
+        intro={
           challenge
             ? `“${challenge.name}” will be permanently removed along with all player entries.`
-            : ''
+            : undefined
         }
         busy={deleteBusy}
         onCancel={() => setDeleteOpen(false)}

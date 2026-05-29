@@ -350,30 +350,50 @@ export function StreakChallengeView({
 
   return (
     <div className={`${streakThemeClass} streak-view`}>
-      <button type="button" className="btn btn--ghost streak-view__back" onClick={onBack}>
+      <button
+        type="button"
+        className="btn btn--ghost challenge-view__back"
+        onClick={onBack}
+      >
         ← My Challenges
       </button>
 
-      <header className="card streak-view__head">
-        <h1>{summary.name}</h1>
-        {summary.streak_competition_name ? (
-          <p className="streak-view__competition">{summary.streak_competition_name}</p>
-        ) : null}
-        <p className="streak-view__stat">
-          {summary.streak_signed >= 5 ? (
-            <span className="streak-view__fire" aria-hidden>
-              🔥
+      <header className="challenge-view__head card">
+        <div className="challenge-view__head-inner">
+          {summary.image_url ? (
+            <img
+              className="challenge-view__bracket-img"
+              src={summary.image_url}
+              alt=""
+            />
+          ) : (
+            <span className="challenge-view__bracket-img challenge-view__bracket-img--ph">
+              {(summary.streak_competition_name || summary.name).charAt(0)}
             </span>
-          ) : null}
-          <strong>{summary.streak_display}</strong>
-          <span className="streak-view__stat-sep" aria-hidden>
-            {' '}
-            |{' '}
-          </span>
-          <span className="streak-view__record">
-            {summary.wins}-{summary.losses}
-          </span>
-        </p>
+          )}
+          <div>
+            <p className="challenge-view__type">Streak Challenge</p>
+            <h1>{summary.name}</h1>
+            {summary.streak_competition_name ? (
+              <p className="challenge-view__meta">{summary.streak_competition_name}</p>
+            ) : null}
+            <p className="streak-view__stat">
+              {summary.streak_signed >= 5 ? (
+                <span className="streak-view__fire" aria-hidden>
+                  🔥
+                </span>
+              ) : null}
+              <strong>{summary.streak_display}</strong>
+              <span className="streak-view__stat-sep" aria-hidden>
+                {' '}
+                |{' '}
+              </span>
+              <span className="streak-view__record">
+                {summary.wins}-{summary.losses}
+              </span>
+            </p>
+          </div>
+        </div>
       </header>
 
       {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
@@ -542,10 +562,11 @@ export function StreakChallengeView({
       <DeleteConfirmDialog
         open={deleteOpen}
         title="Delete Challenge?"
-        message={
+        label={summary?.name ?? ''}
+        intro={
           summary
             ? `“${summary.name}” will be permanently removed along with all player entries.`
-            : ''
+            : undefined
         }
         busy={deleteBusy}
         onCancel={() => setDeleteOpen(false)}

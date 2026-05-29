@@ -23,6 +23,7 @@ import {
   INSTANCE_BRACKET_CHALLENGE,
   INSTANCE_POLL,
   INSTANCE_TOURNAMENT,
+  SHOW_TOURNAMENT_AND_POLL_SECTIONS,
 } from '../../utils/challengeTypes';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 
@@ -236,6 +237,16 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (
+      !SHOW_TOURNAMENT_AND_POLL_SECTIONS &&
+      panel != null &&
+      (panel.key === 'tournament' || panel.key === 'poll')
+    ) {
+      setPanel(null);
+    }
+  }, [panel]);
 
   const bracketChallengeRows = useMemo(
     () => rows.filter((c) => c.instance_type === INSTANCE_BRACKET_CHALLENGE),
@@ -538,9 +549,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
               onClick={() => onOpenStreak(s.id)}
             >
               <div className="challenge-card__body">
-                <span className="challenge-thumb challenge-thumb--ph">
-                  {s.name.charAt(0)}
-                </span>
+                <ChallengeThumb url={s.image_url} name={s.name} />
                 <div className="challenge-card__text">
                   <h3 className="challenge-card__name">{s.name}</h3>
                   {s.streak_competition_name ? (
@@ -806,83 +815,91 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
             INSTANCE_BRACKET_CHALLENGE,
           )}
 
-          {renderSection(
-            'tournament',
-            'Tournament',
-            renderActivityList(tournamentRows, false),
-            <form
-              className="activity-panel__form"
-              onSubmit={(e) => void handleCreateTournament(e)}
-            >
-              <div className="field">
-                <label htmlFor="t-name">Tournament name</label>
-                <input
-                  id="t-name"
-                  className="input"
-                  value={tName}
-                  onChange={(e) => setTName(e.target.value)}
-                  required
-                  disabled={busy}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="t-size">Teams</label>
-                <select
-                  id="t-size"
-                  className="select"
-                  value={tSize}
-                  onChange={(e) => setTSize(parseInt(e.target.value, 10))}
-                  disabled={busy}
+          {SHOW_TOURNAMENT_AND_POLL_SECTIONS
+            ? renderSection(
+                'tournament',
+                'Tournament',
+                renderActivityList(tournamentRows, false),
+                <form
+                  className="activity-panel__form"
+                  onSubmit={(e) => void handleCreateTournament(e)}
                 >
-                  {[4, 8, 16, 32].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={tThird}
-                  onChange={(e) => setTThird(e.target.checked)}
-                  disabled={busy}
-                />
-                Third-place match
-              </label>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={tPrivate}
-                  onChange={(e) => setTPrivate(e.target.checked)}
-                  disabled={busy}
-                />
-                Private (join code)
-              </label>
-              <div className="activity-panel__actions">
-                <button type="button" className="btn btn--ghost" onClick={closePanel}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn--primary"
-                  disabled={busy}
-                >
-                  {busy ? 'Creating…' : 'Create'}
-                </button>
-              </div>
-            </form>,
-            INSTANCE_TOURNAMENT,
-          )}
+                  <div className="field">
+                    <label htmlFor="t-name">Tournament name</label>
+                    <input
+                      id="t-name"
+                      className="input"
+                      value={tName}
+                      onChange={(e) => setTName(e.target.value)}
+                      required
+                      disabled={busy}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-size">Teams</label>
+                    <select
+                      id="t-size"
+                      className="select"
+                      value={tSize}
+                      onChange={(e) => setTSize(parseInt(e.target.value, 10))}
+                      disabled={busy}
+                    >
+                      {[4, 8, 16, 32].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={tThird}
+                      onChange={(e) => setTThird(e.target.checked)}
+                      disabled={busy}
+                    />
+                    Third-place match
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={tPrivate}
+                      onChange={(e) => setTPrivate(e.target.checked)}
+                      disabled={busy}
+                    />
+                    Private (join code)
+                  </label>
+                  <div className="activity-panel__actions">
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={closePanel}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={busy}
+                    >
+                      {busy ? 'Creating…' : 'Create'}
+                    </button>
+                  </div>
+                </form>,
+                INSTANCE_TOURNAMENT,
+              )
+            : null}
 
-          {renderSection(
-            'poll',
-            'Poll',
-            renderActivityList(pollRows, false),
-            null,
-            INSTANCE_POLL,
-            false,
-          )}
+          {SHOW_TOURNAMENT_AND_POLL_SECTIONS
+            ? renderSection(
+                'poll',
+                'Poll',
+                renderActivityList(pollRows, false),
+                null,
+                INSTANCE_POLL,
+                false,
+              )
+            : null}
 
           {renderSection(
             'streak',

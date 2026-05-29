@@ -59,3 +59,28 @@ npm run dev:up
 Open http://localhost:3000/ . Logs: `npm run dev:logs`. Stop: `npm run dev:down`.
 
 Foreground Vite only (same terminal, Ctrl+C stops it): `npm run dev` from the repo root.
+
+### Production deploy
+
+See [DEPLOY.md](DEPLOY.md) for Fly.io, Cloudflare Pages, media volume, and GitHub Actions secrets.
+
+### Production catalog seed
+
+From your **local dev** database (after you have contestants, templates, streak competitions, etc.):
+
+```shell
+cd backend
+poetry run python manage.py export_dev_seed --copy-media
+```
+
+Copy `backend/seed/dev_catalog.json` and `backend/seed/media/` to the server, then on production:
+
+```shell
+poetry run python manage.py import_dev_seed --copy-media --flush-catalog
+```
+
+To bootstrap without a dev export (templates + FIFA World Cup 2026 bracket only):
+
+```shell
+poetry run python manage.py seed_catalog
+```

@@ -2,6 +2,9 @@ export const INSTANCE_BRACKET_CHALLENGE = 'CHALLENGE';
 export const INSTANCE_TOURNAMENT = 'TOURNAMENT';
 export const INSTANCE_POLL = 'POLL';
 
+/** Home-page tournament/poll sections (create, join, cards). */
+export const SHOW_TOURNAMENT_AND_POLL_SECTIONS = false;
+
 export type BracketInstanceType =
   | typeof INSTANCE_BRACKET_CHALLENGE
   | typeof INSTANCE_TOURNAMENT

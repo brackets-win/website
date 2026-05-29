@@ -20,25 +20,38 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-n(^lol5ddh^se!a+toh+992r4$n^gg*my*ihzwldhcwt7umiuy"
 FLY_APP_NAME = os.environ.get("FLY_APP_NAME")
 DEBUG = FLY_APP_NAME is None
+SERVE_MEDIA = DEBUG or bool(FLY_APP_NAME)
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "django-insecure-n(^lol5ddh^se!a+toh+992r4$n^gg*my*ihzwldhcwt7umiuy",
+)
+
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     "testserver",
-    f"{FLY_APP_NAME}.fly.dev",
     "brackets.win",
+    "www.brackets.win",
 ]
+if FLY_APP_NAME:
+    ALLOWED_HOSTS.append(f"{FLY_APP_NAME}.fly.dev")
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://brackets.win"
+    "https://brackets.win",
+    "https://www.brackets.win",
 ]
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Application definition
 

@@ -24,7 +24,8 @@ urlpatterns = [
     path("brackets/", include("brackets.urls"))
 ]
 
-if settings.DEBUG:
+# Local dev and Fly (uploads on mounted volume at MEDIA_ROOT).
+if settings.SERVE_MEDIA:
     urlpatterns += static(
         settings.MEDIA_URL, document_root=settings.MEDIA_ROOT
     )

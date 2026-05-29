@@ -62,3 +62,29 @@
   margin-top: 0.5rem;
   padding: 0.65rem 1rem;
 }
+
+.login__switch {
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+  text-align: center;
+  color: var(--app-muted);
+}
+
+.login__switch-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--app-accent);
+  cursor: pointer;
+}
+
+.login__switch-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.login__switch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

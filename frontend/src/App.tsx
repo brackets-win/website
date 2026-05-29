@@ -14,6 +14,7 @@ import {
   authLogin,
   authLogout,
   authMe,
+  authRegister,
   listUserBrackets,
   type ApiUser,
 } from './utils/api';
@@ -142,6 +143,23 @@ export default function App() {
     }
   }
 
+  async function handleSignup(username: string, password: string) {
+    setLoginBusy(true);
+    setAuthError('');
+    try {
+      const { user } = await authRegister(username, password);
+      setSessionUser(user);
+      setActiveChallenge(null);
+      setPage('home');
+    } catch (e) {
+      setAuthError(
+        e instanceof ApiError ? e.message : 'Could not create account.',
+      );
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
   async function handleSignOut() {
     try {
       await authLogout();
@@ -161,6 +179,7 @@ export default function App() {
     return (
       <LoginPage
         onLogin={handleLogin}
+        onSignup={handleSignup}
         error={authError}
         busy={loginBusy}
       />

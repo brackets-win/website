@@ -106,7 +106,7 @@ export function columnMatchupCenterPct(
   position: number,
   wingMin: number,
   wingMax: number,
-  positionMin: number,
+  _positionMin: number,
   feederTopPos?: number,
   feederBottomPos?: number,
 ): number {

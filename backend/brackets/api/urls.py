@@ -5,6 +5,7 @@ from . import streak_views, views
 urlpatterns = [
     path("auth/me", views.auth_me),
     path("auth/login", views.auth_login),
+    path("auth/register", views.auth_register),
     path("auth/logout", views.auth_logout),
     path("brackets", views.brackets_list),
     path("bracket-templates", views.bracket_templates_list),

@@ -85,14 +85,20 @@ def _streak_summary(
     creator = ""
     if c.created_by_id and getattr(c, "created_by", None) is not None:
         creator = (c.created_by.username or "").strip()
-    competition_name = ""
-    if c.streak_competition_id and getattr(c, "streak_competition", None) is not None:
-        competition_name = c.streak_competition.name
+    competition = (
+        c.streak_competition
+        if c.streak_competition_id and getattr(c, "streak_competition", None) is not None
+        else None
+    )
+    competition_name = competition.name if competition is not None else ""
     return {
         "id": c.id,
         "name": c.name,
         "streak_competition_id": c.streak_competition_id,
         "streak_competition_name": competition_name,
+        "image_url": serializers.streak_competition_image_url(competition)
+        if competition is not None
+        else None,
         "created_by_username": creator,
         "leaderboard_preview": streak_challenge_leaderboard_preview(c, user),
         "is_public": c.is_public,
@@ -652,16 +658,22 @@ def streak_challenges_join(request: HttpRequest) -> JsonResponse:
     challenge_id_raw = body.get("streak_challenge_id")
     challenge = None
     if challenge_id_raw is not None:
-        challenge = StreakChallenge.objects.filter(
-            pk=int(challenge_id_raw), is_public=True
-        ).first()
+        challenge = (
+            StreakChallenge.objects.filter(pk=int(challenge_id_raw), is_public=True)
+            .select_related("streak_competition", "created_by")
+            .first()
+        )
         if challenge is None:
             return _json_error("Streak challenge not found", 404)
     else:
         join_code = _normalize_join_code(body.get("join_code") or "")
         if join_code is None:
             return _json_error("join_code or streak_challenge_id is required", 400)
-        challenge = StreakChallenge.objects.filter(join_code=join_code).first()
+        challenge = (
+            StreakChallenge.objects.filter(join_code=join_code)
+            .select_related("streak_competition", "created_by")
+            .first()
+        )
         if challenge is None:
             return _json_error("Invalid join code", 404)
 
