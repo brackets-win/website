@@ -30,6 +30,27 @@ def _remove_team_from_sourced_feeds(feeder: Matchup, team_id: int) -> None:
         remove_team_from_knockout_path(downstream, team_id)
 
 
+def _remove_loser_from_sourced_feeds(feeder: Matchup, loser_id: int) -> None:
+    """Clear loser slots from downstream matchups that use the loser (source_uses_winner=False)."""
+    for downstream in feeder.feeds_team_a_to.filter(source_a_uses_winner=False):
+        if downstream.contestant1_id != loser_id and downstream.winner_id != loser_id:
+            continue
+        if downstream.contestant1_id == loser_id:
+            downstream.contestant1 = None
+        if downstream.winner_id == loser_id:
+            downstream.winner = None
+        downstream.save(update_fields=["contestant1", "winner"])
+
+    for downstream in feeder.feeds_team_b_to.filter(source_b_uses_winner=False):
+        if downstream.contestant2_id != loser_id and downstream.winner_id != loser_id:
+            continue
+        if downstream.contestant2_id == loser_id:
+            downstream.contestant2 = None
+        if downstream.winner_id == loser_id:
+            downstream.winner = None
+        downstream.save(update_fields=["contestant2", "winner"])
+
+
 @transaction.atomic
 def remove_team_from_knockout_path(from_matchup: Matchup, team_id: int) -> None:
     """
@@ -68,6 +89,14 @@ def clear_matchup_winner_and_downstream(matchup: Matchup) -> None:
     if team_id:
         remove_team_from_knockout_path(matchup, team_id)
         _remove_team_from_sourced_feeds(matchup, team_id)
+        # Also clear the loser from any loser-fed downstream matchups (e.g. third place)
+        loser_id = (
+            matchup.contestant2_id
+            if matchup.contestant1_id == team_id
+            else matchup.contestant1_id
+        )
+        if loser_id:
+            _remove_loser_from_sourced_feeds(matchup, loser_id)
 
 
 @transaction.atomic

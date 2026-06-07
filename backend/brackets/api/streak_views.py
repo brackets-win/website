@@ -343,6 +343,8 @@ def streak_competition_detail(
     competition = get_object_or_404(StreakCompetition, pk=streak_competition_id)
 
     if request.method == "DELETE":
+        if competition.challenges.exists():
+            return _json_error("Cannot delete competition with existing challenges", 409)
         with transaction.atomic():
             competition.delete()
         return JsonResponse({"ok": True})

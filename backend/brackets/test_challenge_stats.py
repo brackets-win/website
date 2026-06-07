@@ -64,9 +64,9 @@ class ChallengeStatsTests(TestCase):
         t1 = next(t for t in group_a["teams"] if t["bracket_contestant_id"] == self.teams[0].id)
         self.assertEqual(t1["average_position"], 1.0)
         t2 = next(t for t in group_a["teams"] if t["bracket_contestant_id"] == self.teams[1].id)
-        self.assertEqual(t2["average_position"], 2.0)
+        self.assertEqual(t2["average_position"], 2.5)
         t3 = next(t for t in group_a["teams"] if t["bracket_contestant_id"] == self.teams[2].id)
-        self.assertEqual(t3["average_position"], 2.0)
+        self.assertEqual(t3["average_position"], 2.5)
 
         col_keys = [c["key"] for c in stats["knockout"]["columns"]]
         self.assertEqual(col_keys[-1], "group_winner")
@@ -167,12 +167,12 @@ class ChallengeStatsTests(TestCase):
             {"A": {"1": self.teams[0].id, "2": self.teams[1].id, "3": self.teams[2].id, "4": self.teams[3].id},
              "B": {"1": self.teams[4].id, "2": self.teams[5].id, "3": self.teams[6].id, "4": self.teams[7].id}},
         )
-        semifinal = KnockoutStage.objects.get(bracket=self.bracket, number_of_contestants=4)
+        final = KnockoutStage.objects.get(bracket=self.bracket, is_final=True)
         for ub in (ub1, ub2):
-            sm = ub.matchup_set.get(stage=semifinal, position=1)
-            sm.contestant1 = self.teams[1]
-            sm.contestant2 = self.teams[4]
-            sm.save(update_fields=["contestant1", "contestant2"])
+            fm = ub.matchup_set.get(stage=final, position=1)
+            fm.contestant1 = self.teams[1]
+            fm.contestant2 = self.teams[4]
+            fm.save(update_fields=["contestant1", "contestant2"])
 
         stats = compute_challenge_stats(self.challenge)
         row_group_winner_only = next(
