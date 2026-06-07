@@ -118,7 +118,7 @@ else:
             "NAME": "postgres",
             "USER": "postgres",
             "PASSWORD": os.environ["DB_PASSWORD"],
-            "HOST": "brackets-win-db.internal",
+            "HOST": "brackets-win-db-2.internal",
             "PORT": "5432",
         }
     }
