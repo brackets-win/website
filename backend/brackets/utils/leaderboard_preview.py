@@ -113,7 +113,7 @@ def bracket_challenge_leaderboard_preview(
     if not uses_prediction_scoring(challenge.instance_type):
         return {"top": [], "viewer": None, "gap_before_viewer": False}
 
-    master = challenge.bracket.get_master_bracket()
+    master = challenge.bracket.userbracket_set.filter(is_master=True).first()
     if not master:
         return {"top": [], "viewer": None, "gap_before_viewer": False}
 

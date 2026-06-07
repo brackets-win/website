@@ -82,6 +82,21 @@ class LeaderboardPreviewTests(TestCase):
         self.assertTrue(preview["top"][0]["is_viewer"])
         self.assertIsNone(preview["viewer"])
 
+    def test_bracket_preview_without_master_does_not_crash(self):
+        host = User.objects.create_user(username="host2", password="x")
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "no-master", "No Master", 4, host
+        )
+        UserBracket.objects.filter(bracket=bracket, is_master=True).delete()
+        challenge = BracketChallenge.objects.create(
+            name="Pool",
+            bracket=bracket,
+            created_by=host,
+        )
+        preview = bracket_challenge_leaderboard_preview(challenge, host)
+        self.assertEqual(preview["top"], [])
+        self.assertIsNone(preview["viewer"])
+
     def test_viewer_below_top_three_with_gap(self):
         host = User.objects.create_user(username="host", password="x")
         viewer = User.objects.create_user(username="viewer", password="x")

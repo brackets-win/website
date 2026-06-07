@@ -59,6 +59,22 @@ class Bracket(models.Model):
         """Get the master bracket for this tournament."""
         return self.userbracket_set.get(is_master=True)
 
+    def ensure_master_bracket(self):
+        """Create the master UserBracket if missing (e.g. after fixture import)."""
+        master = self.userbracket_set.filter(is_master=True).first()
+        if master is None:
+            master = UserBracket.objects.create(
+                bracket=self,
+                user=self.created_by,
+                is_master=True,
+            )
+        from brackets.utils.knockout_tree import (
+            ensure_knockout_structure_for_user_bracket,
+        )
+
+        ensure_knockout_structure_for_user_bracket(master)
+        return master
+
 
 class UserBracket(models.Model):
     bracket = models.ForeignKey(Bracket, on_delete=models.CASCADE)

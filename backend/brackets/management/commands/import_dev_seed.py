@@ -138,4 +138,9 @@ class Command(BaseCommand):
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
 
+        from brackets.models import Bracket
+
+        for bracket in Bracket.objects.all():
+            bracket.ensure_master_bracket()
+
         self.stdout.write(self.style.SUCCESS(f"Loaded {in_path}"))

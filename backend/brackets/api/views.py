@@ -666,6 +666,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                 return _json_error(
                     "That bracket is not available for bracket challenges.", 400
                 )
+            bracket.ensure_master_bracket()
         elif instance_type in (TOURNAMENT, POLL):
             setup = body.get("bracket_setup")
             if not isinstance(setup, dict):
