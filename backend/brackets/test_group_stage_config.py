@@ -2,7 +2,7 @@
 
 from django.test import TestCase
 
-from brackets.models import Bracket, GroupStage
+from brackets.models import Bracket, BracketContestant, GroupStage
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.models import KnockoutStage
@@ -57,6 +57,9 @@ class GroupStagePickRequirementsTests(TestCase):
         gs.contestants_qualifying_per_group = 3
         gs.contestants_advancing = 12  # 4 groups × 3
         gs.save()
+        # Create contestants so bracket_groups_preview returns groups
+        for i in range(16):
+            BracketContestant.objects.create(bracket=bracket, name_override=f"T{i+1}", seed=i + 1)
         ub = UserBracket.objects.create(user=user, bracket=bracket)
         complete, reason = user_bracket_is_complete(ub)
         self.assertFalse(complete)

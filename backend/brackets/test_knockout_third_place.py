@@ -22,6 +22,11 @@ class KnockoutThirdPlaceTests(TestCase):
             self.user,
             has_third_place=True,
         )
+        # Create contestants so tests can assign them to matchups
+        for i in range(16):
+            BracketContestant.objects.create(
+                bracket=self.bracket, name_override=f"T{i+1}", seed=i + 1
+            )
         self.ub = self.bracket.get_master_bracket()
         ensure_knockout_matchup_shell(self.ub)
 

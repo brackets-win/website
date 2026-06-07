@@ -90,7 +90,7 @@ class KnockoutMappingLoadTests(TestCase):
         bracket = _Bracket(metadata={"tournament_type": "world_cup_2026"})
         mapping = load_knockout_mapping(bracket, stage)
         self.assertEqual(mapping[0], (1, "E1", "3E"))
-        self.assertEqual(mapping[2], (3, "A2", "B2"))
+        self.assertEqual(mapping[1], (3, "A2", "B2"))
 
     def test_seeding_eight_groups(self):
         stage = _Stage(metadata={"knockout_fill_method": SEEDING})
