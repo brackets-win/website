@@ -2,12 +2,51 @@
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+
+
+DEFAULT_CATALOG_OWNER = "Keaton"
+
+
+def catalog_owner_natural_key(username: str) -> list[str]:
+    if not get_user_model().objects.filter(username=username).exists():
+        raise CommandError(
+            f"User {username!r} not found. Register that account first, then re-run import."
+        )
+    return [username]
+
+
+def fixture_path_for_load(in_path: Path, owner: str) -> tuple[Path, Path | None]:
+    """Map exported created_by FKs (system, demo, etc.) to the catalog owner."""
+    owner_key = catalog_owner_natural_key(owner)
+    raw = json.loads(in_path.read_text(encoding="utf-8"))
+    needs_rewrite = any(
+        (obj.get("fields") or {}).get("created_by") != owner_key
+        for obj in raw
+        if (obj.get("fields") or {}).get("created_by") is not None
+    )
+    if not needs_rewrite:
+        return in_path, None
+
+    for obj in raw:
+        fields = obj.get("fields")
+        if fields and "created_by" in fields:
+            fields["created_by"] = owner_key
+
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".json", prefix="dev_catalog_")
+    os.close(tmp_fd)
+    tmp = Path(tmp_name)
+    tmp.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    return tmp, tmp
 
 
 class Command(BaseCommand):
@@ -59,6 +98,14 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete existing catalog rows before import (destructive)",
         )
+        parser.add_argument(
+            "--owner",
+            default=DEFAULT_CATALOG_OWNER,
+            help=(
+                "Username for catalog created_by (must already exist; "
+                f"default: {DEFAULT_CATALOG_OWNER})"
+            ),
+        )
 
     def handle(self, *args, **options):
         backend_dir = Path(settings.BASE_DIR)
@@ -84,5 +131,11 @@ class Command(BaseCommand):
         if options["flush_catalog"]:
             self._flush_catalog()
 
-        call_command("loaddata", str(in_path))
+        load_path, tmp_path = fixture_path_for_load(in_path, options["owner"])
+        try:
+            call_command("loaddata", str(load_path))
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+
         self.stdout.write(self.style.SUCCESS(f"Loaded {in_path}"))
