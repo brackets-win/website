@@ -17,11 +17,12 @@ Including another URLconf
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.generic import TemplateView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("brackets/", include("brackets.urls"))
+    path("brackets/", include("brackets.urls")),
 ]
 
 # Local dev and Fly (uploads on mounted volume at MEDIA_ROOT).
@@ -29,3 +30,9 @@ if settings.SERVE_MEDIA:
     urlpatterns += static(
         settings.MEDIA_URL, document_root=settings.MEDIA_ROOT
     )
+
+# SPA catch-all: serve index.html for any route not matched above.
+# This must be last so that API, admin, media, and static files take priority.
+urlpatterns += [
+    re_path(r"^(?!static/).*$", TemplateView.as_view(template_name="index.html")),
+]

@@ -85,7 +85,7 @@ ROOT_URLCONF = "website.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "frontend_dist"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -115,11 +115,11 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": "postgres",
-            "USER": "postgres",
-            "PASSWORD": os.environ["DB_PASSWORD"],
-            "HOST": "brackets-win-db-2.internal",
-            "PORT": "5432",
+            "NAME": os.environ.get("DB_NAME", "postgres"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "brackets-win-db-2.internal"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
         }
     }
 
@@ -156,6 +156,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "static"
+
+# Frontend build output (copied into the image by Docker)
+FRONTEND_DIST_DIR = BASE_DIR / "frontend_dist"
+
+STATICFILES_DIRS = [
+    ("assets", FRONTEND_DIST_DIR / "assets"),
+]
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"

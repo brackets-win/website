@@ -19,8 +19,9 @@ const bracketsProxy = {
 } as const
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
+  base: command === 'build' ? '/static/' : '/',
   server: {
     host: '127.0.0.1',
     port: 3000,
@@ -38,4 +39,4 @@ export default defineConfig({
     strictPort: false,
     proxy: bracketsProxy,
   },
-})
+}))
