@@ -1,4 +1,10 @@
+from django.core.validators import RegexValidator
 from django.db import models
+
+IDENTIFIER_VALIDATOR = RegexValidator(
+    regex=r"^[a-zA-Z0-9_-]+$",
+    message="Use only letters, numbers, underscores, and hyphens (no spaces).",
+)
 
 
 class ContestantTag(models.Model):
@@ -11,13 +17,24 @@ class ContestantTag(models.Model):
 
 class Contestant(models.Model):
     """Reusable contestant definition (e.g., 'Brazil', 'Stawberry')"""
+
+    identifier = models.CharField(
+        max_length=64,
+        unique=True,
+        validators=[IDENTIFIER_VALIDATOR],
+        help_text="Stable key for admins (no spaces).",
+    )
     name = models.CharField(max_length=100)
     tags = models.ManyToManyField(
         ContestantTag, blank=True, related_name='contestants')
     image_url = models.URLField(blank=True)
+    # Uploaded image (optional). External hotlinks can use image_url.
+    photo = models.ImageField(
+        upload_to="contestants/photos/", blank=True, null=True
+    )
     description = models.TextField(blank=True)
     metadata = models.JSONField(null=True, blank=True)
-    created_by = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    created_by = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
 
     def __str__(self):
         return self.name

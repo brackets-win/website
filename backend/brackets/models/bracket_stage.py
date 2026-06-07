@@ -50,6 +50,8 @@ class GroupStage(BracketStage):
     points_per_win = models.PositiveIntegerField(default=3)
     points_per_tie = models.PositiveIntegerField(default=1)
     points_per_loss = models.PositiveIntegerField(default=0)
+    points_per_exact_position = models.PositiveIntegerField(default=0)
+    points_per_advancer = models.PositiveIntegerField(default=0)
     ties_allowed = models.BooleanField(default=True)
 
     def __str__(self):
@@ -61,6 +63,8 @@ class KnockoutStage(BracketStage):
     has_extra_time = models.BooleanField(default=False)
     has_penalty_shootout = models.BooleanField(default=False)
     is_final = models.BooleanField(default=False)
+    # Optional third-place game: one matchup fed by semifinal losers (not winners).
+    is_third_place = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} - Knockout Stage"

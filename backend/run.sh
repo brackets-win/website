@@ -1,5 +1,7 @@
 #!/bin/bash
+set -euo pipefail
 
-python manage.py migrate
+# Migrations run in fly.toml release_command; keep as fallback for local Docker runs.
+python3 manage.py migrate --noinput
 
-gunicorn --bind :8000 --workers 2 website.wsgi
+exec gunicorn --bind :8000 --workers 2 website.wsgi

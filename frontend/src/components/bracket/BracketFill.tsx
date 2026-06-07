@@ -1,0 +1,1933 @@
+import {
+  Fragment,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ScoringHighlights } from '../../utils/api';
+import {
+  ApiError,
+  type BracketContestantInfo,
+  type BracketDetail,
+  type BracketStageInfo,
+  type MatchupInfo,
+  type UserBracketDetail,
+  getBracket,
+  getUserBracket,
+  patchMatchupWinner,
+  submitUserBracket,
+} from '../../utils/api';
+import { GroupStagePanel } from './GroupStagePanel';
+import {
+  buildMirrorBracketLayout,
+  columnMatchupCenterPct,
+  type MirrorBracketColumn,
+} from './bracketMirrorLayout';
+import {
+  findMatchupById,
+  prevKnockoutStageBeforeFinal,
+  resolveFeederMatchups,
+  sortMatchupsByFeederOrder,
+} from './knockoutFeederLayout';
+import './BracketFill.css';
+
+/** Split bracket center column vertical layout (% of track height). */
+const SPLIT_CENTER_CHAMP_GAP_PCT = 14;
+const SPLIT_CENTER_FINAL_ABOVE_SEMI_PCT = 10;
+/** Top of the 3rd-place match card (% track); label + winner box sit above it. */
+const SPLIT_CENTER_THIRD_MATCH_TOP_PCT = 19;
+
+function sortStages(stages: BracketStageInfo[]) {
+  return [...stages].sort((a, b) => a.order - b.order);
+}
+
+type ScoringHighlightLookup = {
+  isKnockoutScored: (stageId: number, contestantId: number) => boolean;
+  isChampionScored: (contestantId: number) => boolean;
+  isThirdScored: (contestantId: number) => boolean;
+};
+
+const ScoringHighlightContext = createContext<ScoringHighlightLookup | null>(
+  null,
+);
+
+function useScoringHighlight() {
+  return useContext(ScoringHighlightContext);
+}
+
+function buildScoringLookup(
+  highlights: ScoringHighlights | undefined,
+): ScoringHighlightLookup | null {
+  if (!highlights) return null;
+  const koSet = new Set(
+    highlights.knockout_contestants.map(
+      (x) => `${x.stage_id}:${x.contestant_id}`,
+    ),
+  );
+  return {
+    isKnockoutScored: (stageId, contestantId) =>
+      koSet.has(`${stageId}:${contestantId}`),
+    isChampionScored: (contestantId) =>
+      highlights.champion_contestant_id === contestantId,
+    isThirdScored: (contestantId) =>
+      highlights.third_place_contestant_id === contestantId,
+  };
+}
+
+function ScoredMark() {
+  return (
+    <span className="bf-scored-check" aria-hidden>
+      ✓
+    </span>
+  );
+}
+
+/** Short code for a knockout stage (QF1, SF2, R16, …). Uses API stage name + matchup position. */
+function stageShortPrefix(stage: BracketStageInfo): string {
+  const md = stage.metadata;
+  if (
+    md &&
+    typeof md === 'object' &&
+    'short_label' in md &&
+    typeof (md as { short_label?: unknown }).short_label === 'string'
+  ) {
+    const s = (md as { short_label: string }).short_label.trim();
+    if (s) return s;
+  }
+  const name = stage.name?.trim() ?? '';
+  const KNOWN: Record<string, string> = {
+    Quarterfinals: 'QF',
+    Semifinals: 'SF',
+    Final: 'F',
+    'Group Stage': 'G',
+  };
+  if (KNOWN[name]) return KNOWN[name];
+  const rom = /^Round of (\d+)$/i.exec(name);
+  if (rom) return `R${rom[1]}`;
+  if (!name) return 'G';
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return parts
+      .map((p) => p[0].toUpperCase())
+      .join('')
+      .slice(0, 4);
+  }
+  return name.slice(0, 4).toUpperCase();
+}
+
+function feederDropLabel(
+  feeder: MatchupInfo,
+  knockoutStages: BracketStageInfo[],
+  currentMatchup: MatchupInfo,
+): string {
+  const currentStage = knockoutStages.find((s) => s.id === currentMatchup.stage_id);
+  const role = currentStage?.knockout?.is_third_place ? 'Loser' : 'Winner';
+  const stage = knockoutStages.find((s) => s.id === feeder.stage_id);
+  if (!stage) return `Game ${feeder.position} ${role}`;
+  const prefix = stageShortPrefix(stage);
+  const gamesInStage = Math.max(1, stage.number_of_contestants / 2);
+  if (gamesInStage <= 1) {
+    return `${prefix} ${role}`;
+  }
+  return `${prefix} ${role} ${feeder.position}`;
+}
+
+function MatchupContestantFace({
+  contestant,
+  showSeed,
+}: {
+  contestant: BracketContestantInfo;
+  showSeed: boolean;
+}) {
+  return (
+    <>
+      {contestant.image_url ? (
+        <img className="bf-ko-img" src={contestant.image_url} alt="" />
+      ) : (
+        <span className="bf-ko-img bf-ko-img--ph" aria-hidden>
+          {contestant.display_name.charAt(0)}
+        </span>
+      )}
+      <span className="bf-ko-name">{contestant.display_name}</span>
+      {showSeed && contestant.seed != null ? (
+        <span className="bf-ko-seed">#{contestant.seed}</span>
+      ) : null}
+    </>
+  );
+}
+
+function latestMatchup(
+  detail: UserBracketDetail,
+  m: MatchupInfo,
+): MatchupInfo {
+  return findMatchupById(detail, m.id) ?? m;
+}
+
+/** Highlight box for champion or 3rd-place winner above/below the match. */
+function WinnerRevealBox({
+  contestant,
+  showSeeds,
+  busy,
+  onClear,
+  clearLabel,
+  scoreAs = 'champion',
+}: {
+  contestant: BracketContestantInfo;
+  showSeeds: boolean;
+  busy: boolean;
+  onClear?: () => void;
+  clearLabel: string;
+  scoreAs?: 'champion' | 'third';
+}) {
+  const scoring = useScoringHighlight();
+  const scored =
+    scoreAs === 'third'
+      ? (scoring?.isThirdScored(contestant.id) ?? false)
+      : (scoring?.isChampionScored(contestant.id) ?? false);
+  return (
+    <div
+      className={[
+        'bf-champion-box',
+        'bf-champion-box--active',
+        'bf-winner-reveal',
+        scored ? 'bf-champion-box--scored' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {scored ? <ScoredMark /> : null}
+      {onClear ? (
+        <button
+          type="button"
+          className="bf-pick-clear bf-pick-clear--champion"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClear();
+          }}
+          aria-label={clearLabel}
+        >
+          ×
+        </button>
+      ) : null}
+      <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
+    </div>
+  );
+}
+
+/** Reserved winner slot (empty box until a 3rd-place winner is picked). */
+function ThirdPlaceWinnerSlot({
+  contestant,
+  showSeeds,
+  busy,
+  onClear,
+}: {
+  contestant: BracketContestantInfo | null | undefined;
+  showSeeds: boolean;
+  busy: boolean;
+  onClear?: () => void;
+}) {
+  if (contestant) {
+    return (
+      <WinnerRevealBox
+        contestant={contestant}
+        showSeeds={showSeeds}
+        busy={busy}
+        onClear={onClear}
+        clearLabel="Remove 3rd place pick"
+        scoreAs="third"
+      />
+    );
+  }
+  return (
+    <div
+      className="bf-champion-box bf-third-place-winner-placeholder"
+      aria-label="3rd place winner"
+    />
+  );
+}
+
+export function matchupsForStage(
+  ub: UserBracketDetail,
+  stageId: number,
+): MatchupInfo[] {
+  const pack = ub.matchups_by_stage.find((s) => s.stage_id === stageId);
+  return pack ? [...pack.matchups].sort((a, b) => a.position - b.position) : [];
+}
+
+/** Vertical center % (0–100) for a matchup so the bracket stays aligned & centered. */
+export function matchupCenterPct(
+  stageIdx: number,
+  position: number,
+  leaves: number,
+): number {
+  if (stageIdx === 0) {
+    return ((position - 0.5) / leaves) * 100;
+  }
+  const top = matchupCenterPct(stageIdx - 1, 2 * position - 1, leaves);
+  const bot = matchupCenterPct(stageIdx - 1, 2 * position, leaves);
+  return (top + bot) / 2;
+}
+
+type Props = {
+  userBracketId: number;
+  readOnly?: boolean;
+  allowMasterEdit?: boolean;
+  /** Read-only display of the official (master) bracket in challenges. */
+  allowMasterView?: boolean;
+  showSubmit?: boolean;
+  showScoringHighlights?: boolean;
+  onSubmitted?: () => void;
+};
+
+export function BracketFill({
+  userBracketId,
+  readOnly = false,
+  allowMasterEdit = false,
+  allowMasterView = false,
+  showSubmit = false,
+  showScoringHighlights = false,
+  onSubmitted,
+}: Props) {
+  const [detail, setDetail] = useState<UserBracketDetail | null>(null);
+  const [bracketDef, setBracketDef] = useState<BracketDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [phase, setPhase] = useState<'groups' | 'knockout'>('knockout');
+  const phaseInitForUb = useRef<number | null>(null);
+
+  const goToPhase = useCallback((next: 'groups' | 'knockout') => {
+    setPhase((current) => {
+      if (current === next) return current;
+      return next;
+    });
+  }, []);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const { user_bracket: ub } = await getUserBracket(userBracketId);
+      const { bracket: b } = await getBracket(ub.bracket_id);
+      setDetail(ub);
+      setBracketDef(b);
+    } catch (e) {
+      setDetail(null);
+      setBracketDef(null);
+      setError(
+        e instanceof ApiError ? e.message : 'Could not load bracket.',
+      );
+    }
+  }, [userBracketId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const sortedStages = useMemo(() => {
+    if (!bracketDef) return [];
+    return sortStages(bracketDef.stages);
+  }, [bracketDef]);
+
+  const groupStages = useMemo(
+    () => sortedStages.filter((s) => s.stage_type === 'GROUP'),
+    [sortedStages],
+  );
+
+  const groupsPreview = bracketDef?.groups ?? [];
+
+  const hasGroupUi =
+    !!bracketDef &&
+    groupStages.length > 0 &&
+    (groupsPreview?.length ?? 0) > 0;
+
+  const isWorldCup =
+    bracketDef?.metadata != null &&
+    typeof bracketDef.metadata === 'object' &&
+    (bracketDef.metadata as { tournament_type?: string }).tournament_type ===
+      'world_cup_2026';
+
+  const firstGroupStage = groupStages[0];
+
+  useEffect(() => {
+    if (!hasGroupUi) return;
+    if (phaseInitForUb.current === userBracketId) return;
+    phaseInitForUb.current = userBracketId;
+    setPhase('groups');
+  }, [hasGroupUi, userBracketId]);
+
+  const stages = useMemo(() => {
+    if (!bracketDef) return [];
+    return sortedStages.filter((s) => s.stage_type === 'KNOCKOUT');
+  }, [bracketDef, sortedStages]);
+
+  /** Columns + connectors only (excludes optional third-place stage shown under Champion). */
+  const knockoutStagesMain = useMemo(
+    () => stages.filter((s) => !s.knockout?.is_third_place),
+    [stages],
+  );
+
+  const thirdPlaceStage = useMemo(() => {
+    if (!bracketDef?.has_third_place_match) return undefined;
+    return stages.find((s) => s.knockout?.is_third_place);
+  }, [bracketDef?.has_third_place_match, stages]);
+
+  const leaves = useMemo(() => {
+    if (!detail || knockoutStagesMain.length === 0) return 0;
+    return matchupsForStage(detail, knockoutStagesMain[0].id).length;
+  }, [detail, knockoutStagesMain]);
+
+  const openingKoStage = knockoutStagesMain[0];
+  const openingContestants = openingKoStage?.number_of_contestants ?? 0;
+  const splitKnockoutBoard = openingContestants >= 32 && leaves >= 2;
+
+  const boardHeightPx = useMemo(() => {
+    if (splitKnockoutBoard) {
+      // Each R32 band must fit two full team rows (not clipped).
+      const wingGames = Math.max(leaves / 2, 1);
+      const matchupPx = 108;
+      return Math.max(640, wingGames * matchupPx);
+    }
+    return Math.max(560, leaves * 160);
+  }, [leaves, splitKnockoutBoard]);
+
+  const mirrorLayout = useMemo(
+    () =>
+      buildMirrorBracketLayout(
+        knockoutStagesMain,
+        leaves,
+        openingContestants,
+      ),
+    [knockoutStagesMain, leaves, openingContestants],
+  );
+
+  const locked =
+    readOnly ||
+    (detail != null &&
+      !detail.can_edit &&
+      !(allowMasterEdit && detail.is_master));
+
+  const scoringLookup = useMemo(() => {
+    if (!showScoringHighlights || !detail) return null;
+    return buildScoringLookup(detail.scoring_highlights);
+  }, [showScoringHighlights, detail?.scoring_highlights]);
+
+  const applyWinner = useCallback(
+    async (feederMatchupId: number, contestantId: number) => {
+      if (locked) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await patchMatchupWinner(feederMatchupId, contestantId);
+        await load();
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : 'Could not save pick.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, locked],
+  );
+
+  const clearWinner = useCallback(
+    async (matchupId: number) => {
+      if (locked) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await patchMatchupWinner(matchupId, null);
+        await load();
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : 'Could not clear pick.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, locked],
+  );
+
+  const onClearWinner = locked ? undefined : clearWinner;
+
+  async function handleSubmit() {
+    if (locked || !detail) return;
+    setSubmitBusy(true);
+    setError(null);
+    try {
+      await submitUserBracket(userBracketId);
+      await load();
+      onSubmitted?.();
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : 'Could not submit bracket.',
+      );
+    } finally {
+      setSubmitBusy(false);
+    }
+  }
+
+  if (error && !detail) {
+    return (
+      <section className="bf">
+        <p className="bf-error">{error}</p>
+      </section>
+    );
+  }
+
+  if (!detail || !bracketDef) {
+    return (
+      <section className="bf">
+        <p className="bf-meta">Loading bracket…</p>
+      </section>
+    );
+  }
+
+  if (detail.is_master && !allowMasterEdit && !allowMasterView) {
+    return (
+      <section className="bf">
+        <p className="bf-error">
+          This is the master results bracket; open a player copy to make picks.
+        </p>
+      </section>
+    );
+  }
+
+  if (stages.length === 0) {
+    return (
+      <section className="bf">
+        <p className="bf-error">No knockout stages found for this bracket.</p>
+      </section>
+    );
+  }
+
+  const knockoutEmpty = leaves === 0;
+
+  const finalStage = knockoutStagesMain.find((s) => s.knockout?.is_final);
+  const finalMatchups =
+    finalStage != null ? matchupsForStage(detail, finalStage.id) : [];
+  const finalMatchup = finalMatchups[0];
+
+  const thirdPlaceMatchup =
+    thirdPlaceStage != null
+      ? matchupsForStage(detail, thirdPlaceStage.id)[0]
+      : undefined;
+
+  const meta = detail.metadata ?? {};
+  const showSeeds = bracketDef?.show_seeds !== false;
+
+  const knockoutBoard =
+    !knockoutEmpty ? (
+      <>
+        <div className="bf-ko-mobile">
+          <MobileKnockoutPanel
+            knockoutStagesMain={knockoutStagesMain}
+            thirdPlaceStage={thirdPlaceStage}
+            finalMatchup={finalMatchup}
+            thirdPlaceMatchup={thirdPlaceMatchup}
+            detail={detail}
+            allKnockoutStages={stages}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy || locked}
+            onClearWinner={onClearWinner}
+          />
+        </div>
+        <div className="bf-ko-desktop bf-scroll">
+        {mirrorLayout ? (
+          <div className="bf-board-split">
+            <MirrorWing
+              columns={mirrorLayout.left}
+              detail={detail}
+              stages={knockoutStagesMain}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy || locked}
+              onClearWinner={onClearWinner}
+            />
+            {mirrorLayout.center && finalMatchup ? (
+              (() => {
+                const semiCol =
+                  mirrorLayout.left[mirrorLayout.left.length - 1];
+                const semiCenterPct = columnMatchupCenterPct(
+                  semiCol.stageIdx,
+                  semiCol.positionMin,
+                  semiCol.wingMin,
+                  semiCol.wingMax,
+                  semiCol.positionMin,
+                );
+                const finalCenterPct = Math.max(
+                  10,
+                  semiCenterPct - SPLIT_CENTER_FINAL_ABOVE_SEMI_PCT,
+                );
+                return (
+                  <>
+                    <SpineConnector
+                      col={semiCol}
+                      towardCenter
+                      targetCenterPct={finalCenterPct}
+                    />
+                    <SplitCenterColumn
+                      finalMatchup={finalMatchup}
+                      thirdPlaceMatchup={thirdPlaceMatchup}
+                      semiCenterPct={semiCenterPct}
+                      finalCenterPct={finalCenterPct}
+                      detail={detail}
+                      knockoutStages={knockoutStagesMain}
+                      allKnockoutStages={stages}
+                      showSeeds={showSeeds}
+                      applyWinner={applyWinner}
+                      busy={busy || locked}
+                      onClearWinner={onClearWinner}
+                    />
+                    <SpineConnector
+                      col={
+                        mirrorLayout.right[mirrorLayout.right.length - 1]
+                      }
+                      towardCenter={false}
+                      targetCenterPct={finalCenterPct}
+                    />
+                  </>
+                );
+              })()
+            ) : null}
+            <MirrorWing
+              columns={mirrorLayout.right}
+              detail={detail}
+              stages={knockoutStagesMain}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy || locked}
+              onClearWinner={onClearWinner}
+              reverse
+            />
+          </div>
+        ) : (
+          <div className="bf-board-inner">
+            {knockoutStagesMain.map((stage, stageIdx) => (
+              <Fragment key={stage.id}>
+                <BracketStageColumn
+                  stage={stage}
+                  stageIdx={stageIdx}
+                  leaves={leaves}
+                  detail={detail}
+                  stages={knockoutStagesMain}
+                  showSeeds={showSeeds}
+                  applyWinner={applyWinner}
+                  busy={busy || locked}
+                  onClearWinner={onClearWinner}
+                />
+                {stageIdx < knockoutStagesMain.length - 1 ? (
+                  <ConnectorBetweenStages
+                    fromCol={linearStageColumn(
+                      knockoutStagesMain[stageIdx],
+                      stageIdx,
+                      leaves,
+                    )}
+                    toCol={linearStageColumn(
+                      knockoutStagesMain[stageIdx + 1],
+                      stageIdx + 1,
+                      leaves,
+                    )}
+                    detail={detail}
+                  />
+                ) : null}
+              </Fragment>
+            ))}
+            {finalMatchup ? (
+              <ChampionColumn
+                finalMatchup={finalMatchup}
+                thirdPlaceMatchup={thirdPlaceMatchup}
+                detail={detail}
+                knockoutStages={knockoutStagesMain}
+                allKnockoutStages={stages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy || locked}
+                onClearWinner={onClearWinner}
+              />
+            ) : null}
+          </div>
+        )}
+        </div>
+      </>
+    ) : (
+      <p className="bf-meta bf-knockout-placeholder">
+        Knockout pairings will fill in here as matchups are available.
+      </p>
+    );
+
+  return (
+    <ScoringHighlightContext.Provider value={scoringLookup}>
+    <section
+      className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
+      aria-busy={busy}
+      style={
+        {
+          '--bf-board-h': `${boardHeightPx}px`,
+        } as React.CSSProperties
+      }
+    >
+      <h2>{detail.bracket.name}</h2>
+      {error ? <p className="bf-error">{error}</p> : null}
+
+      {(() => {
+        const showPointsBadge =
+          showScoringHighlights && !detail.is_master;
+        const showToolbar =
+          (hasGroupUi && firstGroupStage) ||
+          (showSubmit && !locked) ||
+          showPointsBadge;
+        if (!showToolbar) return null;
+        const points =
+          detail.score_vs_master != null ? detail.score_vs_master : null;
+        return (
+          <div className="bf-toolbar">
+            {hasGroupUi && firstGroupStage ? (
+              <div
+                className="bf-tabs"
+                role="tablist"
+                aria-label="Bracket sections"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={phase === 'groups'}
+                  className={
+                    phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                  }
+                  onClick={() => goToPhase('groups')}
+                >
+                  Group Stage
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={phase === 'knockout'}
+                  className={
+                    phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                  }
+                  onClick={() => goToPhase('knockout')}
+                >
+                  Knockout
+                </button>
+              </div>
+            ) : null}
+            <div className="bf-toolbar__end">
+              {showPointsBadge ? (
+                <p className="bf-toolbar__points" aria-live="polite">
+                  {points != null ? `${points} POINTS` : '— POINTS'}
+                </p>
+              ) : null}
+              {showSubmit && !locked ? (
+                <button
+                  type="button"
+                  className="btn btn--primary bf-toolbar__submit"
+                  disabled={
+                    submitBusy ||
+                    busy ||
+                    !detail.is_complete ||
+                    !!detail.submitted_at
+                  }
+                  onClick={() => void handleSubmit()}
+                >
+                  {submitBusy
+                    ? 'Submitting…'
+                    : detail.submitted_at
+                      ? 'Submitted'
+                      : 'Submit Bracket'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })()}
+
+      {hasGroupUi && firstGroupStage ? (
+        <div className="bf-phase-viewport" data-phase={phase} aria-live="polite">
+          <div className="bf-phase-track" data-active={phase}>
+            <div
+              className="bf-phase-panel"
+              data-inert={phase !== 'groups' ? true : undefined}
+            >
+              <GroupStagePanel
+                userBracketId={userBracketId}
+                groups={groupsPreview}
+                groupStage={firstGroupStage}
+                isWorldCup={isWorldCup}
+                firstKnockoutContestants={
+                  knockoutStagesMain[0]?.number_of_contestants
+                }
+                initialMetadata={{
+                  group_positions: meta.group_positions ?? {},
+                  third_place_advancers: meta.third_place_advancers ?? [],
+                }}
+                scoringHighlights={
+                  showScoringHighlights ? detail.scoring_highlights : undefined
+                }
+                busy={busy}
+                readOnly={locked}
+                onSaved={load}
+                onError={(msg) => setError(msg || null)}
+                setBusy={setBusy}
+              />
+            </div>
+            <div
+              className="bf-phase-panel"
+              data-inert={phase !== 'knockout' ? true : undefined}
+            >
+              {knockoutBoard}
+            </div>
+          </div>
+        </div>
+      ) : (
+        knockoutBoard
+      )}
+
+    </section>
+    </ScoringHighlightContext.Provider>
+  );
+}
+
+type MatchupCenterFn = (stageIdx: number, position: number) => number;
+
+function ConnectorBetweenStages({
+  fromCol,
+  toCol,
+  detail,
+  mirrored = false,
+}: {
+  fromCol: MirrorBracketColumn;
+  toCol: MirrorBracketColumn;
+  detail: UserBracketDetail;
+  mirrored?: boolean;
+}) {
+  const fromPct = columnCenterFn(fromCol);
+  const prevStageId = fromCol.stage.id;
+  const nextMatchups = sortMatchupsByFeederOrder(
+    matchupsForStage(detail, toCol.stage.id).filter(
+      (m) => m.position >= toCol.positionMin && m.position <= toCol.positionMax,
+    ),
+    detail,
+    prevStageId,
+  );
+
+  return (
+    <div className="bf-connector-strip" aria-hidden>
+      <div className="bf-stage-heading-spacer" />
+      <div className="bf-connector-track">
+        <svg
+          className="bf-connector-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          {nextMatchups.map((m) => {
+            const { top, bottom } = resolveFeederMatchups(
+              m,
+              detail,
+              prevStageId,
+            );
+            if (!top || !bottom) return null;
+            const y1 = fromPct(fromCol.stageIdx, top.position);
+            const y2 = fromPct(fromCol.stageIdx, bottom.position);
+            const ym = columnMatchupCenterPct(
+              toCol.stageIdx,
+              m.position,
+              toCol.wingMin,
+              toCol.wingMax,
+              toCol.positionMin,
+              top.position,
+              bottom.position,
+            );
+            const d = mirrored
+              ? `M 100 ${y1} H 76 M 100 ${y2} H 76 M 76 ${y1} V ${y2} M 76 ${ym} H 0`
+              : `M 0 ${y1} H 24 M 0 ${y2} H 24 M 24 ${y1} V ${y2} M 24 ${ym} H 100`;
+            return <path key={m.id} d={d} className="bf-connector-path" />;
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function linearStageColumn(
+  stage: BracketStageInfo,
+  stageIdx: number,
+  leaves: number,
+): MirrorBracketColumn {
+  const matchupsInStage = leaves / 2 ** stageIdx;
+  return {
+    key: `linear-${stage.id}`,
+    stage,
+    stageIdx,
+    positionMin: 1,
+    positionMax: matchupsInStage,
+    side: 'left',
+    wingMin: 1,
+    // Keep every linear column on the opening-round vertical scale so
+    // quarterfinals/semifinals/final align and connectors land correctly.
+    wingMax: leaves,
+  };
+}
+
+function columnCenterFn(col: MirrorBracketColumn): MatchupCenterFn {
+  return (stageIdx, position) =>
+    columnMatchupCenterPct(
+      stageIdx,
+      position,
+      col.wingMin,
+      col.wingMax,
+      col.positionMin,
+    );
+}
+
+function MirrorWing({
+  columns,
+  detail,
+  stages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+  reverse = false,
+}: {
+  columns: MirrorBracketColumn[];
+  detail: UserBracketDetail;
+  stages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+  reverse?: boolean;
+}) {
+  return (
+    <div
+      className={
+        reverse ? 'bf-board-wing bf-board-wing--right' : 'bf-board-wing'
+      }
+    >
+      {columns.map((col, colIdx) => (
+        <Fragment key={col.key}>
+          <MirrorBracketStageColumn
+            col={col}
+            detail={detail}
+            stages={stages}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+          />
+          {colIdx < columns.length - 1 ? (
+            <ConnectorBetweenStages
+              fromCol={columns[colIdx]}
+              toCol={columns[colIdx + 1]}
+              detail={detail}
+              mirrored={reverse}
+            />
+          ) : null}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function SpineConnector({
+  col,
+  towardCenter,
+  targetCenterPct,
+}: {
+  col: MirrorBracketColumn;
+  towardCenter: boolean;
+  /** Where the horizontal meets the center column (final matchup). */
+  targetCenterPct: number;
+}) {
+  const ySemi = columnMatchupCenterPct(
+    col.stageIdx,
+    col.positionMin,
+    col.wingMin,
+    col.wingMax,
+    col.positionMin,
+  );
+  const yFinal = targetCenterPct;
+  const d = towardCenter
+    ? `M 0 ${ySemi} H 24 V ${yFinal} H 100`
+    : `M 100 ${ySemi} H 76 V ${yFinal} H 0`;
+  return (
+    <div className="bf-connector-strip" aria-hidden>
+      <div className="bf-stage-heading-spacer" />
+      <div className="bf-connector-track">
+        <svg
+          className="bf-connector-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          <path d={d} className="bf-connector-path" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function contestantForFeeder(
+  m: MatchupInfo,
+  feeder: MatchupInfo,
+  feeders: { top: MatchupInfo | null; bottom: MatchupInfo | null },
+  knockoutStages: BracketStageInfo[],
+): BracketContestantInfo | null {
+  let slot: BracketContestantInfo | null = null;
+  if (m.source_a_matchup_id === feeder.id) slot = m.contestant1;
+  else if (m.source_b_matchup_id === feeder.id) slot = m.contestant2;
+  else if (feeders.top?.id === feeder.id) slot = m.contestant1;
+  else if (feeders.bottom?.id === feeder.id) slot = m.contestant2;
+
+  const currentStage = knockoutStages.find((s) => s.id === m.stage_id);
+  const useLoser = currentStage?.knockout?.is_third_place === true;
+  if (slot) {
+    if (useLoser && !feeder.winner) return null;
+    return slot;
+  }
+  if (!feeder.winner || !feeder.contestant1 || !feeder.contestant2) {
+    return null;
+  }
+  if (useLoser) {
+    return feeder.winner.id === feeder.contestant1.id
+      ? feeder.contestant2
+      : feeder.contestant1;
+  }
+  if (currentStage?.knockout?.is_final && feeder.winner) {
+    return feeder.winner;
+  }
+  return null;
+}
+
+function MirrorBracketStageColumn({
+  col,
+  detail,
+  stages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  col: MirrorBracketColumn;
+  detail: UserBracketDetail;
+  stages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const { stage, stageIdx, positionMin, positionMax, wingMin, wingMax } = col;
+  const isFirst = stageIdx === 0;
+  const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
+  const matchups = sortMatchupsByFeederOrder(
+    matchupsForStage(detail, stage.id).filter(
+      (m) => m.position >= positionMin && m.position <= positionMax,
+    ),
+    detail,
+    prevStage?.id ?? null,
+  );
+  const wingSlots = wingMax - wingMin + 1;
+  const stageTitle =
+    stage.name?.trim() !== ''
+      ? stage.name
+      : stageIdx === 0
+        ? 'Opening round'
+        : `Round ${stageIdx + 1}`;
+
+  return (
+    <div className="bf-stage-col">
+      <p className="bf-stage-title">{stageTitle}</p>
+      <div className="bf-stage-track">
+        {matchups.map((m) => {
+          const feeders = resolveFeederMatchups(
+            m,
+            detail,
+            prevStage?.id ?? null,
+          );
+          const topPct = columnMatchupCenterPct(
+            stageIdx,
+            m.position,
+            wingMin,
+            wingMax,
+            positionMin,
+            feeders.top?.position,
+            feeders.bottom?.position,
+          );
+          const anchorStyle =
+            isFirst && wingSlots > 0
+              ? {
+                  top: `${((m.position - wingMin) / wingSlots) * 100}%`,
+                  height: `${100 / wingSlots}%`,
+                  transform: 'none' as const,
+                }
+              : {
+                  top: `${topPct}%`,
+                  transform: 'translateY(-50%)' as const,
+                };
+          return (
+            <div
+              key={m.id}
+              className={
+                isFirst
+                  ? 'bf-matchup-anchor bf-matchup-anchor--band'
+                  : 'bf-matchup-anchor'
+              }
+              style={anchorStyle}
+            >
+              <MatchupCard
+                m={m}
+                detail={detail}
+                isFirst={isFirst}
+                prevStageId={prevStage?.id ?? null}
+                knockoutStages={stages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BracketStageColumn({
+  stage,
+  stageIdx,
+  leaves,
+  detail,
+  stages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  stage: BracketStageInfo;
+  stageIdx: number;
+  leaves: number;
+  detail: UserBracketDetail;
+  stages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const isFirst = stageIdx === 0;
+  const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
+  const matchups = sortMatchupsByFeederOrder(
+    matchupsForStage(detail, stage.id),
+    detail,
+    prevStage?.id ?? null,
+  );
+
+  const stageTitle =
+    stage.name?.trim() !== ''
+      ? stage.name
+      : stageIdx === 0
+        ? 'Opening round'
+        : `Round ${stageIdx + 1}`;
+
+  return (
+    <div className="bf-stage-col">
+      <p className="bf-stage-title">{stageTitle}</p>
+      <div className="bf-stage-track">
+        {matchups.map((m) => {
+          const col = linearStageColumn(stage, stageIdx, leaves);
+          const feeders = resolveFeederMatchups(
+            m,
+            detail,
+            prevStage?.id ?? null,
+          );
+          const topPct = columnMatchupCenterPct(
+            stageIdx,
+            m.position,
+            col.wingMin,
+            col.wingMax,
+            col.positionMin,
+            feeders.top?.position,
+            feeders.bottom?.position,
+          );
+          const bandFirst =
+            stageIdx === 0 && leaves > 0
+              ? {
+                  top: `${((m.position - 1) / leaves) * 100}%`,
+                  height: `${100 / leaves}%`,
+                  transform: 'none' as const,
+                }
+              : {
+                  top: `${topPct}%`,
+                  transform: 'translateY(-50%)' as const,
+                };
+          return (
+            <div
+              key={m.id}
+              className={
+                stageIdx === 0
+                  ? 'bf-matchup-anchor bf-matchup-anchor--band'
+                  : 'bf-matchup-anchor'
+              }
+              style={bandFirst}
+            >
+              <MatchupCard
+                m={m}
+                detail={detail}
+                isFirst={isFirst}
+                prevStageId={prevStage?.id ?? null}
+                knockoutStages={stages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+type MobileRound =
+  | { kind: 'stage'; key: string; label: string; stageIdx: number }
+  | { kind: 'third'; key: string; label: string };
+
+function MobileKnockoutPanel({
+  knockoutStagesMain,
+  thirdPlaceStage,
+  finalMatchup,
+  thirdPlaceMatchup,
+  detail,
+  allKnockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  knockoutStagesMain: BracketStageInfo[];
+  thirdPlaceStage: BracketStageInfo | undefined;
+  finalMatchup: MatchupInfo | undefined;
+  thirdPlaceMatchup: MatchupInfo | undefined;
+  detail: UserBracketDetail;
+  allKnockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const rounds = useMemo((): MobileRound[] => {
+    const items: MobileRound[] = knockoutStagesMain.map((stage, stageIdx) => ({
+      kind: 'stage',
+      key: `stage-${stage.id}`,
+      label:
+        stage.name?.trim() !== ''
+          ? stage.name
+          : stageIdx === 0
+            ? 'Opening round'
+            : `Round ${stageIdx + 1}`,
+      stageIdx,
+    }));
+    if (thirdPlaceStage && thirdPlaceMatchup) {
+      items.push({ kind: 'third', key: 'third-place', label: '3rd place' });
+    }
+    return items;
+  }, [knockoutStagesMain, thirdPlaceStage, thirdPlaceMatchup]);
+
+  const [activeRound, setActiveRound] = useState(0);
+  const active = rounds[activeRound] ?? rounds[0];
+
+  const finalLive = finalMatchup ? latestMatchup(detail, finalMatchup) : null;
+  const champ = finalLive?.winner;
+  const thirdLive = thirdPlaceMatchup
+    ? latestMatchup(detail, thirdPlaceMatchup)
+    : undefined;
+  const bronze = thirdLive?.winner;
+
+  let matchups: MatchupInfo[] = [];
+  let isFirst = false;
+  let prevStageId: number | null = null;
+  let showChampion = false;
+
+  if (active?.kind === 'stage') {
+    const stage = knockoutStagesMain[active.stageIdx];
+    const prevStage =
+      active.stageIdx > 0 ? knockoutStagesMain[active.stageIdx - 1] : null;
+    isFirst = active.stageIdx === 0;
+    prevStageId = prevStage?.id ?? null;
+    matchups = sortMatchupsByFeederOrder(
+      matchupsForStage(detail, stage.id),
+      detail,
+      prevStageId,
+    );
+    showChampion = stage.knockout?.is_final === true;
+  }
+
+  return (
+    <div className="bf-mobile-ko">
+      <div
+        className="bf-mobile-ko__tabs"
+        role="tablist"
+        aria-label="Knockout rounds"
+      >
+        {rounds.map((round, idx) => (
+          <button
+            key={round.key}
+            type="button"
+            role="tab"
+            aria-selected={activeRound === idx}
+            className={
+              activeRound === idx ? 'bf-tab bf-tab--active' : 'bf-tab'
+            }
+            onClick={() => setActiveRound(idx)}
+          >
+            {round.label}
+          </button>
+        ))}
+      </div>
+
+      {active?.kind === 'stage' ? (
+        <>
+          <div className="bf-mobile-ko__matchups">
+            {matchups.map((m) => (
+              <div key={m.id} className="bf-mobile-ko__matchup">
+                <MatchupCard
+                  m={m}
+                  detail={detail}
+                  isFirst={isFirst}
+                  prevStageId={prevStageId}
+                  knockoutStages={allKnockoutStages}
+                  showSeeds={showSeeds}
+                  applyWinner={applyWinner}
+                  busy={busy}
+                  onClearWinner={onClearWinner}
+                />
+              </div>
+            ))}
+          </div>
+          {showChampion && finalLive ? (
+            <div className="bf-mobile-ko__extras">
+              <p className="bf-stage-title">Champion</p>
+              {champ ? (
+                <WinnerRevealBox
+                  contestant={champ}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(finalLive.id)
+                      : undefined
+                  }
+                  clearLabel="Remove champion pick"
+                />
+              ) : (
+                <div className="bf-champion-box" aria-label="Champion" />
+              )}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {active?.kind === 'third' && thirdLive ? (
+        <div className="bf-mobile-ko__extras">
+          <p className="bf-stage-title">3rd place</p>
+          <ThirdPlaceWinnerSlot
+            contestant={bronze}
+            showSeeds={showSeeds}
+            busy={busy}
+            onClear={
+              onClearWinner
+                ? () => void onClearWinner(thirdLive.id)
+                : undefined
+            }
+          />
+          <div className="bf-mobile-ko__matchup">
+            <MatchupCard
+              m={thirdLive}
+              detail={detail}
+              isFirst={false}
+              prevStageId={
+                prevKnockoutStageBeforeFinal(knockoutStagesMain)?.id ?? null
+              }
+              knockoutStages={allKnockoutStages}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy}
+              onClearWinner={onClearWinner}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SplitCenterColumn({
+  finalMatchup,
+  thirdPlaceMatchup,
+  semiCenterPct,
+  finalCenterPct,
+  detail,
+  knockoutStages,
+  allKnockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  finalMatchup: MatchupInfo;
+  thirdPlaceMatchup: MatchupInfo | undefined;
+  semiCenterPct: number;
+  finalCenterPct: number;
+  detail: UserBracketDetail;
+  knockoutStages: BracketStageInfo[];
+  allKnockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const finalLive = latestMatchup(detail, finalMatchup);
+  const champ = finalLive.winner;
+  const thirdLive = thirdPlaceMatchup
+    ? latestMatchup(detail, thirdPlaceMatchup)
+    : undefined;
+  const bronze = thirdLive?.winner;
+  const prevStage = prevKnockoutStageBeforeFinal(knockoutStages);
+  const finalStage = knockoutStages.find((s) => s.knockout?.is_final);
+  const finalTitle =
+    finalStage?.name?.trim() ? finalStage.name : 'Final';
+  const champTop = Math.max(4, finalCenterPct - SPLIT_CENTER_CHAMP_GAP_PCT);
+  const thirdMatchTop = Math.min(
+    82,
+    semiCenterPct + SPLIT_CENTER_THIRD_MATCH_TOP_PCT,
+  );
+
+  return (
+    <div className="bf-stage-col bf-stage-col--center">
+      <p className="bf-stage-title">{finalTitle}</p>
+      <div className="bf-stage-track bf-center-track">
+        <div
+          className="bf-center-slot bf-center-slot--champion"
+          style={{ top: `${champTop}%` }}
+        >
+          <div className="bf-center-slot-anchor bf-center-slot-anchor--up">
+            <div className="bf-center-slot-stack">
+              <p className="bf-stage-title">Champion</p>
+              {champ ? (
+                <WinnerRevealBox
+                  contestant={champ}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(finalLive.id)
+                      : undefined
+                  }
+                  clearLabel="Remove champion pick"
+                />
+              ) : (
+                <div className="bf-champion-box" aria-label="Champion" />
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="bf-center-slot bf-center-slot--final"
+          style={{ top: `${finalCenterPct}%` }}
+        >
+          <div className="bf-center-matchup-wrap">
+            <MatchupCard
+              m={finalLive}
+              detail={detail}
+              isFirst={false}
+              prevStageId={prevStage?.id ?? null}
+              knockoutStages={allKnockoutStages}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy}
+              onClearWinner={onClearWinner}
+            />
+          </div>
+        </div>
+
+        {thirdLive ? (
+          <div
+            className="bf-center-slot bf-center-slot--third"
+            style={{ top: `${thirdMatchTop}%` }}
+          >
+            <div className="bf-center-third-above">
+              <div className="bf-center-slot-stack bf-center-slot-stack--third">
+                <p className="bf-stage-title">3rd place</p>
+                <ThirdPlaceWinnerSlot
+                  contestant={bronze}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(thirdLive.id)
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+            <div className="bf-center-third-match">
+              <MatchupCard
+                m={thirdLive}
+                detail={detail}
+                isFirst={false}
+                prevStageId={prevStage?.id ?? null}
+                knockoutStages={allKnockoutStages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ChampionColumn({
+  finalMatchup,
+  thirdPlaceMatchup,
+  detail,
+  knockoutStages,
+  allKnockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  finalMatchup: MatchupInfo;
+  thirdPlaceMatchup: MatchupInfo | undefined;
+  detail: UserBracketDetail;
+  knockoutStages: BracketStageInfo[];
+  allKnockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const finalLive = latestMatchup(detail, finalMatchup);
+  const champ = finalLive.winner;
+  const thirdLive = thirdPlaceMatchup
+    ? latestMatchup(detail, thirdPlaceMatchup)
+    : undefined;
+  const bronze = thirdLive?.winner;
+  const prevStage = prevKnockoutStageBeforeFinal(knockoutStages);
+
+  return (
+    <div className="bf-stage-col bf-stage-col--champion">
+      <div className="bf-champion-stack">
+        <div className="bf-champion-middle">
+          <p className="bf-stage-title">Champion</p>
+          <div className="bf-champion-box-wrap">
+            <div className="bf-center-slot-stack">
+              {champ ? (
+                <WinnerRevealBox
+                  contestant={champ}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(finalLive.id)
+                      : undefined
+                  }
+                  clearLabel="Remove champion pick"
+                />
+              ) : (
+                <div className="bf-champion-box" aria-label="Champion" />
+              )}
+            </div>
+          </div>
+        </div>
+        {thirdLive ? (
+          <div className="bf-third-place-section bf-third-place-section--stacked">
+            <div className="bf-center-third-above">
+              <div className="bf-center-slot-stack bf-center-slot-stack--third">
+                <p className="bf-stage-title">3rd place</p>
+                <ThirdPlaceWinnerSlot
+                  contestant={bronze}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(thirdLive.id)
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+            <div className="bf-center-third-match">
+              <MatchupCard
+                m={thirdLive}
+                detail={detail}
+                isFirst={false}
+                prevStageId={prevStage?.id ?? null}
+                knockoutStages={allKnockoutStages}
+                showSeeds={showSeeds}
+                applyWinner={applyWinner}
+                busy={busy}
+                onClearWinner={onClearWinner}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MatchupCard({
+  m,
+  detail,
+  isFirst,
+  prevStageId,
+  knockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  m: MatchupInfo;
+  detail: UserBracketDetail;
+  isFirst: boolean;
+  prevStageId: number | null;
+  knockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const feeders = resolveFeederMatchups(m, detail, prevStageId);
+  const { top: feederTop, bottom: feederBot } = feeders;
+  const isThirdPlace =
+    knockoutStages.find((s) => s.id === m.stage_id)?.knockout?.is_third_place ===
+    true;
+  const contestantTop =
+    feederTop != null
+      ? contestantForFeeder(m, feederTop, feeders, knockoutStages)
+      : m.contestant1;
+  const contestantBot =
+    feederBot != null
+      ? contestantForFeeder(m, feederBot, feeders, knockoutStages)
+      : m.contestant2;
+  const labelTop =
+    feederTop != null
+      ? feederDropLabel(feederTop, knockoutStages, m)
+      : '';
+  const labelBot =
+    feederBot != null
+      ? feederDropLabel(feederBot, knockoutStages, m)
+      : '';
+  const showLaterRound =
+    !isFirst &&
+    (feederTop != null ||
+      feederBot != null ||
+      contestantTop != null ||
+      contestantBot != null);
+
+  return (
+    <div className="bf-matchup">
+      {showLaterRound ? (
+        <>
+          <LaterRoundSlot
+            contestant={contestantTop}
+            currentMatchup={m}
+            feeder={feederTop}
+            otherContestantId={contestantBot?.id}
+            winnerId={m.winner?.id}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+            emptyLabel={labelTop}
+            allowSlotClear={!isThirdPlace}
+          />
+          <LaterRoundSlot
+            contestant={contestantBot}
+            currentMatchup={m}
+            feeder={feederBot}
+            otherContestantId={contestantTop?.id}
+            winnerId={m.winner?.id}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+            emptyLabel={labelBot}
+            allowSlotClear={!isThirdPlace}
+          />
+        </>
+      ) : null}
+
+      {isFirst ? (
+        <>
+          <ContestantOnly
+            label={m.contestant1}
+            matchupId={m.id}
+            stageId={m.stage_id}
+            winnerId={m.winner?.id}
+            otherId={m.contestant2?.id}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+          />
+          <ContestantOnly
+            label={m.contestant2}
+            matchupId={m.id}
+            stageId={m.stage_id}
+            winnerId={m.winner?.id}
+            otherId={m.contestant1?.id}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy}
+            onClearWinner={onClearWinner}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** First round: click a team to pick the winner of this game. */
+function ContestantOnly({
+  label,
+  matchupId,
+  stageId,
+  winnerId,
+  otherId,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  label: BracketContestantInfo | null;
+  matchupId: number;
+  stageId: number;
+  winnerId: number | undefined;
+  otherId: number | undefined;
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  if (!label) {
+    return (
+      <div className="bf-slot bf-slot--empty" aria-label="Empty slot">
+        TBD
+      </div>
+    );
+  }
+  const isWinner =
+    winnerId != null && winnerId === label.id && otherId != null;
+  const showClear = isWinner && onClearWinner != null;
+  const scoring = useScoringHighlight();
+  const scored = scoring?.isKnockoutScored(stageId, label.id) ?? false;
+
+  return (
+    <div
+      className={showClear ? 'bf-slot bf-slot--with-clear' : 'bf-slot'}
+    >
+      <button
+        type="button"
+        className={[
+          'bf-chip',
+          'bf-chip--ko',
+          isWinner ? 'bf-chip--winner' : '',
+          scored ? 'bf-chip--scored' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        disabled={busy}
+        onClick={() => void applyWinner(matchupId, label.id)}
+        aria-label={`${label.display_name}, pick to advance`}
+      >
+        {scored ? <ScoredMark /> : null}
+        <MatchupContestantFace contestant={label} showSeed={showSeeds} />
+      </button>
+      {showClear ? (
+        <button
+          type="button"
+          className="bf-pick-clear"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onClearWinner(matchupId);
+          }}
+          aria-label="Remove pick"
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** One slot in a later-round matchup (feeder-linked or direct contestant). */
+function LaterRoundSlot({
+  contestant,
+  currentMatchup,
+  feeder,
+  otherContestantId,
+  winnerId,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+  emptyLabel,
+  allowSlotClear = true,
+}: {
+  contestant: BracketContestantInfo | null;
+  currentMatchup: MatchupInfo;
+  feeder: MatchupInfo | null;
+  otherContestantId: number | undefined;
+  winnerId: number | undefined;
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+  emptyLabel: string;
+  allowSlotClear?: boolean;
+}) {
+  if (!feeder) {
+    if (!contestant) {
+      return (
+        <div className="bf-slot bf-slot--pending">
+          <span className="bf-slot--empty">{emptyLabel || 'TBD'}</span>
+        </div>
+      );
+    }
+    return (
+      <ContestantOnly
+        label={contestant}
+        matchupId={currentMatchup.id}
+        stageId={currentMatchup.stage_id}
+        winnerId={winnerId}
+        otherId={otherContestantId}
+        showSeeds={showSeeds}
+        applyWinner={applyWinner}
+        busy={busy}
+        onClearWinner={onClearWinner}
+      />
+    );
+  }
+
+  return (
+    <ReceiveOrPick
+      contestant={contestant}
+      currentMatchupId={currentMatchup.id}
+      currentMatchup={currentMatchup}
+      feeder={feeder}
+      otherContestantId={otherContestantId}
+      winnerId={winnerId}
+      showSeeds={showSeeds}
+      applyWinner={applyWinner}
+      busy={busy}
+      onClearWinner={onClearWinner}
+      emptyLabel={emptyLabel}
+      allowSlotClear={allowSlotClear}
+    />
+  );
+}
+
+/** Later rounds: empty slot waits for the listed feeder; click a team to pick this game’s winner. */
+function ReceiveOrPick({
+  contestant,
+  currentMatchupId,
+  currentMatchup,
+  feeder,
+  otherContestantId,
+  winnerId,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+  emptyLabel,
+  allowSlotClear = true,
+}: {
+  contestant: BracketContestantInfo | null;
+  currentMatchupId: number;
+  currentMatchup: MatchupInfo;
+  feeder: MatchupInfo;
+  otherContestantId: number | undefined;
+  winnerId: number | undefined;
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+  emptyLabel: string;
+  allowSlotClear?: boolean;
+}) {
+  if (!contestant) {
+    return (
+      <div className="bf-slot bf-slot--pending">
+        <span className="bf-slot--empty">{emptyLabel}</span>
+      </div>
+    );
+  }
+
+  const isWinner =
+    winnerId != null &&
+    winnerId === contestant.id &&
+    otherContestantId != null;
+
+  // × clears the prior-round pick that advanced this team here, not this round's winner.
+  const clearMatchupId =
+    onClearWinner != null && allowSlotClear && feeder.winner != null
+      ? feeder.id
+      : null;
+
+  const canPickThisGame = otherContestantId != null;
+  const scoring = useScoringHighlight();
+  const scored =
+    scoring?.isKnockoutScored(currentMatchup.stage_id, contestant.id) ?? false;
+
+  return (
+    <div
+      className={
+        clearMatchupId != null ? 'bf-slot bf-slot--with-clear' : 'bf-slot'
+      }
+    >
+      <button
+        type="button"
+        className={[
+          'bf-chip',
+          'bf-chip--ko',
+          isWinner ? 'bf-chip--winner' : '',
+          scored ? 'bf-chip--scored' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        disabled={busy || !canPickThisGame}
+        onClick={() => void applyWinner(currentMatchupId, contestant.id)}
+        aria-label={`${contestant.display_name}, pick to advance`}
+      >
+        {scored ? <ScoredMark /> : null}
+        <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
+      </button>
+      {clearMatchupId != null && onClearWinner ? (
+        <button
+          type="button"
+          className="bf-pick-clear"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onClearWinner(clearMatchupId);
+          }}
+          aria-label="Remove pick"
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
+  );
+}

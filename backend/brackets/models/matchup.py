@@ -6,13 +6,13 @@ class Matchup(models.Model):
     user_bracket = models.ForeignKey(
         'bracket.UserBracket', on_delete=models.CASCADE)
     stage = models.ForeignKey(
-        'bracket_stage.BracketStage', on_delete=models.CASCADE)
+        'bracket.BracketStage', on_delete=models.CASCADE)
     position = models.PositiveIntegerField()
     contestant1 = models.ForeignKey(
-        'contestant.BracketContestant', related_name='matchup_contestant1', on_delete=models.CASCADE, null=True, blank=True)
+        'bracket.BracketContestant', related_name='matchup_contestant1', on_delete=models.CASCADE, null=True, blank=True)
     contestant2 = models.ForeignKey(
-        'contestant.BracketContestant', related_name='matchup_contestant2', on_delete=models.CASCADE, null=True, blank=True)
-    winner = models.ForeignKey('contestant.BracketContestant', related_name='matchup_winner',
+        'bracket.BracketContestant', related_name='matchup_contestant2', on_delete=models.CASCADE, null=True, blank=True)
+    winner = models.ForeignKey('bracket.BracketContestant', related_name='matchup_winner',
                                on_delete=models.SET_NULL, null=True, blank=True)
 
     # Source tracking for contestants (enables third place matches, double elimination, etc.)
@@ -46,11 +46,37 @@ class Matchup(models.Model):
     def get_next_matchup(self):
         """
         Get the matchup in the next stage that this matchup's winner feeds into.
-        Returns None if this is the final stage.
+        Returns None if there is no next knockout matchup (e.g. final — champions
+        are not another matchup row; optional third-place game uses loser feeds only).
         """
-        next_stage = self.user_bracket.bracket.stages.filter(
-            order=self.stage.order + 1
-        ).first()
+        from .bracket_stage import KnockoutStage
+
+        try:
+            ks = KnockoutStage.objects.get(pk=self.stage_id)
+            if ks.is_final:
+                return None
+        except KnockoutStage.DoesNotExist:
+            pass
+
+        from .bracket_stage import BracketStage
+
+        # Next knockout stage by order (not only order+1 — admin order gaps are allowed).
+        # Skip third-place: that game is fed by losers, not winners from the prior round.
+        next_stages = self.user_bracket.bracket.stages.filter(
+            stage_type=BracketStage.StageType.KNOCKOUT,
+            order__gt=self.stage.order,
+        ).order_by('order')
+
+        next_stage = None
+        for candidate in next_stages:
+            try:
+                ks = KnockoutStage.objects.get(pk=candidate.pk)
+            except KnockoutStage.DoesNotExist:
+                ks = None
+            if ks and ks.is_third_place:
+                continue
+            next_stage = candidate
+            break
 
         if not next_stage:
             return None
@@ -92,31 +118,59 @@ class Matchup(models.Model):
 
         loser = self.get_loser()
 
+        from brackets.utils.knockout_rebuild import remove_team_from_knockout_path
+
         # Propagate to matchups where this is source A
         for matchup in matchups_sourcing_a:
+            new_contestant = (
+                self.winner if matchup.source_a_uses_winner else loser
+            )
+            new_id = new_contestant.id if new_contestant else None
+            old_id = matchup.contestant1_id
+            if old_id and old_id != new_id:
+                remove_team_from_knockout_path(self, old_id)
             if matchup.source_a_uses_winner:
                 matchup.contestant1 = self.winner
             else:
                 matchup.contestant1 = loser
-            matchup.save()
+            matchup.save(update_fields=["contestant1"])
 
         # Propagate to matchups where this is source B
         for matchup in matchups_sourcing_b:
+            new_contestant = (
+                self.winner if matchup.source_b_uses_winner else loser
+            )
+            new_id = new_contestant.id if new_contestant else None
+            old_id = matchup.contestant2_id
+            if old_id and old_id != new_id:
+                remove_team_from_knockout_path(self, old_id)
             if matchup.source_b_uses_winner:
                 matchup.contestant2 = self.winner
             else:
                 matchup.contestant2 = loser
-            matchup.save()
+            matchup.save(update_fields=["contestant2"])
 
-        # Fallback: If no explicit sources, use position-based progression
-        if not matchups_sourcing_a and not matchups_sourcing_b:
-            next_matchup = self.get_next_matchup()
-            if next_matchup:
-                if self.is_team_a():
-                    next_matchup.contestant1 = self.winner
-                else:
-                    next_matchup.contestant2 = self.winner
-                next_matchup.save()
+        # Winner advances to the next knockout round (e.g. semi → final).
+        # Always run this even when explicit loser feeds exist (third-place game).
+        next_matchup = self.get_next_matchup()
+        if next_matchup:
+            if self.is_team_a():
+                old_id = next_matchup.contestant1_id
+                if old_id and old_id != self.winner_id:
+                    remove_team_from_knockout_path(self, old_id)
+                    next_matchup.refresh_from_db(
+                        fields=["contestant1", "contestant2", "winner"]
+                    )
+                next_matchup.contestant1 = self.winner
+            else:
+                old_id = next_matchup.contestant2_id
+                if old_id and old_id != self.winner_id:
+                    remove_team_from_knockout_path(self, old_id)
+                    next_matchup.refresh_from_db(
+                        fields=["contestant1", "contestant2", "winner"]
+                    )
+                next_matchup.contestant2 = self.winner
+            next_matchup.save(update_fields=["contestant1", "contestant2"])
 
     def save(self, *args, **kwargs):
         """Override save to auto-propagate winners."""
@@ -173,9 +227,9 @@ class Matchup(models.Model):
 
 class UserPick(models.Model):
     matchup = models.ForeignKey(Matchup, on_delete=models.CASCADE)
-    user = models.ForeignKey('user.User', on_delete=models.CASCADE)
+    user = models.ForeignKey('bracket.User', on_delete=models.CASCADE)
     selected_contestant = models.ForeignKey(
-        'contestant.BracketContestant', on_delete=models.CASCADE)
+        'bracket.BracketContestant', on_delete=models.CASCADE)
 
     def __str__(self):
         return f"{self.user.username} picked {self.selected_contestant}"

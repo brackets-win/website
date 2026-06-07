@@ -28,8 +28,8 @@ def create_knockout_matchups_from_groups(user_bracket, knockout_stage):
     if not group_stages.exists():
         raise ValueError("No group stage found before this knockout stage")
 
-    # Get number of groups
-    groups = Group.objects.filter(bracket=bracket).order_by('order')
+    group_stage = group_stages.last()
+    groups = Group.objects.filter(stage=group_stage, bracket=bracket).order_by('order')
     num_groups = groups.count()
 
     # Determine mapping to use
@@ -90,7 +90,13 @@ def update_knockout_matchups_from_groups(user_bracket, knockout_stage):
             position = int(pos_str)
             mapping.append((position, teams['team_a'], teams['team_b']))
     else:
-        groups = Group.objects.filter(bracket=bracket).order_by('order')
+        gs = bracket.stages.filter(
+            stage_type='GROUP',
+            order__lt=knockout_stage.order,
+        ).last()
+        if gs is None:
+            raise ValueError("No group stage found before this knockout stage")
+        groups = Group.objects.filter(stage=gs, bracket=bracket).order_by('order')
         num_groups = groups.count()
         mapping = generate_default_group_knockout_mapping(num_groups)
 
@@ -238,7 +244,7 @@ def get_contestant_by_position_code(bracket, position_code):
         # Find group by matching code (which is derived from order)
         groups = Group.objects.filter(bracket=bracket)
         group = None
-        for g in groups:
+        for g in groups.order_by('stage_id', 'order'):
             if g.code == group_code:
                 group = g
                 break
