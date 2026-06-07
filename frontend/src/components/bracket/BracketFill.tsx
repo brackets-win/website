@@ -520,7 +520,22 @@ export function BracketFill({
 
   const knockoutBoard =
     !knockoutEmpty ? (
-      <div className="bf-scroll">
+      <>
+        <div className="bf-ko-mobile">
+          <MobileKnockoutPanel
+            knockoutStagesMain={knockoutStagesMain}
+            thirdPlaceStage={thirdPlaceStage}
+            finalMatchup={finalMatchup}
+            thirdPlaceMatchup={thirdPlaceMatchup}
+            detail={detail}
+            allKnockoutStages={stages}
+            showSeeds={showSeeds}
+            applyWinner={applyWinner}
+            busy={busy || locked}
+            onClearWinner={onClearWinner}
+          />
+        </div>
+        <div className="bf-ko-desktop bf-scroll">
         {mirrorLayout ? (
           <div className="bf-board-split">
             <MirrorWing
@@ -636,7 +651,8 @@ export function BracketFill({
             ) : null}
           </div>
         )}
-      </div>
+        </div>
+      </>
     ) : (
       <p className="bf-meta bf-knockout-placeholder">
         Knockout pairings will fill in here as matchups are available.
@@ -1172,6 +1188,179 @@ function BracketStageColumn({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+type MobileRound =
+  | { kind: 'stage'; key: string; label: string; stageIdx: number }
+  | { kind: 'third'; key: string; label: string };
+
+function MobileKnockoutPanel({
+  knockoutStagesMain,
+  thirdPlaceStage,
+  finalMatchup,
+  thirdPlaceMatchup,
+  detail,
+  allKnockoutStages,
+  showSeeds,
+  applyWinner,
+  busy,
+  onClearWinner,
+}: {
+  knockoutStagesMain: BracketStageInfo[];
+  thirdPlaceStage: BracketStageInfo | undefined;
+  finalMatchup: MatchupInfo | undefined;
+  thirdPlaceMatchup: MatchupInfo | undefined;
+  detail: UserBracketDetail;
+  allKnockoutStages: BracketStageInfo[];
+  showSeeds: boolean;
+  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
+  busy: boolean;
+  onClearWinner?: (matchupId: number) => void;
+}) {
+  const rounds = useMemo((): MobileRound[] => {
+    const items: MobileRound[] = knockoutStagesMain.map((stage, stageIdx) => ({
+      kind: 'stage',
+      key: `stage-${stage.id}`,
+      label:
+        stage.name?.trim() !== ''
+          ? stage.name
+          : stageIdx === 0
+            ? 'Opening round'
+            : `Round ${stageIdx + 1}`,
+      stageIdx,
+    }));
+    if (thirdPlaceStage && thirdPlaceMatchup) {
+      items.push({ kind: 'third', key: 'third-place', label: '3rd place' });
+    }
+    return items;
+  }, [knockoutStagesMain, thirdPlaceStage, thirdPlaceMatchup]);
+
+  const [activeRound, setActiveRound] = useState(0);
+  const active = rounds[activeRound] ?? rounds[0];
+
+  const finalLive = finalMatchup ? latestMatchup(detail, finalMatchup) : null;
+  const champ = finalLive?.winner;
+  const thirdLive = thirdPlaceMatchup
+    ? latestMatchup(detail, thirdPlaceMatchup)
+    : undefined;
+  const bronze = thirdLive?.winner;
+
+  let matchups: MatchupInfo[] = [];
+  let isFirst = false;
+  let prevStageId: number | null = null;
+  let showChampion = false;
+
+  if (active?.kind === 'stage') {
+    const stage = knockoutStagesMain[active.stageIdx];
+    const prevStage =
+      active.stageIdx > 0 ? knockoutStagesMain[active.stageIdx - 1] : null;
+    isFirst = active.stageIdx === 0;
+    prevStageId = prevStage?.id ?? null;
+    matchups = sortMatchupsByFeederOrder(
+      matchupsForStage(detail, stage.id),
+      detail,
+      prevStageId,
+    );
+    showChampion = stage.knockout?.is_final === true;
+  }
+
+  return (
+    <div className="bf-mobile-ko">
+      <div
+        className="bf-mobile-ko__tabs"
+        role="tablist"
+        aria-label="Knockout rounds"
+      >
+        {rounds.map((round, idx) => (
+          <button
+            key={round.key}
+            type="button"
+            role="tab"
+            aria-selected={activeRound === idx}
+            className={
+              activeRound === idx ? 'bf-tab bf-tab--active' : 'bf-tab'
+            }
+            onClick={() => setActiveRound(idx)}
+          >
+            {round.label}
+          </button>
+        ))}
+      </div>
+
+      {active?.kind === 'stage' ? (
+        <>
+          <div className="bf-mobile-ko__matchups">
+            {matchups.map((m) => (
+              <div key={m.id} className="bf-mobile-ko__matchup">
+                <MatchupCard
+                  m={m}
+                  detail={detail}
+                  isFirst={isFirst}
+                  prevStageId={prevStageId}
+                  knockoutStages={allKnockoutStages}
+                  showSeeds={showSeeds}
+                  applyWinner={applyWinner}
+                  busy={busy}
+                  onClearWinner={onClearWinner}
+                />
+              </div>
+            ))}
+          </div>
+          {showChampion && finalLive ? (
+            <div className="bf-mobile-ko__extras">
+              <p className="bf-stage-title">Champion</p>
+              {champ ? (
+                <WinnerRevealBox
+                  contestant={champ}
+                  showSeeds={showSeeds}
+                  busy={busy}
+                  onClear={
+                    onClearWinner
+                      ? () => void onClearWinner(finalLive.id)
+                      : undefined
+                  }
+                  clearLabel="Remove champion pick"
+                />
+              ) : (
+                <div className="bf-champion-box" aria-label="Champion" />
+              )}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {active?.kind === 'third' && thirdLive ? (
+        <div className="bf-mobile-ko__extras">
+          <p className="bf-stage-title">3rd place</p>
+          <ThirdPlaceWinnerSlot
+            contestant={bronze}
+            showSeeds={showSeeds}
+            busy={busy}
+            onClear={
+              onClearWinner
+                ? () => void onClearWinner(thirdLive.id)
+                : undefined
+            }
+          />
+          <div className="bf-mobile-ko__matchup">
+            <MatchupCard
+              m={thirdLive}
+              detail={detail}
+              isFirst={false}
+              prevStageId={
+                prevKnockoutStageBeforeFinal(knockoutStagesMain)?.id ?? null
+              }
+              knockoutStages={allKnockoutStages}
+              showSeeds={showSeeds}
+              applyWinner={applyWinner}
+              busy={busy}
+              onClearWinner={onClearWinner}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

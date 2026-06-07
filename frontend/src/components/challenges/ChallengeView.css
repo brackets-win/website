@@ -258,3 +258,27 @@
 .challenge-view__muted {
   color: var(--text-muted, #64748b);
 }
+
+@media (max-width: 640px) {
+  .challenge-view__head {
+    padding: 1rem 1.15rem;
+  }
+
+  .challenge-view__head h1 {
+    font-size: 1.25rem;
+  }
+
+  .challenge-view__settings,
+  .challenge-view__stats,
+  .challenge-view__board,
+  .challenge-view__entries,
+  .challenge-view__player-bracket {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .challenge-view__add-entry-row .input {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}

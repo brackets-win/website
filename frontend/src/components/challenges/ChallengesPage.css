@@ -240,6 +240,26 @@
   border-left: 1px solid var(--app-border);
 }
 
+@media (max-width: 640px) {
+  .challenge-card__body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .challenge-card__leaderboard {
+    max-width: none;
+    margin: 0;
+    padding: 0.75rem 0 0;
+    border-left: none;
+    border-top: 1px solid var(--app-border);
+  }
+
+  .challenge-card__text {
+    width: 100%;
+  }
+}
+
 .challenge-card__leader-row {
   display: grid;
   grid-template-columns: 1.1rem minmax(0, 1fr) auto;

@@ -56,6 +56,28 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.streak-leaderboard__desktop {
+  display: block;
+}
+
+.streak-leaderboard__mobile {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .streak-leaderboard__desktop {
+    display: none;
+  }
+
+  .streak-leaderboard__mobile {
+    display: block;
+  }
+
+  .streak-view__panel .table-scroll {
+    overflow-x: visible;
+  }
+}
+
 .streak-view__questions {
   display: flex;
   flex-direction: column;
@@ -202,5 +224,13 @@
   .streak-leaderboard__table th,
   .streak-leaderboard__table td {
     padding: 0.45rem 0.35rem;
+  }
+
+  .streak-view__panel {
+    padding: 1rem 1.15rem;
+  }
+
+  .streak-question {
+    padding: 0.9rem 1rem;
   }
 }

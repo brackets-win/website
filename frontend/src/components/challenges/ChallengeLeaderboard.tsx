@@ -206,8 +206,135 @@ export function ChallengeLeaderboard({
     return <p className="challenge-view__muted">No submitted brackets yet.</p>;
   }
 
+  const sortOptions: { key: SortKey; label: string }[] = [
+    { key: 'rank', label: 'Rank' },
+    { key: 'player', label: 'Player' },
+    { key: 'total', label: 'Total' },
+    ...columns.map((col) => ({ key: col.key, label: col.name })),
+  ];
+
   return (
     <div className="challenge-leaderboard">
+      <div className="challenge-leaderboard__mobile">
+        <div
+          className="challenge-leaderboard__sort-bar"
+          role="group"
+          aria-label="Sort leaderboard"
+        >
+          {sortOptions.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              className={
+                sort.key === opt.key
+                  ? 'challenge-leaderboard__sort-pill challenge-leaderboard__sort-pill--active'
+                  : 'challenge-leaderboard__sort-pill'
+              }
+              onClick={() => onSort(opt.key)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <ol className="leaderboard-cards">
+          {sortedEntries.map((row) => {
+            const rank = ranks.get(row.user_bracket_id);
+            const isViewer =
+              viewerUsername != null && row.username === viewerUsername;
+            const topFourCol = columns.find((c) => c.key === 'top_four_picks');
+            const statColumns = columns.filter((c) => c.key !== 'top_four_picks');
+            return (
+              <li
+                key={row.user_bracket_id}
+                className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
+              >
+                <div className="leaderboard-card__head">
+                  <span className="leaderboard-card__rank">{rank}</span>
+                  {onSelectPlayer ? (
+                    <button
+                      type="button"
+                      className="challenge-leaderboard__player-btn leaderboard-card__name"
+                      onClick={() =>
+                        onSelectPlayer(row.user_bracket_id, playerLabel(row))
+                      }
+                    >
+                      {playerLabel(row)}
+                    </button>
+                  ) : (
+                    <p className="leaderboard-card__name">{playerLabel(row)}</p>
+                  )}
+                  <div>
+                    <span className="leaderboard-card__total-label">Total</span>
+                    <span className="leaderboard-card__total">
+                      {row.score != null ? row.score : '—'}
+                    </span>
+                  </div>
+                </div>
+                {statColumns.length > 0 ? (
+                  <dl className="leaderboard-card__stats">
+                    {statColumns.map((col) => {
+                      const value =
+                        col.key === 'potential'
+                          ? row.potential
+                          : row.stage_scores[col.key];
+                      return (
+                        <div key={col.key} className="leaderboard-card__stat">
+                          <dt>{col.name}</dt>
+                          <dd>{value != null ? value : '—'}</dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                ) : null}
+                {topFourCol ? (
+                  <div className="leaderboard-card__top-four">
+                    <span className="leaderboard-card__top-four-label">
+                      {topFourCol.name}
+                    </span>
+                    <div
+                      className="challenge-leaderboard__top-four-row"
+                      aria-label="Top four picks"
+                    >
+                      {[0, 1, 2, 3].map((i) => {
+                        const picks = row.top_four_picks ?? [];
+                        const pick = picks[i] ?? null;
+                        return (
+                          <span
+                            key={i}
+                            className="challenge-leaderboard__top-four-slot"
+                          >
+                            {pick?.image_url ? (
+                              <img
+                                src={pick.image_url}
+                                alt={pick.display_name}
+                                className="challenge-leaderboard__top-four-img"
+                              />
+                            ) : pick ? (
+                              <span
+                                className="challenge-leaderboard__top-four-fallback"
+                                title={pick.display_name}
+                              >
+                                {pick.display_name.slice(0, 2).toUpperCase()}
+                              </span>
+                            ) : (
+                              <span
+                                className="challenge-leaderboard__top-four-empty"
+                                aria-hidden
+                              />
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+
+      <div className="challenge-leaderboard__desktop">
       <table className="data-table challenge-leaderboard__table">
         <thead>
           <tr>
@@ -345,6 +472,7 @@ export function ChallengeLeaderboard({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

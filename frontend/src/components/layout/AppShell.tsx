@@ -31,6 +31,7 @@ export function AppShell({
           <button
             type="button"
             className="shell__logo"
+            aria-label="brackets.win home"
             onClick={() => onNavigate('home')}
           >
             <span className="shell__logo-mark">

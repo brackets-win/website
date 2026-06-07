@@ -447,7 +447,67 @@ export function StreakChallengeView({
 
       {tab === 'leaderboard' ? (
         <section className="card streak-view__panel">
-          <div className="table-scroll">
+          <div className="streak-leaderboard__mobile">
+            {entries.length === 0 ? (
+              <p className="streak-view__muted">No players yet.</p>
+            ) : (
+              <ol className="leaderboard-cards">
+                {entries.map((e) => {
+                  const rank = streakRanks.get(e.user_id) ?? e.rank;
+                  const isViewer = e.user_id === currentUser.id;
+                  return (
+                    <li
+                      key={e.user_id}
+                      className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
+                    >
+                      <div className="leaderboard-card__head">
+                        <span className="leaderboard-card__rank">{rank}</span>
+                        <button
+                          type="button"
+                          className="streak-leaderboard__player leaderboard-card__name"
+                          onClick={() =>
+                            setSelectedPlayer({
+                              userId: e.user_id,
+                              username: e.username,
+                            })
+                          }
+                        >
+                          {e.username}
+                        </button>
+                        <div>
+                          <span className="leaderboard-card__total-label">
+                            Current
+                          </span>
+                          <span className="leaderboard-card__total">
+                            {e.current_display}
+                          </span>
+                        </div>
+                      </div>
+                      <dl className="leaderboard-card__stats">
+                        <div className="leaderboard-card__stat">
+                          <dt>Record</dt>
+                          <dd>{e.record}</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Win %</dt>
+                          <dd>{e.win_pct}%</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Long W</dt>
+                          <dd>{e.long_win_display}</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Long L</dt>
+                          <dd>{e.long_loss_display}</dd>
+                        </div>
+                      </dl>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
+          <div className="table-scroll streak-leaderboard__desktop">
             <table className="data-table streak-leaderboard__table">
               <thead>
                 <tr>
@@ -496,7 +556,7 @@ export function StreakChallengeView({
             </table>
           </div>
           {entries.length === 0 ? (
-            <p className="streak-view__muted">No players yet.</p>
+            <p className="streak-view__muted streak-leaderboard__desktop">No players yet.</p>
           ) : null}
         </section>
       ) : null}

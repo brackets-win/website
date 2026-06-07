@@ -248,7 +248,79 @@ export function ChallengeStats({ stats }: Props) {
       {knockout.columns.length > 0 ? (
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Knockout</h2>
-          <div className="challenge-stats__ko-scroll">
+          <div className="challenge-stats__ko-mobile">
+            <div
+              className="challenge-stats__sort-bar"
+              role="group"
+              aria-label="Sort knockout stats"
+            >
+              <button
+                type="button"
+                className={
+                  sort.key === 'team'
+                    ? 'challenge-stats__sort-pill challenge-stats__sort-pill--active'
+                    : 'challenge-stats__sort-pill'
+                }
+                onClick={() => onSort('team')}
+              >
+                Team
+              </button>
+              {knockout.columns.map((col) => (
+                <button
+                  key={col.key}
+                  type="button"
+                  className={
+                    sort.key === col.key
+                      ? 'challenge-stats__sort-pill challenge-stats__sort-pill--active'
+                      : 'challenge-stats__sort-pill'
+                  }
+                  onClick={() => onSort(col.key)}
+                >
+                  {col.name}
+                </button>
+              ))}
+            </div>
+            <ol className="challenge-stats__ko-cards">
+              {sortedKnockoutRows.map((row) => (
+                <li
+                  key={row.bracket_contestant_id}
+                  className="challenge-stats__ko-card"
+                >
+                  <TeamChip
+                    displayName={row.display_name}
+                    imageUrl={row.image_url}
+                  />
+                  <dl className="challenge-stats__ko-card-stats">
+                    {knockout.columns.map((col) => {
+                      if (col.key === 'progression_score') {
+                        return (
+                          <div
+                            key={col.key}
+                            className="challenge-stats__ko-card-stat"
+                          >
+                            <dt>{col.name}</dt>
+                            <dd>{formatProgression(row.progression_score)}</dd>
+                          </div>
+                        );
+                      }
+                      const pct = row.percentages[col.key] ?? 0;
+                      return (
+                        <div
+                          key={col.key}
+                          className="challenge-stats__ko-card-stat challenge-stats__ko-card-stat--pct"
+                          style={pctCellStyle(pct)}
+                        >
+                          <dt>{col.name}</dt>
+                          <dd>{formatPct(pct)}</dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div className="challenge-stats__ko-scroll challenge-stats__ko-desktop">
             <table className="data-table challenge-stats__ko-table">
               <thead>
                 <tr>

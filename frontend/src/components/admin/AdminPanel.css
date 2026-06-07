@@ -49,3 +49,30 @@
   border-color: rgba(var(--app-accent-rgb), 0.35);
   box-shadow: 0 1px 2px rgba(var(--app-accent-rgb), 0.12);
 }
+
+@media (max-width: 640px) {
+  .admin-hub {
+    gap: 1rem;
+  }
+
+  .admin-hub__intro {
+    padding: 1rem 1.15rem;
+  }
+
+  .admin-hub__title {
+    font-size: 1.125rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .admin-hub__tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .admin-hub__tab {
+    padding: 0.55rem 0.35rem;
+    font-size: 0.8125rem;
+    text-align: center;
+  }
+}

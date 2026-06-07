@@ -38,6 +38,7 @@ body {
   color: var(--app-text);
   background: var(--app-bg);
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
 }
 
 #root {
@@ -292,6 +293,21 @@ body {
   .form-grid--3 {
     grid-template-columns: 1fr 1fr 1fr;
     gap: 0 1.25rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .card__header {
+    padding: 1rem 1.15rem;
+  }
+
+  .card__header h1,
+  .card__header h2 {
+    font-size: 1.0625rem;
+  }
+
+  .card__body {
+    padding: 1rem 1.15rem;
   }
 }
 

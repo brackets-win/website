@@ -128,6 +128,100 @@
   white-space: nowrap;
 }
 
+.challenge-stats__ko-mobile {
+  display: none;
+}
+
+.challenge-stats__ko-desktop {
+  display: block;
+}
+
+.challenge-stats__sort-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.challenge-stats__sort-pill {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+}
+
+.challenge-stats__sort-pill--active {
+  background: var(--activity-accent, var(--app-accent, #5782a8));
+  border-color: var(--activity-accent, var(--app-accent, #5782a8));
+  color: #fff;
+}
+
+.challenge-stats__ko-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.challenge-stats__ko-card {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.challenge-stats__ko-card-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.75rem;
+  margin: 0.65rem 0 0;
+  padding: 0.65rem 0 0;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+
+.challenge-stats__ko-card-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
+.challenge-stats__ko-card-stat dt {
+  margin: 0;
+  color: var(--text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.challenge-stats__ko-card-stat dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.challenge-stats__ko-card-stat--pct {
+  background-color: color-mix(
+    in srgb,
+    var(--activity-accent, var(--app-accent, #5782a8)) calc(var(--pct, 0) * 1%),
+    var(--surface, #fff)
+  );
+}
+
 .challenge-stats__ko-scroll {
   overflow-x: auto;
 }
@@ -221,4 +315,22 @@
 
 .challenge-stats__ko-team {
   vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .challenge-stats__group-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .challenge-stats__ko-mobile {
+    display: block;
+  }
+
+  .challenge-stats__ko-desktop {
+    display: none;
+  }
+
+  .challenge-stats__ko-card-stats {
+    grid-template-columns: 1fr;
+  }
 }
