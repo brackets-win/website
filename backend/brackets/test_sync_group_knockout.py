@@ -152,6 +152,124 @@ class SyncGroupKnockoutTests(TestCase):
         self.assertIsNotNone(score)
         self.assertEqual(score, 14)
 
+    def test_clearing_group_pick_clears_knockout_slot(self):
+        g = self._group_bc_ids()
+        master = self.bracket.get_master_bracket()
+        ensure_knockout_matchup_shell(master)
+        first_ko = (
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": g["A"][0], "2": g["A"][1]},
+                "B": {"1": g["B"][0], "2": g["B"][1]},
+                "C": {"1": g["C"][0], "2": g["C"][1]},
+                "D": {"1": g["D"][0], "2": g["D"][1]},
+            }
+        }
+        master.save()
+        sync_first_knockout_from_group_picks(master)
+
+        m1 = Matchup.objects.get(
+            user_bracket=master, stage=first_ko, position=1
+        )
+        self.assertEqual(m1.contestant1_id, g["A"][0])
+
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": None, "2": g["A"][1]},
+                "B": {"1": g["B"][0], "2": g["B"][1]},
+                "C": {"1": g["C"][0], "2": g["C"][1]},
+                "D": {"1": g["D"][0], "2": g["D"][1]},
+            }
+        }
+        master.save()
+        sync_first_knockout_from_group_picks(master)
+
+        m1.refresh_from_db()
+        self.assertIsNone(m1.contestant1_id)
+
+    def test_empty_group_positions_clears_first_knockout(self):
+        g = self._group_bc_ids()
+        master = self.bracket.get_master_bracket()
+        ensure_knockout_matchup_shell(master)
+        first_ko = (
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": g["A"][0], "2": g["A"][1]},
+                "B": {"1": g["B"][0], "2": g["B"][1]},
+                "C": {"1": g["C"][0], "2": g["C"][1]},
+                "D": {"1": g["D"][0], "2": g["D"][1]},
+            }
+        }
+        master.save()
+        sync_first_knockout_from_group_picks(master)
+        self.assertIsNotNone(
+            Matchup.objects.get(
+                user_bracket=master, stage=first_ko, position=1
+            ).contestant1_id
+        )
+
+        master.metadata = {"group_positions": {}}
+        master.save()
+        n = sync_first_knockout_from_group_picks(master)
+        self.assertGreater(n, 0)
+
+        for m in Matchup.objects.filter(user_bracket=master, stage=first_ko):
+            self.assertIsNone(m.contestant1_id)
+            self.assertIsNone(m.contestant2_id)
+
+    def test_stale_knockout_not_used_for_scoring_after_group_clear(self):
+        from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
+
+        g = self._group_bc_ids()
+        master = self.bracket.get_master_bracket()
+        ensure_knockout_matchup_shell(master)
+        first_ko = (
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        mexico_id = g["A"][0]
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": mexico_id, "2": g["A"][1]},
+                "B": {"1": g["B"][0], "2": g["B"][1]},
+                "C": {"1": g["C"][0], "2": g["C"][1]},
+                "D": {"1": g["D"][0], "2": g["D"][1]},
+            }
+        }
+        master.save()
+        sync_first_knockout_from_group_picks(master)
+
+        self.ub.metadata = dict(master.metadata)
+        self.ub.save()
+
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": None, "2": g["A"][1]},
+                "B": {"1": g["B"][0], "2": g["B"][1]},
+                "C": {"1": g["C"][0], "2": g["C"][1]},
+                "D": {"1": g["D"][0], "2": g["D"][1]},
+            }
+        }
+        master.save()
+        # Stale knockout row: Mexico still in matchup though cleared from groups.
+        m1 = Matchup.objects.get(
+            user_bracket=master, stage=first_ko, position=1
+        )
+        m1.contestant1_id = mexico_id
+        m1.save(update_fields=["contestant1"])
+
+        from brackets.utils.sync_group_knockout import (
+            contestants_credited_for_knockout_score,
+        )
+
+        master_ids = contestants_credited_for_knockout_score(master, first_ko)
+        self.assertNotIn(mexico_id, master_ids)
+        user_ids = contestants_credited_for_knockout_score(self.ub, first_ko)
+        self.assertNotIn(mexico_id, user_ids & master_ids)
+
 
 class SyncWorldCupKnockoutTests(TestCase):
     def setUp(self):

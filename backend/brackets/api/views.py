@@ -103,8 +103,12 @@ def _staff_user_or_error(request: HttpRequest):
 
 def _try_sync_knockout_master(bracket: Bracket) -> None:
     try:
+        from brackets.utils.sync_group_knockout import resync_group_knockout_for_bracket
+
         master = bracket.get_master_bracket()
         ensure_knockout_structure_for_user_bracket(master)
+        if bracket.stages.filter(stage_type=BracketStage.StageType.GROUP).exists():
+            resync_group_knockout_for_bracket(bracket)
     except ValueError:
         pass
 

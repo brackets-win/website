@@ -217,12 +217,33 @@ def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[in
 
 
 def contestants_in_stage_for_scoring(user_bracket: UserBracket, stage) -> set[int]:
-    """Teams credited for a knockout stage, including projected R32 from group picks."""
+    """Teams in a knockout stage (matchups + projected R32 from group picks)."""
     ids = set(user_bracket.get_contestants_in_stage(stage))
     first_ko = _get_first_knockout_stage(user_bracket.bracket)
     if first_ko is not None and stage.pk == first_ko.pk:
         ids |= projected_first_knockout_contestant_ids(user_bracket)
     return ids
+
+
+def contestants_credited_for_knockout_score(
+    user_bracket: UserBracket, stage
+) -> set[int]:
+    """
+    Teams that earn knockout stage points vs the master bracket.
+
+    For group → knockout, the first round follows ``group_positions`` metadata
+    only — not stale ``Matchup`` rows left after a team is removed from groups.
+    """
+    bracket = user_bracket.bracket
+    has_group = bracket.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ).exists()
+    first_ko = _get_first_knockout_stage(bracket)
+    if first_ko is not None and stage.pk == first_ko.pk:
+        if has_group:
+            return projected_first_knockout_contestant_ids(user_bracket)
+        return set()
+    return set(user_bracket.get_contestants_in_stage(stage))
 
 
 @transaction.atomic
@@ -251,8 +272,6 @@ def sync_first_knockout_from_group_picks(
 
     metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
     placements = _placement_map(bracket, metadata)
-    if not placements:
-        return 0
 
     mapping = load_knockout_mapping(bracket, first_ko)
     if not mapping:
@@ -260,7 +279,7 @@ def sync_first_knockout_from_group_picks(
 
     is_wc = uses_wc_third_place_table(bracket, first_ko)
     wc_pairings: dict[str, str] | None = None
-    if is_wc:
+    if is_wc and placements:
         third_codes = _third_place_group_codes(metadata, placements)
         wc_pairings = _wc_third_place_pairings(bracket, third_codes)
 
@@ -275,19 +294,27 @@ def sync_first_knockout_from_group_picks(
         except Matchup.DoesNotExist:
             continue
 
-        bc_a_id = _resolve_position_code(
-            team_a_code,
-            placements=placements,
-            wc_pairings=wc_pairings,
-            partner_code=team_b_code,
-            is_wc=is_wc,
+        bc_a_id = (
+            _resolve_position_code(
+                team_a_code,
+                placements=placements,
+                wc_pairings=wc_pairings,
+                partner_code=team_b_code,
+                is_wc=is_wc,
+            )
+            if placements
+            else None
         )
-        bc_b_id = _resolve_position_code(
-            team_b_code,
-            placements=placements,
-            wc_pairings=wc_pairings,
-            partner_code=team_a_code,
-            is_wc=is_wc,
+        bc_b_id = (
+            _resolve_position_code(
+                team_b_code,
+                placements=placements,
+                wc_pairings=wc_pairings,
+                partner_code=team_a_code,
+                is_wc=is_wc,
+            )
+            if placements
+            else None
         )
 
         bc_a = (
@@ -301,10 +328,9 @@ def sync_first_knockout_from_group_picks(
             else None
         )
 
-        changed = (
-            m.contestant1_id != (bc_a.id if bc_a else None)
-            or m.contestant2_id != (bc_b.id if bc_b else None)
-        )
+        next_c1 = bc_a.id if bc_a else None
+        next_c2 = bc_b.id if bc_b else None
+        changed = m.contestant1_id != next_c1 or m.contestant2_id != next_c2
         if not changed:
             continue
 
@@ -318,3 +344,17 @@ def sync_first_knockout_from_group_picks(
         rebuild_knockout_from_first_round(user_bracket)
 
     return updated
+
+
+def resync_group_knockout_for_bracket(bracket) -> None:
+    """Sanitize group metadata and re-fill first knockout for every user bracket."""
+    from brackets.models import UserBracket
+    from brackets.utils.user_bracket_picks import sanitize_group_metadata
+
+    for ub in UserBracket.objects.filter(bracket=bracket):
+        raw = ub.metadata if isinstance(ub.metadata, dict) else {}
+        cleaned = sanitize_group_metadata(bracket, raw)
+        if cleaned != raw:
+            ub.metadata = cleaned
+            ub.save(update_fields=["metadata"])
+        sync_first_knockout_from_group_picks(ub)

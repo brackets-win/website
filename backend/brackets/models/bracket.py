@@ -206,11 +206,11 @@ class UserBracket(models.Model):
             if knockout_stage.is_third_place:
                 return self._calculate_third_place_stage_score(master, stage)
             from brackets.utils.sync_group_knockout import (
-                contestants_in_stage_for_scoring,
+                contestants_credited_for_knockout_score,
             )
 
-            user_contestants = contestants_in_stage_for_scoring(self, stage)
-            master_contestants = contestants_in_stage_for_scoring(master, stage)
+            user_contestants = contestants_credited_for_knockout_score(self, stage)
+            master_contestants = contestants_credited_for_knockout_score(master, stage)
             correct_predictions = user_contestants & master_contestants
             return (
                 len(correct_predictions) * knockout_stage.points_per_correct_pick

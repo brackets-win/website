@@ -11,6 +11,66 @@ from brackets.utils.group_stage_config import (
 )
 
 
+def sanitize_group_metadata(bracket, meta: dict[str, Any]) -> dict[str, Any]:
+    """
+    Drop group picks for teams no longer in the bracket's groups.
+
+    Stale ids can remain in stored metadata after roster changes; knockout sync
+    uses the sanitized view via ``_placement_map``.
+    """
+    preview = bracket_groups_preview(bracket)
+    if not preview:
+        return meta
+
+    meta = dict(meta)
+    code_to_ids = {g["code"]: {t["id"] for t in g["teams"]} for g in preview}
+    gp = meta.get("group_positions") or {}
+    if not isinstance(gp, dict):
+        meta["group_positions"] = {}
+    else:
+        cleaned: dict[str, dict[str, int | None]] = {}
+        for code, slots in gp.items():
+            if code not in code_to_ids or not isinstance(slots, dict):
+                continue
+            allowed = code_to_ids[code]
+            row: dict[str, int | None] = {}
+            for pos, cid in slots.items():
+                if cid is None:
+                    row[str(pos)] = None
+                    continue
+                try:
+                    ic = int(cid)
+                except (TypeError, ValueError):
+                    continue
+                if ic in allowed:
+                    row[str(pos)] = ic
+            if row:
+                cleaned[code] = row
+        meta["group_positions"] = cleaned
+
+    tp = meta.get("third_place_advancers") or []
+    if isinstance(tp, list) and tp:
+        third_ids: set[int] = set()
+        for slots in (meta.get("group_positions") or {}).values():
+            if not isinstance(slots, dict):
+                continue
+            for key in ("3", 3):
+                cid = slots.get(key)
+                if cid is not None:
+                    try:
+                        third_ids.add(int(cid))
+                    except (TypeError, ValueError):
+                        pass
+        meta["third_place_advancers"] = [
+            int(x)
+            for x in tp
+            if x is not None
+            and int(x) in third_ids
+        ]
+
+    return meta
+
+
 def merge_and_validate_user_bracket_metadata(
     bracket,
     existing: dict[str, Any] | None,
@@ -27,6 +87,7 @@ def merge_and_validate_user_bracket_metadata(
         if tp is not None and not isinstance(tp, list):
             raise ValueError("third_place_advancers must be a list")
         meta["third_place_advancers"] = tp if tp is not None else []
+    meta = sanitize_group_metadata(bracket, meta)
     validate_group_metadata(bracket, meta)
     return meta
 
