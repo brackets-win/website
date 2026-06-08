@@ -309,8 +309,6 @@ def _user_can_view_challenge_bracket(viewer, ub: UserBracket) -> bool:
         return _user_can_view_master_bracket(viewer, ub)
     if ub.user_id == viewer.id:
         return True
-    if viewer.is_staff:
-        return True
     if ub.challenge_id is None:
         return False
     if not ChallengeParticipant.objects.filter(

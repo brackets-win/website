@@ -99,3 +99,43 @@ class ChallengePeerPrivacyTests(TestCase):
             f"/brackets/api/challenges/{self.challenge.id}"
         )
         self.assertTrue(res2.json()["challenge"]["can_view_peer_brackets"])
+
+    def test_staff_cannot_view_peers_before_submit(self):
+        self.viewer.is_staff = True
+        self.viewer.save(update_fields=["is_staff"])
+        self.client.force_login(self.viewer)
+        summary = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}"
+        )
+        self.assertEqual(summary.status_code, 200)
+        self.assertFalse(summary.json()["challenge"]["can_view_peer_brackets"])
+        detail = self.client.get(
+            f"/brackets/api/user-brackets/{self.peer_ub.id}"
+        )
+        self.assertEqual(detail.status_code, 403)
+
+    def test_creator_cannot_view_peers_before_submit(self):
+        UserBracket.objects.create(
+            bracket=self.bracket,
+            user=self.host,
+            challenge=self.challenge,
+            is_master=False,
+        )
+        ChallengeParticipant.objects.create(
+            challenge=self.challenge, user=self.host
+        )
+        self.client.force_login(self.host)
+        summary = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}"
+        )
+        self.assertEqual(summary.status_code, 200)
+        self.assertTrue(summary.json()["challenge"]["is_creator"])
+        self.assertFalse(summary.json()["challenge"]["can_view_peer_brackets"])
+        detail = self.client.get(
+            f"/brackets/api/user-brackets/{self.peer_ub.id}"
+        )
+        self.assertEqual(detail.status_code, 403)
+        stats = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}/stats"
+        )
+        self.assertEqual(stats.status_code, 403)

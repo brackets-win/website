@@ -343,7 +343,6 @@ def challenge_summary(
         and (
             c.instance_type != CHALLENGE
             or user_has_submitted_challenge(user, c)
-            or getattr(user, "is_staff", False)
         )
     )
     complete = False

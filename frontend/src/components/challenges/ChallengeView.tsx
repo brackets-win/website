@@ -155,14 +155,10 @@ export function ChallengeView({
 
   useEffect(() => {
     if (!challenge || challenge.can_view_peer_brackets) return;
-    const showBoard = challenge.uses_prediction_leaderboard !== false;
-    if (tab === 'stats') {
-      setTab(showBoard ? 'leaderboard' : 'bracket');
-    }
     if (viewingPlayer != null) {
       setViewingPlayer(null);
     }
-  }, [challenge, tab, viewingPlayer]);
+  }, [challenge, viewingPlayer]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -513,7 +509,7 @@ export function ChallengeView({
             {bracketTabLabel}
           </button>
         ) : null}
-        {showLeaderboard && isBracketChallenge && canViewPeerBrackets ? (
+        {showLeaderboard && isBracketChallenge ? (
           <button
             type="button"
             className={
@@ -625,7 +621,11 @@ export function ChallengeView({
 
       {!viewingPlayer && tab === 'stats' && showLeaderboard && isBracketChallenge ? (
         <section className="card challenge-view__stats">
-          {stats ? (
+          {!canViewPeerBrackets ? (
+            <p className="challenge-view__muted">
+              Submit a bracket to view stats.
+            </p>
+          ) : stats ? (
             <ChallengeStatsPanel stats={stats} />
           ) : (
             <p className="challenge-view__muted">Loading…</p>
