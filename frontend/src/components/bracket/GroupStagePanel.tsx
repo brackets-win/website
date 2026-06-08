@@ -11,7 +11,7 @@ import {
   type UserBracketDetail,
 } from '../../utils/api';
 
-const GROUP_SAVE_DEBOUNCE_MS = 400;
+const GROUP_SAVE_DEBOUNCE_MS = 0;
 import { thirdPlaceAdvanceCount } from '../../utils/groupStageConfig';
 
 type Meta = {
