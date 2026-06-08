@@ -5,7 +5,13 @@ import type {
   BracketStageInfo,
   ScoringHighlights,
 } from '../../utils/api';
-import { ApiError, patchUserBracketMetadata } from '../../utils/api';
+import {
+  ApiError,
+  patchUserBracketMetadata,
+  type UserBracketDetail,
+} from '../../utils/api';
+
+const GROUP_SAVE_DEBOUNCE_MS = 400;
 import { thirdPlaceAdvanceCount } from '../../utils/groupStageConfig';
 
 type Meta = {
@@ -236,7 +242,7 @@ type Props = {
   scoringHighlights?: ScoringHighlights;
   busy: boolean;
   readOnly?: boolean;
-  onSaved: () => Promise<void>;
+  onSaved: (userBracket?: UserBracketDetail) => void | Promise<void>;
   onError: (msg: string) => void;
   setBusy: (b: boolean) => void;
 };
@@ -408,6 +414,11 @@ export function GroupStagePanel({
   const tpRef = useRef(tp);
   const dragPayloadRef = useRef<DragPayload | null>(null);
   const saveQueueRef = useRef(Promise.resolve());
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<{
+    gp: Meta['group_positions'];
+    tp: number[];
+  } | null>(null);
 
   gpRef.current = gp;
   tpRef.current = tp;
@@ -480,6 +491,52 @@ export function GroupStagePanel({
     [groups, hasThirdPlaceRail, thirdAdvanceCount],
   );
 
+  useEffect(
+    () => () => {
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+    },
+    [],
+  );
+
+  const flushSave = useCallback(() => {
+    const pending = pendingSaveRef.current;
+    if (!pending || readOnly) return saveQueueRef.current;
+    pendingSaveRef.current = null;
+
+    const { gp: filledGp, tp: safeTp } = pending;
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      setBusy(true);
+      onError('');
+      try {
+        const { user_bracket: ub } = await patchUserBracketMetadata(
+          userBracketId,
+          {
+            group_positions: filledGp,
+            ...(hasThirdPlaceRail
+              ? { third_place_advancers: safeTp }
+              : {}),
+          },
+        );
+        await onSaved(ub);
+      } catch (e) {
+        onError(
+          e instanceof ApiError ? e.message : 'Could not save group picks.',
+        );
+        await onSaved();
+      } finally {
+        setBusy(false);
+      }
+    });
+    return saveQueueRef.current;
+  }, [
+    userBracketId,
+    hasThirdPlaceRail,
+    onSaved,
+    onError,
+    setBusy,
+    readOnly,
+  ]);
+
   const persist = useCallback(
     (
       nextGp: Meta['group_positions'],
@@ -494,43 +551,24 @@ export function GroupStagePanel({
       const safeTp = hasThirdPlaceRail
         ? sanitizeThirdAdvancers(filledGp, filledTp, thirdAdvanceCount)
         : filledTp;
-      saveQueueRef.current = saveQueueRef.current.then(async () => {
-        if (readOnly) return;
-        setBusy(true);
-        onError('');
-        gpRef.current = filledGp;
-        tpRef.current = safeTp;
-        try {
-          await patchUserBracketMetadata(userBracketId, {
-            group_positions: filledGp,
-            ...(hasThirdPlaceRail ? { third_place_advancers: safeTp } : {}),
-          });
-          setGp(filledGp);
-          if (hasThirdPlaceRail) setTp(safeTp);
-          await onSaved();
-        } catch (e) {
-          onError(
-            e instanceof ApiError
-              ? e.message
-              : 'Could not save group picks.',
-          );
-          await onSaved();
-        } finally {
-          setBusy(false);
-        }
-      });
+
+      gpRef.current = filledGp;
+      tpRef.current = safeTp;
+      setGp(filledGp);
+      if (hasThirdPlaceRail) setTp(safeTp);
+
+      if (readOnly) return saveQueueRef.current;
+
+      pendingSaveRef.current = { gp: filledGp, tp: safeTp };
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+      saveDebounceRef.current = setTimeout(() => {
+        saveDebounceRef.current = null;
+        void flushSave();
+      }, GROUP_SAVE_DEBOUNCE_MS);
+
       return saveQueueRef.current;
     },
-    [
-      userBracketId,
-      hasThirdPlaceRail,
-      thirdAdvanceCount,
-      onSaved,
-      onError,
-      setBusy,
-      readOnly,
-      finalizePicks,
-    ],
+    [hasThirdPlaceRail, thirdAdvanceCount, readOnly, finalizePicks, flushSave],
   );
 
   const clearDrag = useCallback(() => {

@@ -242,10 +242,18 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     out = user_bracket_summary(ub)
     out["bracket"] = bracket_summary(ub.bracket)
     out["matchups_by_stage"] = matchups_by_stage
-    out["score_vs_master"] = None if ub.is_master else ub.calculate_score()
+    if ub.is_master:
+        out["score_vs_master"] = None
+    elif ub.submitted_at or not out["can_edit"]:
+        out["score_vs_master"] = ub.calculate_score()
+    else:
+        out["score_vs_master"] = None
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
-    if viewer is not None and not ub.is_master and _viewer_sees_scoring_highlights(
-        viewer, ub
+    if (
+        viewer is not None
+        and not ub.is_master
+        and _viewer_sees_scoring_highlights(viewer, ub)
+        and (ub.submitted_at or not out["can_edit"])
     ):
         from brackets.utils.scoring_highlights import scoring_highlights_for_user_bracket
 

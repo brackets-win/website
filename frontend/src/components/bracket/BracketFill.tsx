@@ -324,6 +324,17 @@ export function BracketFill({
     }
   }, [userBracketId]);
 
+  const handleGroupSaved = useCallback(
+    (ub?: UserBracketDetail) => {
+      if (ub) {
+        setDetail(ub);
+        return;
+      }
+      void load();
+    },
+    [load],
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -675,7 +686,9 @@ export function BracketFill({
 
       {(() => {
         const showPointsBadge =
-          showScoringHighlights && !detail.is_master;
+          showScoringHighlights &&
+          !detail.is_master &&
+          (detail.submitted_at != null || !detail.can_edit);
         const showToolbar =
           (hasGroupUi && firstGroupStage) ||
           (showSubmit && !locked) ||
@@ -769,7 +782,7 @@ export function BracketFill({
                 }
                 busy={busy}
                 readOnly={locked}
-                onSaved={load}
+                onSaved={handleGroupSaved}
                 onError={(msg) => setError(msg || null)}
                 setBusy={setBusy}
               />
