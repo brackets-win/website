@@ -103,6 +103,84 @@ class StreakCompetitionAdminApiTests(TestCase):
         self.assertEqual(len(payload["choices"]), 2)
         self.assertEqual(payload["choices"][0]["label"], "Argentina")
 
+    def test_questions_reorder_by_close_time(self):
+        self.client.force_login(self.staff)
+        later = self.client.post(
+            f"/brackets/api/streak-competitions/{self.competition.id}/questions",
+            data=json.dumps(
+                {
+                    "text": "Later",
+                    "closes_at": "2030-06-01T12:00:00-05:00",
+                    "choices": ["A", "B"],
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(later.status_code, 201)
+        earlier = self.client.post(
+            f"/brackets/api/streak-competitions/{self.competition.id}/questions",
+            data=json.dumps(
+                {
+                    "text": "Earlier",
+                    "closes_at": "2030-01-01T12:00:00-05:00",
+                    "choices": ["A", "B"],
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(earlier.status_code, 201)
+
+        detail = self.client.get(
+            f"/brackets/api/streak-competitions/{self.competition.id}"
+        )
+        self.assertEqual(detail.status_code, 200)
+        texts = [q["text"] for q in detail.json()["questions"]]
+        self.assertEqual(texts, ["Earlier", "Later"])
+        orders = list(
+            StreakQuestion.objects.filter(
+                streak_competition=self.competition
+            ).order_by("closes_at", "id").values_list("order", flat=True)
+        )
+        self.assertEqual(orders, [1, 2])
+
+    def test_staff_can_update_question_choices(self):
+        question = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Who wins?",
+            closes_at=timezone.now() + timezone.timedelta(days=1),
+            order=1,
+        )
+        a = StreakQuestionChoice.objects.create(
+            question=question, label="Argentina", order=1
+        )
+        b = StreakQuestionChoice.objects.create(
+            question=question, label="Brazil", order=2
+        )
+        self.client.force_login(self.staff)
+        patch_res = self.client.patch(
+            f"/brackets/api/streak-questions/{question.id}",
+            data=json.dumps(
+                {
+                    "choices": [
+                        {"id": a.id, "label": "Argentina"},
+                        {"id": b.id, "label": "Uruguay"},
+                        {"label": "Chile"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(patch_res.status_code, 200)
+        payload = patch_res.json()["question"]
+        self.assertEqual(len(payload["choices"]), 3)
+        labels = [c["label"] for c in payload["choices"]]
+        self.assertEqual(labels, ["Argentina", "Uruguay", "Chile"])
+        question.refresh_from_db()
+        self.assertEqual(
+            list(question.choices.order_by("order").values_list("label", flat=True)),
+            ["Argentina", "Uruguay", "Chile"],
+        )
+
     def test_staff_can_update_and_delete_question(self):
         question = StreakQuestion.objects.create(
             streak_competition=self.competition,

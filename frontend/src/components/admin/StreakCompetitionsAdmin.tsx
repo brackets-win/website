@@ -37,7 +37,12 @@ function isPastDeadline(closesAt: string): boolean {
 }
 
 function sortQuestions(items: StreakCompetitionQuestionAdmin[]) {
-  return [...items].sort((a, b) => a.order - b.order || a.id - b.id);
+  return [...items].sort((a, b) => {
+    const byClose =
+      new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime();
+    if (byClose !== 0) return byClose;
+    return a.id - b.id;
+  });
 }
 
 function QuestionTile({
@@ -169,6 +174,9 @@ export function StreakCompetitionsAdmin() {
     useState<StreakCompetitionQuestionAdmin | null>(null);
   const [editQuestionText, setEditQuestionText] = useState('');
   const [editQuestionCloses, setEditQuestionCloses] = useState('');
+  const [editQuestionChoices, setEditQuestionChoices] = useState<
+    Array<{ id?: number; label: string }>
+  >([]);
   const [editQuestionBusy, setEditQuestionBusy] = useState(false);
 
   const [deleteQuestionTarget, setDeleteQuestionTarget] =
@@ -382,7 +390,28 @@ export function StreakCompetitionsAdmin() {
     setEditQuestion(q);
     setEditQuestionText(q.text);
     setEditQuestionCloses(isoToEstLocalInput(q.closes_at));
+    setEditQuestionChoices(
+      q.choices.map((choice) => ({ id: choice.id, label: choice.label })),
+    );
     setPageMsg(null);
+  }
+
+  function updateEditChoice(index: number, value: string) {
+    setEditQuestionChoices((prev) =>
+      prev.map((choice, i) =>
+        i === index ? { ...choice, label: value } : choice,
+      ),
+    );
+  }
+
+  function addEditChoiceRow() {
+    setEditQuestionChoices((prev) => [...prev, { label: '' }]);
+  }
+
+  function removeEditChoiceRow(index: number) {
+    setEditQuestionChoices((prev) =>
+      prev.length <= 2 ? prev : prev.filter((_, i) => i !== index),
+    );
   }
 
   async function handleEditQuestionSave(e: React.FormEvent) {
@@ -390,13 +419,27 @@ export function StreakCompetitionsAdmin() {
     if (editQuestion == null || questionsId == null) return;
     const text = editQuestionText.trim();
     const closesIso = estLocalInputToIso(editQuestionCloses);
+    const choices = editQuestionChoices
+      .map((choice) => ({
+        id: choice.id,
+        label: choice.label.trim(),
+      }))
+      .filter((choice) => choice.label);
     if (!text || !closesIso) return;
+    if (choices.length < 2) {
+      setPageMsg({
+        type: 'err',
+        text: 'Add at least two answer choices.',
+      });
+      return;
+    }
     setEditQuestionBusy(true);
     setPageMsg(null);
     try {
       await adminUpdateStreakQuestion(editQuestion.id, {
         text,
         closes_at: closesIso,
+        choices,
       });
       setEditQuestion(null);
       await reloadQuestions(questionsId);
@@ -685,6 +728,41 @@ export function StreakCompetitionsAdmin() {
                     required
                   />
                 </div>
+                <fieldset className="streak-add-dialog__choices">
+                  <legend>Answers</legend>
+                  {editQuestionChoices.map((choice, index) => (
+                    <div key={choice.id ?? `new-${index}`} className="streak-add-dialog__choice-row">
+                      <input
+                        className="input"
+                        value={choice.label}
+                        onChange={(e) => updateEditChoice(index, e.target.value)}
+                        disabled={editQuestionBusy}
+                        placeholder={`Answer ${index + 1}`}
+                        required={index < 2}
+                        aria-label={`Answer ${index + 1}`}
+                      />
+                      {editQuestionChoices.length > 2 ? (
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => removeEditChoiceRow(index)}
+                          disabled={editQuestionBusy}
+                          aria-label={`Remove answer ${index + 1}`}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={addEditChoiceRow}
+                    disabled={editQuestionBusy || editQuestionChoices.length >= 12}
+                  >
+                    Add Answer
+                  </button>
+                </fieldset>
                 <div className="delete-dialog__actions">
                   <button
                     type="button"

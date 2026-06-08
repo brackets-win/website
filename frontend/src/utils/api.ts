@@ -725,7 +725,11 @@ export async function adminResolveStreakQuestion(
 
 export async function adminUpdateStreakQuestion(
   questionId: number,
-  body: { text: string; closes_at: string },
+  body: {
+    text: string;
+    closes_at: string;
+    choices?: Array<{ id?: number; label: string }>;
+  },
 ): Promise<{ question: StreakCompetitionQuestionAdmin }> {
   return apiFetch('PATCH', `streak-questions/${questionId}`, body);
 }

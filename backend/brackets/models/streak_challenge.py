@@ -75,7 +75,7 @@ class StreakQuestion(models.Model):
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["order", "id"]
+        ordering = ["closes_at", "order", "id"]
 
     def __str__(self):
         return self.text[:60]

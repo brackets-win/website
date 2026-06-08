@@ -323,10 +323,91 @@ def _parse_choice_labels(raw: Any) -> list[str] | None:
     return labels
 
 
+def _parse_choice_updates(raw: Any) -> list[tuple[int | None, str]] | None:
+    """Parse PATCH/POST choice rows: id+label objects or plain label strings."""
+    if not isinstance(raw, list):
+        return None
+    updates: list[tuple[int | None, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        choice_id: int | None = None
+        if isinstance(item, dict):
+            label = str(item.get("label") or "").strip()
+            id_raw = item.get("id")
+            if id_raw is not None:
+                try:
+                    choice_id = int(id_raw)
+                except (TypeError, ValueError):
+                    return None
+        else:
+            label = str(item).strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        updates.append((choice_id, label))
+    return updates
+
+
+def _sync_question_choices(
+    question: StreakQuestion, updates: list[tuple[int | None, str]]
+) -> None:
+    if len(updates) < 2:
+        raise ValueError("At least 2 choices are required")
+    if len(updates) > 12:
+        raise ValueError("No more than 12 choices allowed")
+
+    existing = {c.id: c for c in question.choices.all()}
+    keep_ids: set[int] = set()
+
+    for order, (choice_id, label) in enumerate(updates, start=1):
+        if choice_id is not None:
+            choice = existing.get(choice_id)
+            if choice is None or choice.question_id != question.id:
+                raise ValueError("Unknown answer choice")
+            if choice.label != label or choice.order != order:
+                choice.label = label
+                choice.order = order
+                choice.save(update_fields=["label", "order"])
+            keep_ids.add(choice_id)
+        else:
+            created = StreakQuestionChoice.objects.create(
+                question=question, label=label, order=order
+            )
+            keep_ids.add(created.id)
+
+    for choice_id, choice in existing.items():
+        if choice_id in keep_ids:
+            continue
+        if StreakPick.objects.filter(choice_id=choice_id).exists():
+            raise ValueError(
+                f"Cannot remove “{choice.label}” — players have already picked it."
+            )
+        if question.correct_choice_id == choice_id:
+            raise ValueError(
+                f"Cannot remove “{choice.label}” — it is the resolved answer."
+            )
+        choice.delete()
+
+
 def _questions_queryset():
-    return StreakQuestion.objects.prefetch_related("choices").select_related(
-        "correct_choice"
+    return (
+        StreakQuestion.objects.prefetch_related("choices")
+        .select_related("correct_choice")
+        .order_by("closes_at", "order", "id")
     )
+
+
+def _renumber_competition_questions(competition: StreakCompetition) -> None:
+    """Keep order 1..n aligned with close time (earliest first)."""
+    for idx, question in enumerate(
+        competition.questions.order_by("closes_at", "id"), start=1
+    ):
+        if question.order != idx:
+            question.order = idx
+            question.save(update_fields=["order"])
 
 
 @require_http_methods(["GET", "PATCH", "DELETE"])
@@ -438,19 +519,19 @@ def streak_competition_question_create(
     if len(labels) > 12:
         return _json_error("No more than 12 choices allowed", 400)
 
-    order = competition.questions.count() + 1
     try:
         with transaction.atomic():
             question = StreakQuestion.objects.create(
                 streak_competition=competition,
                 text=text,
                 closes_at=closes_at,
-                order=order,
+                order=0,
             )
             for idx, label in enumerate(labels, start=1):
                 StreakQuestionChoice.objects.create(
                     question=question, label=label, order=idx
                 )
+            _renumber_competition_questions(competition)
     except DatabaseError as exc:
         schema_err = _schema_out_of_date_error(exc)
         if schema_err is not None:
@@ -793,7 +874,11 @@ def streak_question_detail(
     question = get_object_or_404(_questions_queryset(), pk=question_id)
 
     if request.method == "DELETE":
+        competition_id = question.streak_competition_id
         question.delete()
+        _renumber_competition_questions(
+            StreakCompetition.objects.get(pk=competition_id)
+        )
         return JsonResponse({"ok": True})
 
     try:
@@ -822,10 +907,28 @@ def streak_question_detail(
             return _json_error("Invalid closes_at", 400)
         update_fields.append("closes_at")
 
-    if not update_fields:
+    choice_updates = None
+    if "choices" in body:
+        choice_updates = _parse_choice_updates(body.get("choices"))
+        if choice_updates is None:
+            return _json_error("choices must be a list of labels or {id, label} objects", 400)
+        if not choice_updates:
+            return _json_error("At least 2 choices are required", 400)
+
+    if not update_fields and choice_updates is None:
         return _json_error("No fields to update", 400)
 
-    question.save(update_fields=update_fields)
+    try:
+        with transaction.atomic():
+            if update_fields:
+                question.save(update_fields=update_fields)
+            if choice_updates is not None:
+                _sync_question_choices(question, choice_updates)
+            if "closes_at" in update_fields:
+                _renumber_competition_questions(question.streak_competition)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
     question = _questions_queryset().get(pk=question.pk)
     return JsonResponse({"question": _question_admin(question)})
 
