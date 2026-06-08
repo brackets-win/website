@@ -108,6 +108,10 @@ def _streak_display(streak_signed: int) -> str:
     return "—"
 
 
+def streak_participant_label(p: StreakParticipant) -> str:
+    return (p.display_name or "").strip() or p.user.username
+
+
 def streak_participant_stats_key(p: StreakParticipant) -> tuple:
     answered = p.wins + p.losses
     rate = round(p.wins / answered, 4) if answered else 0.0
@@ -116,7 +120,13 @@ def streak_participant_stats_key(p: StreakParticipant) -> tuple:
 
 def streak_participant_sort_key(p: StreakParticipant) -> tuple:
     streak_signed, best_win, wins, rate = streak_participant_stats_key(p)
-    return (-streak_signed, -best_win, -wins, -rate, p.user.username.casefold())
+    return (
+        -streak_signed,
+        -best_win,
+        -wins,
+        -rate,
+        streak_participant_label(p).casefold(),
+    )
 
 
 def streak_ranked_participants(
@@ -204,7 +214,7 @@ def streak_challenge_leaderboard_preview(
     ranked = [
         {
             "user_id": p.user_id,
-            "display_name": p.user.username,
+            "display_name": streak_participant_label(p),
             "points": p.streak_signed,
             "points_label": _streak_display(p.streak_signed),
             "rank": rank,

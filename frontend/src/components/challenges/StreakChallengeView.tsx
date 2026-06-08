@@ -37,6 +37,10 @@ type Props = {
   onBack: () => void;
 };
 
+function streakPlayerLabel(entry: StreakLeaderboardEntry): string {
+  return entry.display_name?.trim() || entry.username;
+}
+
 function streakStatsCompare(
   a: StreakLeaderboardEntry,
   b: StreakLeaderboardEntry,
@@ -62,7 +66,9 @@ function streakSortCompare(
 ): number {
   const stats = streakStatsCompare(a, b);
   if (stats !== 0) return stats;
-  return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
+  return streakPlayerLabel(a).localeCompare(streakPlayerLabel(b), undefined, {
+    sensitivity: 'base',
+  });
 }
 
 type Tab = 'leaderboard' | 'make' | 'past' | 'settings';
@@ -89,7 +95,7 @@ function compareClosesAtDesc(
 
 type SelectedPlayer = {
   userId: number;
-  username: string;
+  displayName: string;
 };
 
 export function StreakChallengeView({
@@ -335,7 +341,7 @@ export function StreakChallengeView({
         </button>
         <section className="card streak-view__panel">
           <h2 className="streak-player-picks__title">
-            {selectedPlayer.username}&apos;s picks
+            {selectedPlayer.displayName}&apos;s picks
           </h2>
           {playerPicksErr ? (
             <div className="alert alert--error">{playerPicksErr}</div>
@@ -488,11 +494,11 @@ export function StreakChallengeView({
                           onClick={() =>
                             setSelectedPlayer({
                               userId: e.user_id,
-                              username: e.username,
+                              displayName: streakPlayerLabel(e),
                             })
                           }
                         >
-                          {e.username}
+                          {streakPlayerLabel(e)}
                         </button>
                         <div>
                           <span className="leaderboard-card__total-label">
@@ -557,11 +563,11 @@ export function StreakChallengeView({
                         onClick={() =>
                           setSelectedPlayer({
                             userId: e.user_id,
-                            username: e.username,
+                            displayName: streakPlayerLabel(e),
                           })
                         }
                       >
-                        {e.username}
+                        {streakPlayerLabel(e)}
                       </button>
                     </td>
                     <td className="is-num">{e.current_display}</td>

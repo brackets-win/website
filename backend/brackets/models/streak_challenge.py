@@ -41,6 +41,7 @@ class StreakParticipant(models.Model):
         StreakChallenge, on_delete=models.CASCADE, related_name="participants"
     )
     user = models.ForeignKey("bracket.User", on_delete=models.CASCADE)
+    display_name = models.CharField(max_length=80, blank=True, default="")
     joined_at = models.DateTimeField(auto_now_add=True)
     wins = models.PositiveIntegerField(default=0)
     losses = models.PositiveIntegerField(default=0)

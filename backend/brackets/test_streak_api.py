@@ -440,9 +440,19 @@ class StreakLeaderboardApiTests(TestCase):
             is_public=True,
         )
         StreakParticipant.objects.create(streak_challenge=self.challenge, user=self.host)
-        for name in ("Keaton", "coley2007", "trady_baylor", "jfigueroa17"):
-            user = User.objects.create_user(username=name, password="x")
-            StreakParticipant.objects.create(streak_challenge=self.challenge, user=user)
+        join_names = {
+            "Keaton": "K-Team",
+            "coley2007": "Coley",
+            "trady_baylor": "Trady",
+            "jfigueroa17": "Jose",
+        }
+        for username, display_name in join_names.items():
+            user = User.objects.create_user(username=username, password="x")
+            StreakParticipant.objects.create(
+                streak_challenge=self.challenge,
+                user=user,
+                display_name=display_name,
+            )
 
     def test_ungraded_players_share_rank_one_and_sort_alphabetically(self):
         self.client.force_login(self.host)
@@ -452,10 +462,32 @@ class StreakLeaderboardApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         entries = res.json()["entries"]
         self.assertEqual(len(entries), 5)
-        ranks = [entry["rank"] for entry in entries if entry["username"] != "host"]
+        player_entries = [entry for entry in entries if entry["username"] != "host"]
+        ranks = [entry["rank"] for entry in player_entries]
         self.assertEqual(ranks, [1, 1, 1, 1])
-        names = [entry["username"] for entry in entries if entry["username"] != "host"]
+        names = [entry["display_name"] for entry in player_entries]
         self.assertEqual(names, sorted(names, key=str.casefold))
+        self.assertNotIn("coley2007", names)
+
+    def test_join_stores_display_name_on_leaderboard(self):
+        user = User.objects.create_user(username="newbie", password="x")
+        self.client.force_login(user)
+        res = self.client.post(
+            "/brackets/api/streak-challenges/join",
+            data=json.dumps(
+                {
+                    "streak_challenge_id": self.challenge.id,
+                    "display_name": "Pool Name",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        board = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/leaderboard"
+        )
+        names = [entry["display_name"] for entry in board.json()["entries"]]
+        self.assertIn("Pool Name", names)
 
 
 class StreakChallengeDeleteApiTests(TestCase):

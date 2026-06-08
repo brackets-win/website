@@ -19,6 +19,7 @@ from brackets.api.views import (
     _is_multipart,
     _json_error,
     _multipart_post_files,
+    _normalize_display_name,
     _normalize_join_code,
     _parse_json,
     _require_user,
@@ -33,6 +34,7 @@ from brackets.models import (
 )
 from brackets.utils.leaderboard_preview import (
     streak_challenge_leaderboard_preview,
+    streak_participant_label,
     streak_ranked_participants,
 )
 from brackets.utils.streak_deadlines import (
@@ -218,6 +220,7 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "rank": rank,
         "user_id": p.user_id,
         "username": p.user.username,
+        "display_name": streak_participant_label(p),
         "streak_signed": p.streak_signed,
         "current_display": serializers.streak_display(p.streak_signed),
         "long_win_display": _long_streak_display(p.best_win_streak, kind="win"),
@@ -578,7 +581,11 @@ def streak_challenges_list_create(request: HttpRequest) -> JsonResponse:
                 is_public=not is_private,
                 join_code=join_code,
             )
-            StreakParticipant.objects.create(streak_challenge=challenge, user=user)
+            StreakParticipant.objects.create(
+                streak_challenge=challenge,
+                user=user,
+                display_name=(user.username or "Host")[:80],
+            )
 
         return JsonResponse(
             {"streak_challenge": _streak_summary(challenge, user)},
@@ -721,6 +728,7 @@ def streak_participant_picks(
 
     return JsonResponse(
         {
+            "display_name": streak_participant_label(target),
             "username": target.user.username,
             "picks": rows,
         }
@@ -760,7 +768,22 @@ def streak_challenges_join(request: HttpRequest) -> JsonResponse:
         if challenge is None:
             return _json_error("Invalid join code", 404)
 
-    StreakParticipant.objects.get_or_create(streak_challenge=challenge, user=user)
+    display_name_raw = body.get("display_name")
+    if display_name_raw is None or not str(display_name_raw).strip():
+        return _json_error("display_name is required", 400)
+    try:
+        display_name = _normalize_display_name(str(display_name_raw))
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    participant, created = StreakParticipant.objects.get_or_create(
+        streak_challenge=challenge,
+        user=user,
+        defaults={"display_name": display_name},
+    )
+    if not created and not (participant.display_name or "").strip():
+        participant.display_name = display_name
+        participant.save(update_fields=["display_name"])
     return JsonResponse({"streak_challenge": _streak_summary(challenge, user)})
 
 

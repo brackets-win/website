@@ -350,8 +350,8 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
       if (panel?.key === 'streak') {
         const { streak_challenge } = await joinStreakChallenge(
           challengeId != null
-            ? { streak_challenge_id: challengeId }
-            : { join_code: code },
+            ? { streak_challenge_id: challengeId, display_name: displayName }
+            : { join_code: code, display_name: displayName },
         );
         setStreakRows((prev) => {
           const idx = prev.findIndex((s) => s.id === streak_challenge.id);
@@ -558,6 +558,9 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
                     </p>
                   ) : null}
                   <CreatedByMeta username={s.created_by_username} />
+                  {s.is_private ? (
+                    <span className="challenge-card__badge">Private</span>
+                  ) : null}
                 </div>
                 {hasLeaderboardPreview(s.leaderboard_preview) ? (
                   <ChallengeCardLeaderboard preview={s.leaderboard_preview!} />

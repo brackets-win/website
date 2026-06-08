@@ -71,13 +71,23 @@ class LeaderboardPreviewTests(TestCase):
             is_public=True,
         )
         StreakParticipant.objects.create(
-            streak_challenge=challenge, user=u1, wins=3, losses=1, streak_signed=2
+            streak_challenge=challenge,
+            user=u1,
+            display_name="Player One",
+            wins=3,
+            losses=1,
+            streak_signed=2,
         )
         StreakParticipant.objects.create(
-            streak_challenge=challenge, user=u2, wins=1, losses=2, streak_signed=-1
+            streak_challenge=challenge,
+            user=u2,
+            display_name="Player Two",
+            wins=1,
+            losses=2,
+            streak_signed=-1,
         )
         preview = streak_challenge_leaderboard_preview(challenge, u1)
-        self.assertEqual(preview["top"][0]["display_name"], "p1")
+        self.assertEqual(preview["top"][0]["display_name"], "Player One")
         self.assertEqual(preview["top"][0]["points_label"], "2W")
         self.assertTrue(preview["top"][0]["is_viewer"])
         self.assertIsNone(preview["viewer"])
@@ -94,7 +104,11 @@ class LeaderboardPreviewTests(TestCase):
         names = ["Keaton", "coley2007", "trady_baylor", "jfigueroa17"]
         for name in names:
             user = User.objects.create_user(username=name, password="x")
-            StreakParticipant.objects.create(streak_challenge=challenge, user=user)
+            StreakParticipant.objects.create(
+                streak_challenge=challenge,
+                user=user,
+                display_name=name,
+            )
         preview = streak_challenge_leaderboard_preview(challenge, host, limit=10)
         ranks = [row["rank"] for row in preview["top"]]
         self.assertEqual(ranks, [1, 1, 1, 1])

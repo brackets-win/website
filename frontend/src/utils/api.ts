@@ -154,6 +154,7 @@ export type StreakLeaderboardEntry = {
   rank: number;
   user_id: number;
   username: string;
+  display_name: string;
   streak_signed: number;
   current_display: string;
   long_win_display: string;
@@ -612,14 +613,18 @@ export async function createStreakChallenge(body: {
 export async function joinStreakChallenge(body: {
   join_code?: string;
   streak_challenge_id?: number;
+  display_name: string;
 }): Promise<{ streak_challenge: StreakChallengeSummary }> {
+  const display_name = body.display_name.trim();
   if (body.streak_challenge_id != null) {
     return apiFetch('POST', 'streak-challenges/join', {
       streak_challenge_id: body.streak_challenge_id,
+      display_name,
     });
   }
   return apiFetch('POST', 'streak-challenges/join', {
     join_code: body.join_code!.trim().toUpperCase(),
+    display_name,
   });
 }
 
@@ -648,7 +653,7 @@ export async function getStreakLeaderboard(
 export async function getStreakParticipantPicks(
   streakChallengeId: number,
   userId: number,
-): Promise<{ username: string; picks: StreakParticipantPickRow[] }> {
+): Promise<{ display_name: string; username: string; picks: StreakParticipantPickRow[] }> {
   return apiFetch(
     'GET',
     `streak-challenges/${streakChallengeId}/players/${userId}/picks`,
