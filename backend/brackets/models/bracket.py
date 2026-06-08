@@ -376,8 +376,21 @@ class UserBracket(models.Model):
             score += champion_score
         return score
 
-    def calculate_potential_score(self, *, master=None):
+    def calculate_potential_score(
+        self,
+        *,
+        master=None,
+        main_ko_stages=None,
+        groups_preview=None,
+        knockout_by_id=None,
+    ):
         """Maximum achievable points vs the master bracket (partial master allowed)."""
         from brackets.utils.potential_score import calculate_potential_score
 
-        return calculate_potential_score(self, master=master)
+        return calculate_potential_score(
+            self,
+            master=master,
+            main_ko_stages=main_ko_stages,
+            groups_preview=groups_preview,
+            knockout_by_id=knockout_by_id,
+        )

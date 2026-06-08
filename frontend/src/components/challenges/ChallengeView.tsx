@@ -63,7 +63,9 @@ export function ChallengeView({
   const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
-  const [boardLoading, setBoardLoading] = useState(true);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardLoaded, setBoardLoaded] = useState(false);
+  const boardFetchGen = useRef(0);
   const [boardErr, setBoardErr] = useState('');
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsErr, setStatsErr] = useState('');
@@ -92,37 +94,16 @@ export function ChallengeView({
   const reload = useCallback(async () => {
     setLoadErr('');
     setBoardErr('');
-    setBoardLoading(true);
+    setBoardLoaded(false);
+    boardFetchGen.current += 1;
     setStats(null);
     setStatsErr('');
     setStatsLoading(false);
     statsFetchGen.current += 1;
     try {
-      const [challengeResult, boardResult] = await Promise.allSettled([
-        getChallenge(challengeId),
-        getChallengeLeaderboard(challengeId),
-      ]);
-
-      if (challengeResult.status === 'rejected') {
-        throw challengeResult.reason;
-      }
-
-      const c = challengeResult.value.challenge;
+      const { challenge: c } = await getChallenge(challengeId);
       setChallenge(c);
-
-      if (c.uses_prediction_leaderboard !== false) {
-        if (boardResult.status === 'fulfilled') {
-          setColumns(boardResult.value.columns);
-          setEntries(boardResult.value.entries);
-        } else {
-          const err = boardResult.reason;
-          setBoardErr(
-            err instanceof ApiError ? err.message : 'Unable to load leaderboard.',
-          );
-          setColumns([]);
-          setEntries([]);
-        }
-      } else {
+      if (c.uses_prediction_leaderboard === false) {
         setColumns([]);
         setEntries([]);
       }
@@ -130,8 +111,6 @@ export function ChallengeView({
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load challenge.',
       );
-    } finally {
-      setBoardLoading(false);
     }
   }, [challengeId]);
 
@@ -140,8 +119,36 @@ export function ChallengeView({
   }, [reload]);
 
   useEffect(() => {
+    if (tab !== 'leaderboard') return;
+    if (!challenge || challenge.uses_prediction_leaderboard === false) return;
+    if (boardLoaded || boardLoading) return;
+
+    const gen = boardFetchGen.current;
+    setBoardLoading(true);
+    setBoardErr('');
+    void getChallengeLeaderboard(challengeId)
+      .then((board) => {
+        if (gen !== boardFetchGen.current) return;
+        setColumns(board.columns);
+        setEntries(board.entries);
+        setBoardLoaded(true);
+      })
+      .catch((err) => {
+        if (gen !== boardFetchGen.current) return;
+        setBoardErr(
+          err instanceof ApiError ? err.message : 'Unable to load leaderboard.',
+        );
+        setColumns([]);
+        setEntries([]);
+      })
+      .finally(() => {
+        if (gen !== boardFetchGen.current) return;
+        setBoardLoading(false);
+      });
+  }, [tab, challenge, challengeId, boardLoaded, boardLoading]);
+
+  useEffect(() => {
     if (tab !== 'stats') return;
-    if (boardLoading) return;
     if (!challenge || challenge.instance_type !== INSTANCE_BRACKET_CHALLENGE) return;
     if (challenge.can_view_peer_brackets !== true) return;
     if (stats != null || statsLoading) return;
@@ -164,7 +171,7 @@ export function ChallengeView({
         if (gen !== statsFetchGen.current) return;
         setStatsLoading(false);
       });
-  }, [tab, boardLoading, challenge, challengeId, stats, statsLoading]);
+  }, [tab, challenge, challengeId, stats, statsLoading]);
 
   useEffect(() => {
     autoTeamsTabDone.current = false;

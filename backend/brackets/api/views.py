@@ -103,12 +103,14 @@ def _staff_user_or_error(request: HttpRequest):
 
 def _try_sync_knockout_master(bracket: Bracket) -> None:
     try:
+        from brackets.utils.leaderboard_scoring import bump_master_scoring_revision
         from brackets.utils.sync_group_knockout import resync_group_knockout_for_bracket
 
         master = bracket.get_master_bracket()
         ensure_knockout_structure_for_user_bracket(master)
         if bracket.stages.filter(stage_type=BracketStage.StageType.GROUP).exists():
             resync_group_knockout_for_bracket(bracket)
+        bump_master_scoring_revision(bracket)
     except ValueError:
         pass
 
@@ -576,6 +578,15 @@ def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonRespo
                 sync_first_knockout_from_group_picks(ub)
         except ValueError as e:
             return _json_error(str(e), 400)
+        from brackets.utils.leaderboard_scoring import (
+            bump_master_scoring_revision,
+            refresh_user_bracket_leaderboard_cache,
+        )
+
+        if ub.is_master:
+            bump_master_scoring_revision(ub.bracket)
+        elif ub.submitted_at is not None:
+            refresh_user_bracket_leaderboard_cache(ub)
         return JsonResponse(
             {
                 "user_bracket": serializers.user_bracket_detail(
@@ -610,6 +621,9 @@ def user_bracket_submit(request: HttpRequest, user_bracket_id: int) -> JsonRespo
 
     ub.submitted_at = timezone.now()
     ub.save(update_fields=["submitted_at"])
+    from brackets.utils.leaderboard_scoring import refresh_user_bracket_leaderboard_cache
+
+    refresh_user_bracket_leaderboard_cache(ub)
     return JsonResponse(
         {"user_bracket": serializers.user_bracket_detail(ub, viewer=user)}
     )
@@ -1011,9 +1025,9 @@ def challenge_leaderboard(
 
     from brackets.utils.challenge_entries import user_has_submitted_challenge
     from brackets.utils.leaderboard_scoring import (
+        get_leaderboard_scores,
+        get_master_scoring_revision,
         load_leaderboard_scoring_context,
-        stage_scores_for_user_bracket,
-        total_score_for_user_bracket,
     )
     from brackets.utils.top_four_picks import build_top_four_context, serialize_top_four_picks
 
@@ -1024,7 +1038,20 @@ def challenge_leaderboard(
     ctx = load_leaderboard_scoring_context(bracket)
     master = ctx.master
     stages = list(ctx.stages)
+    scoring_revision = get_master_scoring_revision(bracket)
     top_four_ctx = build_top_four_context(bracket)
+    from brackets.api.serializers import bracket_groups_preview
+
+    groups_preview = bracket_groups_preview(bracket)
+    third_place_ids = {
+        ks.pk for ks in ctx.knockout_by_id.values() if ks.is_third_place
+    }
+    main_ko_stages = [
+        s
+        for s in stages
+        if s.stage_type == BracketStage.StageType.KNOCKOUT
+        and s.pk not in third_place_ids
+    ]
     columns = [
         serializers.leaderboard_column(key="potential", name="Potential"),
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS"),
@@ -1060,9 +1087,17 @@ def challenge_leaderboard(
         .order_by("user__username")
     ):
         if master:
-            stage_scores = stage_scores_for_user_bracket(ub, ctx)
-            score = total_score_for_user_bracket(ub, ctx)
-            potential = ub.calculate_potential_score(master=master)
+            scores = get_leaderboard_scores(
+                ub,
+                ctx,
+                revision=scoring_revision,
+                main_ko_stages=main_ko_stages,
+                groups_preview=groups_preview,
+                knockout_by_id=ctx.knockout_by_id,
+            )
+            stage_scores = scores.stage_scores
+            score = scores.score
+            potential = scores.potential
         else:
             stage_scores = {col["key"]: None for col in columns}
             score = None
@@ -1212,6 +1247,15 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
     if winner_id is None:
         clear_matchup_winner_and_downstream(m)
         m.refresh_from_db()
+        from brackets.utils.leaderboard_scoring import (
+            bump_master_scoring_revision,
+            refresh_user_bracket_leaderboard_cache,
+        )
+
+        if ub.is_master:
+            bump_master_scoring_revision(ub.bracket)
+        elif ub.submitted_at is not None:
+            refresh_user_bracket_leaderboard_cache(ub)
         return JsonResponse({"matchup": serializers.matchup_public(m)})
 
     if m.contestant1_id != winner_id and m.contestant2_id != winner_id:
@@ -1225,6 +1269,15 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
 
     m.winner = get_object_or_404(BracketContestant, pk=winner_id)
     m.save()
+    from brackets.utils.leaderboard_scoring import (
+        bump_master_scoring_revision,
+        refresh_user_bracket_leaderboard_cache,
+    )
+
+    if ub.is_master:
+        bump_master_scoring_revision(ub.bracket)
+    elif ub.submitted_at is not None:
+        refresh_user_bracket_leaderboard_cache(ub)
     if (
         not ub.is_master
         and ub.challenge_id is not None
@@ -1838,6 +1891,18 @@ def admin_bracket_detail(
                 )
 
                 sync_third_place_structure(bracket)
+            scoring_fields = {
+                "points_champion",
+                "points_third_place_winner",
+                "has_third_place_match",
+                "metadata",
+            }
+            if any(field in unique_fields for field in scoring_fields):
+                from brackets.utils.leaderboard_scoring import (
+                    bump_master_scoring_revision,
+                )
+
+                bump_master_scoring_revision(bracket)
     b = get_object_or_404(
         Bracket.objects.prefetch_related("stages"), pk=bracket.pk
     )
@@ -1868,6 +1933,7 @@ def admin_bracket_stages_update(
     valid_ids = set(bracket.stages.values_list("id", flat=True))
 
     try:
+        scoring_changed = False
         with transaction.atomic():
             for item in raw:
                 if not isinstance(item, dict) or "id" not in item:
@@ -1880,6 +1946,13 @@ def admin_bracket_stages_update(
                 fields = apply_stage_admin_patch(stage, patch)
                 if fields:
                     stage.save(update_fields=fields)
+                    scoring_changed = True
+            if scoring_changed:
+                from brackets.utils.leaderboard_scoring import (
+                    bump_master_scoring_revision,
+                )
+
+                bump_master_scoring_revision(bracket)
     except ValueError as e:
         return _json_error(str(e), 400)
 

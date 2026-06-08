@@ -33,7 +33,7 @@ from brackets.models import (
 )
 from brackets.utils.leaderboard_preview import (
     streak_challenge_leaderboard_preview,
-    streak_participant_sort_key,
+    streak_ranked_participants,
 )
 from brackets.utils.streak_deadlines import (
     closes_at_key,
@@ -664,9 +664,9 @@ def streak_challenge_leaderboard(
             "user"
         )
     )
-    participants.sort(key=streak_participant_sort_key, reverse=True)
     entries = [
-        _leaderboard_entry(p, rank) for rank, p in enumerate(participants, start=1)
+        _leaderboard_entry(p, rank)
+        for p, rank in streak_ranked_participants(participants)
     ]
     return JsonResponse({"entries": entries})
 

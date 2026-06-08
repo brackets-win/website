@@ -37,7 +37,7 @@ type Props = {
   onBack: () => void;
 };
 
-function streakRankCompare(
+function streakStatsCompare(
   a: StreakLeaderboardEntry,
   b: StreakLeaderboardEntry,
 ): number {
@@ -47,6 +47,21 @@ function streakRankCompare(
   if (b.win_pct !== a.win_pct) {
     return b.win_pct - a.win_pct;
   }
+  if (b.wins !== a.wins) {
+    return b.wins - a.wins;
+  }
+  if (b.losses !== a.losses) {
+    return a.losses - b.losses;
+  }
+  return 0;
+}
+
+function streakSortCompare(
+  a: StreakLeaderboardEntry,
+  b: StreakLeaderboardEntry,
+): number {
+  const stats = streakStatsCompare(a, b);
+  if (stats !== 0) return stats;
   return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
 }
 
@@ -121,10 +136,15 @@ export function StreakChallengeView({
     void reload();
   }, [reload]);
 
+  const sortedEntries = useMemo(
+    () => [...entries].sort(streakSortCompare),
+    [entries],
+  );
+
   const streakRanks = useMemo(
     () =>
-      computeCompetitionRanks(entries, streakRankCompare, (e) => e.user_id),
-    [entries],
+      computeCompetitionRanks(sortedEntries, streakStatsCompare, (e) => e.user_id),
+    [sortedEntries],
   );
 
   const { makeQuestions, pastQuestions } = useMemo(() => {
@@ -448,12 +468,12 @@ export function StreakChallengeView({
       {tab === 'leaderboard' ? (
         <section className="card streak-view__panel">
           <div className="streak-leaderboard__mobile">
-            {entries.length === 0 ? (
+            {sortedEntries.length === 0 ? (
               <p className="streak-view__muted">No players yet.</p>
             ) : (
               <ol className="leaderboard-cards">
-                {entries.map((e) => {
-                  const rank = streakRanks.get(e.user_id) ?? e.rank;
+                {sortedEntries.map((e) => {
+                  const rank = streakRanks.get(e.user_id)!;
                   const isViewer = e.user_id === currentUser.id;
                   return (
                     <li
@@ -521,8 +541,8 @@ export function StreakChallengeView({
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e) => {
-                  const rank = streakRanks.get(e.user_id) ?? e.rank;
+                {sortedEntries.map((e) => {
+                  const rank = streakRanks.get(e.user_id)!;
                   const isViewer = e.user_id === currentUser.id;
                   return (
                   <tr
@@ -555,7 +575,7 @@ export function StreakChallengeView({
               </tbody>
             </table>
           </div>
-          {entries.length === 0 ? (
+          {sortedEntries.length === 0 ? (
             <p className="streak-view__muted streak-leaderboard__desktop">No players yet.</p>
           ) : null}
         </section>

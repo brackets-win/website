@@ -428,6 +428,36 @@ class StreakParticipantPicksApiTests(TestCase):
         self.assertTrue(picks[0]["is_correct"])
 
 
+class StreakLeaderboardApiTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.host = User.objects.create_user(username="host", password="x")
+        self.competition = StreakCompetition.objects.create(name="Cup")
+        self.challenge = StreakChallenge.objects.create(
+            name="Pool",
+            streak_competition=self.competition,
+            created_by=self.host,
+            is_public=True,
+        )
+        StreakParticipant.objects.create(streak_challenge=self.challenge, user=self.host)
+        for name in ("Keaton", "coley2007", "trady_baylor", "jfigueroa17"):
+            user = User.objects.create_user(username=name, password="x")
+            StreakParticipant.objects.create(streak_challenge=self.challenge, user=user)
+
+    def test_ungraded_players_share_rank_one_and_sort_alphabetically(self):
+        self.client.force_login(self.host)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res.status_code, 200)
+        entries = res.json()["entries"]
+        self.assertEqual(len(entries), 5)
+        ranks = [entry["rank"] for entry in entries if entry["username"] != "host"]
+        self.assertEqual(ranks, [1, 1, 1, 1])
+        names = [entry["username"] for entry in entries if entry["username"] != "host"]
+        self.assertEqual(names, sorted(names, key=str.casefold))
+
+
 class StreakChallengeDeleteApiTests(TestCase):
     def setUp(self):
         self.client = Client()

@@ -82,6 +82,28 @@ class LeaderboardPreviewTests(TestCase):
         self.assertTrue(preview["top"][0]["is_viewer"])
         self.assertIsNone(preview["viewer"])
 
+    def test_streak_preview_ungraded_players_share_rank_one(self):
+        host = User.objects.create_user(username="host", password="x")
+        competition = StreakCompetition.objects.create(name="Streak comp")
+        challenge = StreakChallenge.objects.create(
+            name="Streak",
+            streak_competition=competition,
+            created_by=host,
+            is_public=True,
+        )
+        names = ["Keaton", "coley2007", "trady_baylor", "jfigueroa17"]
+        for name in names:
+            user = User.objects.create_user(username=name, password="x")
+            StreakParticipant.objects.create(streak_challenge=challenge, user=user)
+        preview = streak_challenge_leaderboard_preview(challenge, host, limit=10)
+        ranks = [row["rank"] for row in preview["top"]]
+        self.assertEqual(ranks, [1, 1, 1, 1])
+        display_names = [row["display_name"] for row in preview["top"]]
+        self.assertEqual(
+            display_names,
+            sorted(names, key=str.casefold),
+        )
+
     def test_bracket_preview_without_master_does_not_crash(self):
         host = User.objects.create_user(username="host2", password="x")
         bracket = create_bracket_with_structure(

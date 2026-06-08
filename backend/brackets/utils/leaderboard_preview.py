@@ -55,8 +55,11 @@ def _assemble_preview(
     if not ranked:
         return {"top": [], "viewer": None, "gap_before_viewer": False}
 
-    scores = [int(r["points"]) for r in ranked]
-    ranks = _competition_ranks(scores)
+    if all("rank" in r for r in ranked):
+        ranks = [int(r["rank"]) for r in ranked]
+    else:
+        scores = [int(r["points"]) for r in ranked]
+        ranks = _competition_ranks(scores)
     for i, row in enumerate(ranked):
         row["rank"] = ranks[i]
         row["is_viewer"] = (
@@ -105,10 +108,35 @@ def _streak_display(streak_signed: int) -> str:
     return "—"
 
 
-def streak_participant_sort_key(p: StreakParticipant) -> tuple:
+def streak_participant_stats_key(p: StreakParticipant) -> tuple:
     answered = p.wins + p.losses
-    rate = p.wins / answered if answered else 0.0
+    rate = round(p.wins / answered, 4) if answered else 0.0
     return (p.streak_signed, p.best_win_streak, p.wins, rate)
+
+
+def streak_participant_sort_key(p: StreakParticipant) -> tuple:
+    streak_signed, best_win, wins, rate = streak_participant_stats_key(p)
+    return (-streak_signed, -best_win, -wins, -rate, p.user.username.casefold())
+
+
+def streak_ranked_participants(
+    participants: list[StreakParticipant],
+) -> list[tuple[StreakParticipant, int]]:
+    sorted_ps = sorted(participants, key=streak_participant_sort_key)
+    ranked: list[tuple[StreakParticipant, int]] = []
+    for i, p in enumerate(sorted_ps):
+        if i == 0:
+            rank = 1
+        else:
+            prev = sorted_ps[i - 1]
+            rank = (
+                ranked[-1][1]
+                if streak_participant_stats_key(p)
+                == streak_participant_stats_key(prev)
+                else i + 1
+            )
+        ranked.append((p, rank))
+    return ranked
 
 
 def bracket_challenge_leaderboard_preview(
@@ -173,14 +201,14 @@ def streak_challenge_leaderboard_preview(
             "user"
         )
     )
-    participants.sort(key=streak_participant_sort_key, reverse=True)
     ranked = [
         {
             "user_id": p.user_id,
             "display_name": p.user.username,
             "points": p.streak_signed,
             "points_label": _streak_display(p.streak_signed),
+            "rank": rank,
         }
-        for p in participants
+        for p, rank in streak_ranked_participants(participants)
     ]
     return _assemble_preview(ranked, user, limit=limit)

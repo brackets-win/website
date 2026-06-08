@@ -247,7 +247,13 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     if ub.is_master:
         out["score_vs_master"] = None
     elif ub.submitted_at or not out["can_edit"]:
-        out["score_vs_master"] = ub.calculate_score()
+        from brackets.utils.leaderboard_scoring import (
+            get_leaderboard_scores,
+            load_leaderboard_scoring_context,
+        )
+
+        ctx = load_leaderboard_scoring_context(ub.bracket)
+        out["score_vs_master"] = get_leaderboard_scores(ub, ctx).score
     else:
         out["score_vs_master"] = None
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
