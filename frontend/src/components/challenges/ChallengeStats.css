@@ -153,6 +153,8 @@
   background: var(--surface, #fff);
   color: var(--text-muted, #64748b);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .challenge-stats__sort-pill--active {

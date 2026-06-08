@@ -148,9 +148,13 @@
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 999px;
   background: var(--surface, #fff);
+  font: inherit;
   font-size: 0.875rem;
   text-transform: none;
+  color: var(--app-muted, #5c6470);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .challenge-view__entry-tab--active {
@@ -240,9 +244,13 @@
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 999px;
   background: var(--surface, #fff);
+  font: inherit;
   font-size: 0.875rem;
   text-transform: none;
+  color: var(--app-muted, #5c6470);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .challenge-view__tab--active {

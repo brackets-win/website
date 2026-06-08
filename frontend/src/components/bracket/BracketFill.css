@@ -622,6 +622,8 @@
   background: var(--bf-surface);
   color: var(--bf-muted);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .bf-tab--active {
@@ -1209,69 +1211,59 @@
   .bf {
     padding: 1rem;
     margin-top: 1rem;
-    --bf-ko-col-width: 132px;
   }
+}
 
+/*
+ * Knockout on touch / narrow viewports: show the full tree, scaled down slightly
+ * so more fits on screen. Landscape phones exceed 720px width, so we key off
+ * pointer/coarse and orientation — not max-width alone.
+ */
+@media (max-width: 720px), ((hover: none) and (pointer: coarse)) {
   .bf-ko-mobile {
     display: none;
   }
 
   .bf-ko-desktop {
     display: block;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-    max-height: min(72vh, 520px);
-    margin-top: 0.25rem;
-    border: 1px solid var(--bf-border);
-    border-radius: var(--bf-radius);
-    background: var(--bf-surface);
-    box-shadow: var(--bf-shadow);
   }
 
   .bf-ko-desktop.bf-scroll {
-    padding: 0.35rem 0.5rem 0.75rem;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -0.15rem;
+    padding-bottom: 0.75rem;
   }
 
-  .bf-ko-mobile-scale {
-    zoom: 0.38;
+  .bf-ko-touch-zoom {
+    zoom: 0.78;
     min-width: min-content;
   }
+}
 
-  @supports not (zoom: 1) {
-    .bf-ko-mobile-scale {
+@media (max-width: 720px) and (orientation: landscape),
+  ((hover: none) and (pointer: coarse) and (orientation: landscape)) {
+  .bf-ko-touch-zoom {
+    zoom: 0.58;
+  }
+}
+
+@supports not (zoom: 1) {
+  @media (max-width: 720px), ((hover: none) and (pointer: coarse)) {
+    .bf-ko-touch-zoom {
       zoom: unset;
-      transform: scale(0.38);
+      transform: scale(0.78);
       transform-origin: top left;
-      width: 263.16%;
+      width: 128.21%;
     }
   }
 
-  .bf-ko-mobile-scale .bf-stage-title {
-    font-size: 0.68rem;
-  }
-
-  .bf-ko-mobile-scale .bf-matchup .bf-slot {
-    min-height: 2.1rem;
-    padding: 0.32rem 0.42rem;
-  }
-
-  .bf--split-knockout .bf-ko-mobile-scale .bf-matchup .bf-slot {
-    min-height: 1.95rem;
-    padding: 0.28rem 0.38rem;
-  }
-
-  .bf-ko-mobile-scale .bf-ko-img {
-    width: 1.1rem;
-    height: 0.85rem;
-  }
-
-  .bf-ko-mobile-scale .bf-ko-name {
-    font-size: 0.62rem;
-    line-height: 1.1;
-  }
-
-  .bf-ko-mobile-scale .bf-ko-seed {
-    font-size: 0.58rem;
+  @media (max-width: 720px) and (orientation: landscape),
+    ((hover: none) and (pointer: coarse) and (orientation: landscape)) {
+    .bf-ko-touch-zoom {
+      transform: scale(0.58);
+      width: 172.41%;
+    }
   }
 }
 

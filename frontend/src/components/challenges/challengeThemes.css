@@ -81,6 +81,11 @@
   color: var(--activity-accent);
 }
 
+.challenge-theme .challenge-view__tab:not(.challenge-view__tab--active),
+.challenge-theme .challenge-view__entry-tab:not(.challenge-view__entry-tab--active) {
+  color: var(--app-muted, #5c6470);
+}
+
 .challenge-theme .challenge-view__tab--active,
 .challenge-theme .challenge-view__entry-tab--active {
   background: var(--activity-btn);

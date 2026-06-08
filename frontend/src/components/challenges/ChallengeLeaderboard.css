@@ -47,6 +47,8 @@
   background: var(--app-surface, #fff);
   color: var(--app-muted, #64748b);
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .challenge-leaderboard__sort-pill--active {
