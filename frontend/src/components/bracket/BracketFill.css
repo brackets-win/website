@@ -1209,14 +1209,69 @@
   .bf {
     padding: 1rem;
     margin-top: 1rem;
+    --bf-ko-col-width: 132px;
   }
 
   .bf-ko-mobile {
-    display: block;
+    display: none;
   }
 
   .bf-ko-desktop {
-    display: none;
+    display: block;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: min(72vh, 520px);
+    margin-top: 0.25rem;
+    border: 1px solid var(--bf-border);
+    border-radius: var(--bf-radius);
+    background: var(--bf-surface);
+    box-shadow: var(--bf-shadow);
+  }
+
+  .bf-ko-desktop.bf-scroll {
+    padding: 0.35rem 0.5rem 0.75rem;
+  }
+
+  .bf-ko-mobile-scale {
+    zoom: 0.38;
+    min-width: min-content;
+  }
+
+  @supports not (zoom: 1) {
+    .bf-ko-mobile-scale {
+      zoom: unset;
+      transform: scale(0.38);
+      transform-origin: top left;
+      width: 263.16%;
+    }
+  }
+
+  .bf-ko-mobile-scale .bf-stage-title {
+    font-size: 0.68rem;
+  }
+
+  .bf-ko-mobile-scale .bf-matchup .bf-slot {
+    min-height: 2.1rem;
+    padding: 0.32rem 0.42rem;
+  }
+
+  .bf--split-knockout .bf-ko-mobile-scale .bf-matchup .bf-slot {
+    min-height: 1.95rem;
+    padding: 0.28rem 0.38rem;
+  }
+
+  .bf-ko-mobile-scale .bf-ko-img {
+    width: 1.1rem;
+    height: 0.85rem;
+  }
+
+  .bf-ko-mobile-scale .bf-ko-name {
+    font-size: 0.62rem;
+    line-height: 1.1;
+  }
+
+  .bf-ko-mobile-scale .bf-ko-seed {
+    font-size: 0.58rem;
   }
 }
 

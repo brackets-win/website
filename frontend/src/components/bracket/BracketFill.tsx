@@ -547,6 +547,7 @@ export function BracketFill({
           />
         </div>
         <div className="bf-ko-desktop bf-scroll">
+        <div className="bf-ko-mobile-scale">
         {mirrorLayout ? (
           <div className="bf-board-split">
             <MirrorWing
@@ -662,6 +663,7 @@ export function BracketFill({
             ) : null}
           </div>
         )}
+        </div>
         </div>
       </>
     ) : (
