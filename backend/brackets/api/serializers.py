@@ -103,7 +103,9 @@ def bracket_groups_preview(b: Bracket) -> list[dict[str, Any]]:
     gs = GroupStage.objects.get(pk=stage.pk)
     n_groups = gs.number_of_groups
     contestants = list(
-        b.bracket_contestants.select_related("contestant").order_by("seed", "id")
+        b.bracket_contestants.select_related("contestant")
+        .prefetch_related("contestant__tags")
+        .order_by("seed", "id")
     )
     if not contestants:
         return []
@@ -329,6 +331,7 @@ def challenge_summary(
     master_user_bracket_id: int | None = None,
     can_manage_bracket: bool = False,
     request=None,
+    scoring_contexts: dict | None = None,
 ) -> dict[str, Any]:
     passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
@@ -430,7 +433,13 @@ def challenge_summary(
         "master_user_bracket_id": master_user_bracket_id,
         "tournament_team_count": tournament_team_count,
         "teams_configured": teams_configured,
-        "leaderboard_preview": bracket_challenge_leaderboard_preview(c, user),
+        "leaderboard_preview": bracket_challenge_leaderboard_preview(
+            c,
+            user,
+            scoring_context=(
+                scoring_contexts.get(c.bracket_id) if scoring_contexts else None
+            ),
+        ),
     }
 
 

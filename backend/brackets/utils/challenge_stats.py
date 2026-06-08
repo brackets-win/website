@@ -202,9 +202,12 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
             progression_totals[team_id] = progression_totals.get(team_id, 0) + score
 
     knockout_rows: list[dict[str, Any]] = []
-    contestants = BracketContestant.objects.filter(bracket=bracket).select_related(
-        "contestant"
-    ).order_by("seed", "id")
+    contestants = (
+        BracketContestant.objects.filter(bracket=bracket)
+        .select_related("contestant")
+        .prefetch_related("contestant__tags")
+        .order_by("seed", "id")
+    )
     for bc in contestants:
         pub = contestant_public(bc)
         percentages: dict[str, float] = {}

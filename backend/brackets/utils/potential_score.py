@@ -18,12 +18,13 @@ def _slots_per_group(gs: GroupStage) -> int:
     return gs.number_of_contestants // gs.number_of_groups
 
 
-def calculate_potential_score(user_bracket: UserBracket) -> int | None:
+def calculate_potential_score(user_bracket: UserBracket, *, master=None) -> int | None:
     """Upper bound on total points if every remaining outcome goes the player's way."""
     if user_bracket.is_master:
         return None
 
-    master = user_bracket.get_master_bracket()
+    if master is None:
+        master = user_bracket.get_master_bracket()
     if master is None:
         return user_bracket.calculate_score()
 

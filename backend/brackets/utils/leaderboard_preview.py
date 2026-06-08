@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from brackets.models import BracketChallenge, StreakChallenge, StreakParticipant, UserBracket
+from django.db.models import Prefetch
+
+from brackets.models import BracketChallenge, Matchup, StreakChallenge, StreakParticipant, UserBracket
 from brackets.utils.challenge_types import uses_prediction_scoring
+from brackets.utils.leaderboard_scoring import (
+    LeaderboardScoringContext,
+    load_leaderboard_scoring_context,
+    total_score_for_user_bracket,
+)
 
 
 def _preview_row(
@@ -109,21 +116,35 @@ def bracket_challenge_leaderboard_preview(
     user=None,
     *,
     limit: int = 3,
+    scoring_context: LeaderboardScoringContext | None = None,
 ) -> dict[str, Any]:
     if not uses_prediction_scoring(challenge.instance_type):
         return {"top": [], "viewer": None, "gap_before_viewer": False}
 
-    master = challenge.bracket.userbracket_set.filter(is_master=True).first()
-    if not master:
+    ctx = scoring_context or load_leaderboard_scoring_context(challenge.bracket)
+    if not ctx.master:
         return {"top": [], "viewer": None, "gap_before_viewer": False}
 
+    matchup_prefetch = Prefetch(
+        "matchup_set",
+        queryset=Matchup.objects.select_related(
+            "winner__contestant",
+            "contestant1__contestant",
+            "contestant2__contestant",
+            "stage",
+        ),
+    )
     ranked: list[dict[str, Any]] = []
-    for ub in UserBracket.objects.filter(
-        challenge=challenge,
-        is_master=False,
-        submitted_at__isnull=False,
-    ).select_related("user"):
-        score = ub.calculate_score()
+    for ub in (
+        UserBracket.objects.filter(
+            challenge=challenge,
+            is_master=False,
+            submitted_at__isnull=False,
+        )
+        .select_related("user", "bracket")
+        .prefetch_related(matchup_prefetch)
+    ):
+        score = total_score_for_user_bracket(ub, ctx)
         if score is None:
             continue
         name = (ub.display_name or "").strip() or ub.user.username

@@ -59,10 +59,10 @@ class ClubLogoApiPriorityTests(TestCase):
 
     @patch("brackets.utils.contestant_images.urlopen")
     def test_club_logo_lookup_reads_thesportsdb_badge(self, mock_urlopen: Mock):
-        club = self._club(metadata={"thesportsdb_team_id": "133604"})
+        club = self._club(metadata={"thesportsdb_team_id": "999999"})
         payload = {
             "teams": [
-                {"idTeam": "133604", "strBadge": "https://r2.thesportsdb.com/badge.png"}
+                {"idTeam": "999999", "strBadge": "https://r2.thesportsdb.com/badge.png"}
             ]
         }
         response = Mock()

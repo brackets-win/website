@@ -16,6 +16,7 @@ type Props = {
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
   loading?: boolean;
+  error?: string;
   viewerUsername?: string | null;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
 };
@@ -162,6 +163,7 @@ export function ChallengeLeaderboard({
   columns,
   entries,
   loading = false,
+  error = '',
   viewerUsername = null,
   onSelectPlayer,
 }: Props) {
@@ -206,6 +208,10 @@ export function ChallengeLeaderboard({
 
   if (loading) {
     return <p className="challenge-view__muted">Loading…</p>;
+  }
+
+  if (error) {
+    return <div className="alert alert--error" role="status">{error}</div>;
   }
 
   if (submittedEntries.length === 0) {

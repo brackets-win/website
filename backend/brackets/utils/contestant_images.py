@@ -101,10 +101,21 @@ NATION_FLAG_CODES: dict[str, str] = {
 }
 
 
+def _contestant_tag_names_lower(contestant: Contestant) -> set[str]:
+    prefetched = getattr(contestant, "_prefetched_objects_cache", None)
+    if prefetched is not None and "tags" in prefetched:
+        return {t.name.lower() for t in contestant.tags.all()}
+    return {n.lower() for n in contestant.tags.values_list("name", flat=True)}
+
+
+def _contestant_has_tag(contestant: Contestant, tag_name: str) -> bool:
+    return tag_name.lower() in _contestant_tag_names_lower(contestant)
+
+
 def nation_flag_url(contestant: Contestant | None) -> str | None:
     if contestant is None:
         return None
-    if not contestant.tags.filter(name__iexact=NATION_TAG_NAME).exists():
+    if not _contestant_has_tag(contestant, NATION_TAG_NAME):
         return None
     code = NATION_FLAG_CODES.get((contestant.identifier or "").strip().lower())
     if not code:
@@ -133,7 +144,7 @@ def club_logo_url(contestant: Contestant | None) -> str | None:
     """Resolve a club crest URL from TheSportsDB for club-tagged contestants."""
     if contestant is None:
         return None
-    if not contestant.tags.filter(name__iexact=CLUB_TAG_NAME).exists():
+    if not _contestant_has_tag(contestant, CLUB_TAG_NAME):
         return None
     team_id = _club_team_id(contestant)
     if not team_id:

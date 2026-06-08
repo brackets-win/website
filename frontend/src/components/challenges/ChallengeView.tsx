@@ -64,8 +64,10 @@ export function ChallengeView({
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
   const [boardLoading, setBoardLoading] = useState(true);
+  const [boardErr, setBoardErr] = useState('');
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsErr, setStatsErr] = useState('');
+  const statsFetchGen = useRef(0);
   const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState<ChallengeTab>(initialTab ?? 'bracket');
   const [viewingPlayer, setViewingPlayer] = useState<{
@@ -89,16 +91,37 @@ export function ChallengeView({
 
   const reload = useCallback(async () => {
     setLoadErr('');
+    setBoardErr('');
     setBoardLoading(true);
     setStats(null);
     setStatsErr('');
+    setStatsLoading(false);
+    statsFetchGen.current += 1;
     try {
-      const { challenge: c } = await getChallenge(challengeId);
+      const [challengeResult, boardResult] = await Promise.allSettled([
+        getChallenge(challengeId),
+        getChallengeLeaderboard(challengeId),
+      ]);
+
+      if (challengeResult.status === 'rejected') {
+        throw challengeResult.reason;
+      }
+
+      const c = challengeResult.value.challenge;
       setChallenge(c);
+
       if (c.uses_prediction_leaderboard !== false) {
-        const board = await getChallengeLeaderboard(challengeId);
-        setColumns(board.columns);
-        setEntries(board.entries);
+        if (boardResult.status === 'fulfilled') {
+          setColumns(boardResult.value.columns);
+          setEntries(boardResult.value.entries);
+        } else {
+          const err = boardResult.reason;
+          setBoardErr(
+            err instanceof ApiError ? err.message : 'Unable to load leaderboard.',
+          );
+          setColumns([]);
+          setEntries([]);
+        }
       } else {
         setColumns([]);
         setEntries([]);
@@ -118,32 +141,30 @@ export function ChallengeView({
 
   useEffect(() => {
     if (tab !== 'stats') return;
+    if (boardLoading) return;
     if (!challenge || challenge.instance_type !== INSTANCE_BRACKET_CHALLENGE) return;
     if (challenge.can_view_peer_brackets !== true) return;
     if (stats != null || statsLoading) return;
 
-    let cancelled = false;
+    const gen = statsFetchGen.current;
     setStatsLoading(true);
     setStatsErr('');
     void getChallengeStats(challengeId)
       .then((data) => {
-        if (!cancelled) setStats(data);
+        if (gen !== statsFetchGen.current) return;
+        setStats(data);
       })
       .catch((e) => {
-        if (!cancelled) {
-          setStatsErr(
-            e instanceof ApiError ? e.message : 'Unable to load stats.',
-          );
-        }
+        if (gen !== statsFetchGen.current) return;
+        setStatsErr(
+          e instanceof ApiError ? e.message : 'Unable to load stats.',
+        );
       })
       .finally(() => {
-        if (!cancelled) setStatsLoading(false);
+        if (gen !== statsFetchGen.current) return;
+        setStatsLoading(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, challenge, challengeId, stats, statsLoading]);
+  }, [tab, boardLoading, challenge, challengeId, stats, statsLoading]);
 
   useEffect(() => {
     autoTeamsTabDone.current = false;
@@ -627,11 +648,6 @@ export function ChallengeView({
 
       {!viewingPlayer && tab === 'leaderboard' && showLeaderboard ? (
         <section className="card challenge-view__board">
-          {loadErr ? (
-            <div className="alert alert--error" role="status">
-              {loadErr}
-            </div>
-          ) : null}
           {!canViewPeerBrackets && isBracketChallenge ? (
             <p className="challenge-view__muted challenge-view__peer-gate">
               Submit your bracket to view other players&apos; brackets.
@@ -641,6 +657,7 @@ export function ChallengeView({
             columns={columns}
             entries={entries}
             loading={boardLoading}
+            error={boardErr}
             viewerUsername={currentUser.username}
             onSelectPlayer={
               canViewPeerBrackets

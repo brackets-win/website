@@ -155,26 +155,27 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
   const reload = useCallback(async () => {
     setLoadErr('');
     setLoading(true);
-    const errors: string[] = [];
 
-    const [challengesResult, publicResult, bracketsResult, streakResult, compResult] =
-      await Promise.allSettled([
-      listMyChallenges(),
-      listPublicChallenges(),
-      listBrackets(),
-      listMyStreakChallenges(),
-      listStreakCompetitions(),
-    ]);
-
-    if (challengesResult.status === 'fulfilled') {
-      setRows(challengesResult.value.challenges);
-    } else {
-      errors.push(
-        challengesResult.reason instanceof ApiError
-          ? challengesResult.reason.message
-          : 'Unable to load your challenges.',
+    try {
+      const { challenges } = await listMyChallenges();
+      setRows(challenges);
+    } catch (e) {
+      setLoadErr(
+        e instanceof ApiError ? e.message : 'Unable to load your challenges.',
       );
+    } finally {
+      setLoading(false);
     }
+
+    const [publicResult, bracketsResult, streakResult, compResult] =
+      await Promise.allSettled([
+        listPublicChallenges(),
+        listBrackets(),
+        listMyStreakChallenges(),
+        listStreakCompetitions(),
+      ]);
+
+    const errors: string[] = [];
 
     if (publicResult.status === 'fulfilled') {
       setPublicRows(publicResult.value.challenges);
@@ -229,9 +230,8 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
     }
 
     if (errors.length > 0) {
-      setLoadErr(errors[0]);
+      setLoadErr((prev) => prev || errors[0]);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {

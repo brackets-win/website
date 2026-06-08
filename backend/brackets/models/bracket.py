@@ -187,22 +187,26 @@ class UserBracket(models.Model):
 
         return None
 
-    def calculate_stage_score(self, stage):
+    def calculate_stage_score(self, stage, *, master=None, knockout_stage=None, group_stage=None):
         """
         Points for this stage vs the master bracket, or None when not scored yet.
         """
         if self.is_master:
             return None
 
-        master = self.get_master_bracket()
+        if master is None:
+            master = self.get_master_bracket()
         if not master:
             return None
 
         if stage.stage_type == 'GROUP':
-            return self._calculate_group_stage_score(master, stage)
+            if group_stage is None:
+                group_stage = GroupStage.objects.get(pk=stage.pk)
+            return self._calculate_group_stage_score(master, stage, group_stage=group_stage)
 
         if stage.stage_type == 'KNOCKOUT':
-            knockout_stage = KnockoutStage.objects.get(pk=stage.pk)
+            if knockout_stage is None:
+                knockout_stage = KnockoutStage.objects.get(pk=stage.pk)
             if knockout_stage.is_third_place:
                 return self._calculate_third_place_stage_score(master, stage)
             from brackets.utils.sync_group_knockout import (
@@ -258,8 +262,11 @@ class UserBracket(models.Model):
                 ids.add(cid)
         return ids
 
-    def _calculate_group_stage_score(self, master, stage) -> int:
-        gs = GroupStage.objects.get(pk=stage.pk)
+    def _calculate_group_stage_score(self, master, stage, *, group_stage=None) -> int:
+        if group_stage is None:
+            gs = GroupStage.objects.get(pk=stage.pk)
+        else:
+            gs = group_stage
         user_gp = (self.metadata or {}).get("group_positions") or {}
         master_gp = (master.metadata or {}).get("group_positions") or {}
         total = 0
@@ -315,12 +322,13 @@ class UserBracket(models.Model):
 
         return total
 
-    def calculate_champion_score(self):
+    def calculate_champion_score(self, *, master=None):
         """Points for picking the champion vs master."""
         if self.is_master:
             return None
 
-        master = self.get_master_bracket()
+        if master is None:
+            master = self.get_master_bracket()
         if not master:
             return None
 
@@ -336,29 +344,40 @@ class UserBracket(models.Model):
             return pts
         return 0
 
-    def calculate_score(self):
+    def calculate_score(self, *, master=None, stages=None, knockout_by_id=None, group_by_id=None):
         """
         Calculate this bracket's total score against the master bracket.
         """
         if self.is_master:
             return None
 
-        master = self.get_master_bracket()
+        if master is None:
+            master = self.get_master_bracket()
         if not master:
             return 0
 
         score = 0
-        for stage in self.bracket.stages.all():
-            stage_score = self.calculate_stage_score(stage)
+        stage_list = list(stages) if stages is not None else self.bracket.stages.all()
+        for stage in stage_list:
+            knockout_stage = (
+                knockout_by_id.get(stage.pk) if knockout_by_id is not None else None
+            )
+            group_stage = group_by_id.get(stage.pk) if group_by_id is not None else None
+            stage_score = self.calculate_stage_score(
+                stage,
+                master=master,
+                knockout_stage=knockout_stage,
+                group_stage=group_stage,
+            )
             if stage_score is not None:
                 score += stage_score
-        champion_score = self.calculate_champion_score()
+        champion_score = self.calculate_champion_score(master=master)
         if champion_score is not None:
             score += champion_score
         return score
 
-    def calculate_potential_score(self):
+    def calculate_potential_score(self, *, master=None):
         """Maximum achievable points vs the master bracket (partial master allowed)."""
         from brackets.utils.potential_score import calculate_potential_score
 
-        return calculate_potential_score(self)
+        return calculate_potential_score(self, master=master)

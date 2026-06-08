@@ -781,9 +781,19 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
     if not challenge_ids:
         return JsonResponse({"challenges": []})
 
-    challenges = BracketChallenge.objects.filter(
-        id__in=challenge_ids
-    ).select_related("bracket", "created_by")
+    challenges = list(
+        BracketChallenge.objects.filter(id__in=challenge_ids).select_related(
+            "bracket", "created_by"
+        )
+    )
+    from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+
+    scoring_contexts: dict[int, object] = {}
+    for c in challenges:
+        bid = c.bracket_id
+        if bid not in scoring_contexts:
+            scoring_contexts[bid] = load_leaderboard_scoring_context(c.bracket)
+
     ubs_by_challenge: dict[int, list[UserBracket]] = {}
     for ub in UserBracket.objects.filter(
         user=user, is_master=False, challenge_id__in=challenge_ids
@@ -791,7 +801,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
         ubs_by_challenge.setdefault(ub.challenge_id, []).append(ub)
 
     rows = []
-    for c in challenges.order_by("-created_at"):
+    for c in sorted(challenges, key=lambda x: x.created_at, reverse=True):
         ubs = ubs_by_challenge.get(c.id, [])
         ub = ubs[0] if ubs else None
         is_participant = bool(ubs) or c.id in from_participant
@@ -810,6 +820,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                 master_user_bracket_id=master_id,
                 can_manage_bracket=_can_manage_bracket(user, c),
                 request=request,
+                scoring_contexts=scoring_contexts,
             )
         )
     return JsonResponse({"challenges": rows})
@@ -828,10 +839,21 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
         .select_related("bracket", "created_by")
         .order_by("-created_at")
     )
+    from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+
+    challenges = [
+        c
+        for c in qs
+        if not (c.instance_type == CHALLENGE and deadline_passed(c))
+    ]
+    scoring_contexts: dict[int, object] = {}
+    for c in challenges:
+        bid = c.bracket_id
+        if bid not in scoring_contexts:
+            scoring_contexts[bid] = load_leaderboard_scoring_context(c.bracket)
+
     rows = []
-    for c in qs:
-        if c.instance_type == CHALLENGE and deadline_passed(c):
-            continue
+    for c in challenges:
         from brackets.utils.challenge_entries import user_entries_for_challenge
 
         ubs = list(user_entries_for_challenge(user, c))
@@ -852,6 +874,7 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
                 master_user_bracket_id=master_id,
                 can_manage_bracket=_can_manage_bracket(user, c),
                 request=request,
+                scoring_contexts=scoring_contexts,
             )
         )
     return JsonResponse({"challenges": rows})
@@ -987,13 +1010,21 @@ def challenge_leaderboard(
         return JsonResponse({"columns": [], "entries": []})
 
     from brackets.utils.challenge_entries import user_has_submitted_challenge
-    from brackets.utils.top_four_picks import serialize_top_four_picks
+    from brackets.utils.leaderboard_scoring import (
+        load_leaderboard_scoring_context,
+        stage_scores_for_user_bracket,
+        total_score_for_user_bracket,
+    )
+    from brackets.utils.top_four_picks import build_top_four_context, serialize_top_four_picks
 
     can_view_peers = user_has_submitted_challenge(user, challenge)
     hidden_top_four: list[None] = [None, None, None, None]
 
-    master = challenge.bracket.get_master_bracket()
-    stages = list(challenge.bracket.stages.order_by("order"))
+    bracket = challenge.bracket
+    ctx = load_leaderboard_scoring_context(bracket)
+    master = ctx.master
+    stages = list(ctx.stages)
+    top_four_ctx = build_top_four_context(bracket)
     columns = [
         serializers.leaderboard_column(key="potential", name="Potential"),
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS"),
@@ -1029,13 +1060,9 @@ def challenge_leaderboard(
         .order_by("user__username")
     ):
         if master:
-            stage_scores: dict[str, int | None] = {
-                f"stage:{stage.id}": ub.calculate_stage_score(stage)
-                for stage in stages
-            }
-            stage_scores["champion"] = ub.calculate_champion_score()
-            score = ub.calculate_score()
-            potential = ub.calculate_potential_score()
+            stage_scores = stage_scores_for_user_bracket(ub, ctx)
+            score = total_score_for_user_bracket(ub, ctx)
+            potential = ub.calculate_potential_score(master=master)
         else:
             stage_scores = {col["key"]: None for col in columns}
             score = None
@@ -1050,7 +1077,7 @@ def challenge_leaderboard(
                 potential=potential,
                 stage_scores=stage_scores,
                 top_four_picks=(
-                    serialize_top_four_picks(ub)
+                    serialize_top_four_picks(ub, top_four_ctx)
                     if can_view_peers
                     else hidden_top_four
                 ),
