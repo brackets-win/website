@@ -276,10 +276,11 @@
 .challenge-leaderboard__top-four-img {
   width: 1.625rem;
   height: 1.25rem;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   border-radius: 3px;
   border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--surface-muted, #f1f5f9);
 }
 
 .challenge-leaderboard__top-four-fallback {

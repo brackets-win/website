@@ -141,6 +141,8 @@ def club_logo_url(contestant: Contestant | None) -> str | None:
 
     team_id = str(team_id)
     static_logo = CLUB_BADGE_URLS.get(team_id)
+    if static_logo:
+        return static_logo
 
     cache_key = f"thesportsdb:team:{team_id}:badge"
     cached = cache.get(cache_key)

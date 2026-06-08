@@ -15,6 +15,7 @@ type SortState = {
 type Props = {
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
+  loading?: boolean;
   viewerUsername?: string | null;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
 };
@@ -160,6 +161,7 @@ function SortableHeader({
 export function ChallengeLeaderboard({
   columns,
   entries,
+  loading = false,
   viewerUsername = null,
   onSelectPlayer,
 }: Props) {
@@ -202,15 +204,20 @@ export function ChallengeLeaderboard({
     return rows;
   }, [submittedEntries, sort, ranks]);
 
+  if (loading) {
+    return <p className="challenge-view__muted">Loading…</p>;
+  }
+
   if (submittedEntries.length === 0) {
     return <p className="challenge-view__muted">No submitted brackets yet.</p>;
   }
 
+  const sortableColumns = columns.filter((col) => col.key !== 'top_four_picks');
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'rank', label: 'Rank' },
     { key: 'player', label: 'Player' },
     { key: 'total', label: 'Total' },
-    ...columns.map((col) => ({ key: col.key, label: col.name })),
+    ...sortableColumns.map((col) => ({ key: col.key, label: col.name })),
   ];
 
   return (

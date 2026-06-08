@@ -63,6 +63,9 @@ export function ChallengeView({
   const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsErr, setStatsErr] = useState('');
   const [loadErr, setLoadErr] = useState('');
   const [tab, setTab] = useState<ChallengeTab>(initialTab ?? 'bracket');
   const [viewingPlayer, setViewingPlayer] = useState<{
@@ -86,6 +89,9 @@ export function ChallengeView({
 
   const reload = useCallback(async () => {
     setLoadErr('');
+    setBoardLoading(true);
+    setStats(null);
+    setStatsErr('');
     try {
       const { challenge: c } = await getChallenge(challengeId);
       setChallenge(c);
@@ -93,29 +99,51 @@ export function ChallengeView({
         const board = await getChallengeLeaderboard(challengeId);
         setColumns(board.columns);
         setEntries(board.entries);
-        if (
-          c.instance_type === INSTANCE_BRACKET_CHALLENGE &&
-          c.can_view_peer_brackets
-        ) {
-          setStats(await getChallengeStats(challengeId));
-        } else {
-          setStats(null);
-        }
       } else {
         setColumns([]);
         setEntries([]);
-        setStats(null);
       }
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load challenge.',
       );
+    } finally {
+      setBoardLoading(false);
     }
   }, [challengeId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (tab !== 'stats') return;
+    if (!challenge || challenge.instance_type !== INSTANCE_BRACKET_CHALLENGE) return;
+    if (challenge.can_view_peer_brackets !== true) return;
+    if (stats != null || statsLoading) return;
+
+    let cancelled = false;
+    setStatsLoading(true);
+    setStatsErr('');
+    void getChallengeStats(challengeId)
+      .then((data) => {
+        if (!cancelled) setStats(data);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setStatsErr(
+            e instanceof ApiError ? e.message : 'Unable to load stats.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStatsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, challenge, challengeId, stats, statsLoading]);
 
   useEffect(() => {
     autoTeamsTabDone.current = false;
@@ -599,6 +627,11 @@ export function ChallengeView({
 
       {!viewingPlayer && tab === 'leaderboard' && showLeaderboard ? (
         <section className="card challenge-view__board">
+          {loadErr ? (
+            <div className="alert alert--error" role="status">
+              {loadErr}
+            </div>
+          ) : null}
           {!canViewPeerBrackets && isBracketChallenge ? (
             <p className="challenge-view__muted challenge-view__peer-gate">
               Submit your bracket to view other players&apos; brackets.
@@ -607,6 +640,7 @@ export function ChallengeView({
           <ChallengeLeaderboard
             columns={columns}
             entries={entries}
+            loading={boardLoading}
             viewerUsername={currentUser.username}
             onSelectPlayer={
               canViewPeerBrackets
@@ -625,11 +659,15 @@ export function ChallengeView({
             <p className="challenge-view__muted">
               Submit a bracket to view stats.
             </p>
+          ) : statsLoading ? (
+            <p className="challenge-view__muted">Loading…</p>
+          ) : statsErr ? (
+            <div className="alert alert--error" role="status">
+              {statsErr}
+            </div>
           ) : stats ? (
             <ChallengeStatsPanel stats={stats} />
-          ) : (
-            <p className="challenge-view__muted">Loading…</p>
-          )}
+          ) : null}
         </section>
       ) : null}
 
