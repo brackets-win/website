@@ -250,7 +250,10 @@ export function StreakChallengeView({
             </p>
           </div>
           {deadlineLocked ? (
-            <p className="streak-question__locked">
+            <p
+              className="streak-question__locked"
+              aria-label="Multiple picks cannot share a deadline"
+            >
               <svg
                 className="streak-question__lock-icon"
                 width="18"
@@ -266,7 +269,9 @@ export function StreakChallengeView({
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
-              Multiple picks cannot share a deadline
+              <span className="streak-question__locked-text">
+                Multiple picks cannot share a deadline
+              </span>
             </p>
           ) : null}
         </div>

@@ -233,4 +233,12 @@
   .streak-question {
     padding: 0.9rem 1rem;
   }
+
+  .streak-question__locked-text {
+    display: none;
+  }
+
+  .streak-question__locked {
+    gap: 0;
+  }
 }
