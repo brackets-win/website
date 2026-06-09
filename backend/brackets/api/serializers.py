@@ -216,6 +216,19 @@ def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
     }
 
 
+def _show_scoring_to_viewer(ub: UserBracket, viewer, *, can_edit: bool) -> bool:
+    """Score/highlights when the entry is locked, or a peer views in the same challenge."""
+    if ub.is_master:
+        return False
+    if ub.submitted_at or not can_edit:
+        return True
+    return (
+        viewer is not None
+        and viewer.id != ub.user_id
+        and _viewer_sees_scoring_highlights(viewer, ub)
+    )
+
+
 def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     matchups = (
         ub.matchup_set.select_related(
@@ -244,9 +257,12 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     out = user_bracket_summary(ub)
     out["bracket"] = bracket_summary(ub.bracket)
     out["matchups_by_stage"] = matchups_by_stage
+    can_show_scoring = _show_scoring_to_viewer(
+        ub, viewer, can_edit=out["can_edit"]
+    )
     if ub.is_master:
         out["score_vs_master"] = None
-    elif ub.submitted_at or not out["can_edit"]:
+    elif can_show_scoring:
         from brackets.utils.leaderboard_scoring import (
             get_leaderboard_scores,
             load_leaderboard_scoring_context,
@@ -259,9 +275,8 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
     if (
         viewer is not None
-        and not ub.is_master
+        and can_show_scoring
         and _viewer_sees_scoring_highlights(viewer, ub)
-        and (ub.submitted_at or not out["can_edit"])
     ):
         from brackets.utils.scoring_highlights import scoring_highlights_for_user_bracket
 
