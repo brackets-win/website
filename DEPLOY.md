@@ -56,10 +56,10 @@ Migrations run via `release_command` in `fly.toml` before each deploy.
 
 ## Deploy frontend (GitHub Actions)
 
-1. Cloudflare Pages project for `brackets.win`.
-2. Repo secrets:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
+1. Cloudflare Pages project named `brackets-win`.
+2. Repo secrets (**Settings → Secrets and variables → Actions**):
+   - `CLOUDFLARE_API_TOKEN` — Cloudflare dashboard → **My Profile → API Tokens** → Create token with **Account → Cloudflare Pages → Edit** (scoped to your account).
+   - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare dashboard → any site → **Overview** → Account ID in the right sidebar.
 3. Push to `master` with changes under `frontend/` — `.github/workflows/deploy-frontend.yaml` builds and deploys `frontend/dist`.
 
 Manual:
