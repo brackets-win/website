@@ -180,10 +180,25 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
-.challenge-stats__ko-card-stats {
+.challenge-stats__ko-card-head {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem 0.65rem;
+  align-items: center;
+}
+
+.challenge-stats__ko-card-score {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--activity-accent, var(--app-accent, #5782a8));
+  text-align: right;
+}
+
+.challenge-stats__ko-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   margin: 0.65rem 0 0;
   padding: 0.65rem 0 0;
   border-top: 1px solid var(--border, #e2e8f0);
@@ -335,10 +350,5 @@
 
   .challenge-stats__ko-desktop {
     display: none;
-  }
-
-  .challenge-stats__ko-card-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-auto-flow: column;
   }
 }
