@@ -1,130 +1,164 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-
-import { AdminPanel, type AdminTab } from './components/admin/AdminPanel';
-import { LoginPage } from './components/auth/LoginPage';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  ChallengeView,
-  type ChallengeTab,
-} from './components/challenges/ChallengeView';
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
+
+import { AdminPanel } from './components/admin/AdminPanel';
+import { LoginPage } from './components/auth/LoginPage';
+import { ChallengeView } from './components/challenges/ChallengeView';
 import { ChallengesPage } from './components/challenges/ChallengesPage';
 import { StreakChallengeView } from './components/challenges/StreakChallengeView';
-import { AppShell, type AppPage } from './components/layout/AppShell';
+import { AppShell } from './components/layout/AppShell';
+import { LegacyUbRedirect } from './components/routing/LegacyUbRedirect';
+import {
+  adminPath,
+  challengePath,
+  isAdminTab,
+  isChallengeTab,
+  isStreakTab,
+  parseRouteId,
+  streakPath,
+  type AdminTab,
+} from './routes';
 import {
   ApiError,
   authLogin,
   authLogout,
   authMe,
   authRegister,
-  listUserBrackets,
   type ApiUser,
 } from './utils/api';
 
 import './components/admin/admin-shared.css';
 
-function readUbFromLocation(): number | null {
-  const q = new URLSearchParams(window.location.search).get('ub');
-  if (!q) return null;
-  const n = parseInt(q, 10);
-  return Number.isFinite(n) ? n : null;
+function ChallengeTabRedirect() {
+  return <Navigate to="bracket" replace />;
+}
+
+function StreakTabRedirect() {
+  return <Navigate to="leaderboard" replace />;
+}
+
+function AdminTabRedirect() {
+  return <Navigate to={adminPath('contestants')} replace />;
+}
+
+function AdminRoute({ user }: { user: ApiUser }) {
+  const { tab } = useParams();
+  const navigate = useNavigate();
+
+  if (!user.is_staff) {
+    return <Navigate to="/" replace />;
+  }
+
+  const activeTab: AdminTab = isAdminTab(tab) ? tab : 'contestants';
+  if (tab != null && !isAdminTab(tab)) {
+    return <Navigate to={adminPath('contestants')} replace />;
+  }
+
+  return (
+    <AdminPanel
+      tab={activeTab}
+      onTabChange={(next) => {
+        navigate(adminPath(next));
+      }}
+    />
+  );
+}
+
+function ChallengeViewRoute({ currentUser }: { currentUser: ApiUser }) {
+  const { challengeId: challengeIdParam, tab, userBracketId } = useParams();
+  const challengeId = parseRouteId(challengeIdParam);
+  const playerUserBracketId = parseRouteId(userBracketId);
+
+  if (challengeId == null) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (playerUserBracketId != null) {
+    return (
+      <ChallengeView
+        challengeId={challengeId}
+        tab="leaderboard"
+        viewingPlayerId={playerUserBracketId}
+        currentUser={currentUser}
+      />
+    );
+  }
+
+  if (tab === 'player' || tab == null || !isChallengeTab(tab)) {
+    return <Navigate to={challengePath(challengeId, 'bracket')} replace />;
+  }
+
+  return (
+    <ChallengeView
+      challengeId={challengeId}
+      tab={tab}
+      currentUser={currentUser}
+    />
+  );
+}
+
+function StreakChallengeViewRoute({ currentUser }: { currentUser: ApiUser }) {
+  const { streakId: streakIdParam, tab, userId } = useParams();
+  const streakId = parseRouteId(streakIdParam);
+  const playerUserId = parseRouteId(userId);
+
+  if (streakId == null) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (playerUserId != null) {
+    return (
+      <StreakChallengeView
+        streakChallengeId={streakId}
+        tab="leaderboard"
+        viewingPlayerId={playerUserId}
+        currentUser={currentUser}
+      />
+    );
+  }
+
+  if (tab === 'player' || tab == null || !isStreakTab(tab)) {
+    return <Navigate to={streakPath(streakId, 'leaderboard')} replace />;
+  }
+
+  return (
+    <StreakChallengeView
+      streakChallengeId={streakId}
+      tab={tab}
+      currentUser={currentUser}
+    />
+  );
 }
 
 export default function App() {
   const [sessionUser, setSessionUser] = useState<ApiUser | null | undefined>(
     undefined,
   );
-  const [page, setPage] = useState<AppPage>('home');
-  const [adminTab, setAdminTab] = useState<AdminTab>('contestants');
   const [loginBusy, setLoginBusy] = useState(false);
   const [authError, setAuthError] = useState('');
-
-  const initialUb = useMemo(() => readUbFromLocation(), []);
-  const [activeChallenge, setActiveChallenge] = useState<{
-    challengeId: number;
-    userBracketId: number | null;
-    initialTab?: ChallengeTab;
-  } | null>(null);
-  const [activeStreakId, setActiveStreakId] = useState<number | null>(null);
-  const [homeResetKey, setHomeResetKey] = useState(0);
-
-  const refreshUserBrackets = useCallback(async () => {
-    const ubs = await listUserBrackets();
-    return ubs.user_brackets;
-  }, []);
 
   const loadSession = useCallback(async () => {
     try {
       const who = await authMe();
       setSessionUser(who.user);
       setAuthError('');
-      if (who.user) {
-        const ubs = await listUserBrackets();
-        if (initialUb != null) {
-          const ub = ubs.user_brackets.find((u) => u.id === initialUb);
-          if (ub?.challenge_id != null) {
-            setActiveChallenge({
-              challengeId: ub.challenge_id,
-              userBracketId: ub.id,
-            });
-            setPage('challenge');
-          }
-        }
-      } else {
-        setActiveChallenge(null);
-      }
     } catch (e) {
       setSessionUser(null);
       setAuthError(
         e instanceof ApiError ? e.message : 'Unable to connect.',
       );
     }
-  }, [initialUb]);
+  }, []);
 
   useEffect(() => {
     void loadSession();
   }, [loadSession]);
-
-  function navigate(next: AppPage) {
-    if (next === 'admin' && !sessionUser?.is_staff) {
-      return;
-    }
-    if (next === 'home') {
-      setActiveChallenge(null);
-      setActiveStreakId(null);
-      setHomeResetKey((k) => k + 1);
-    }
-    setPage(next);
-  }
-
-  async function openChallenge(
-    challengeId: number,
-    userBracketId?: number | null,
-    initialTab?: ChallengeTab,
-  ) {
-    setActiveStreakId(null);
-    setActiveChallenge({
-      challengeId,
-      userBracketId: userBracketId ?? null,
-      initialTab,
-    });
-    setPage('challenge');
-    const params = new URLSearchParams(window.location.search);
-    if (userBracketId != null) {
-      params.set('ub', String(userBracketId));
-    } else {
-      params.delete('ub');
-    }
-    const next = `${window.location.pathname}?${params.toString()}`;
-    window.history.replaceState(null, '', next);
-  }
-
-  function openStreak(streakChallengeId: number) {
-    setActiveChallenge(null);
-    setActiveStreakId(streakChallengeId);
-    setPage('streak');
-    const params = new URLSearchParams(window.location.search);
-    params.delete('ub');
-    window.history.replaceState(null, '', window.location.pathname);
-  }
 
   async function handleLogin(username: string, password: string) {
     setLoginBusy(true);
@@ -132,8 +166,6 @@ export default function App() {
     try {
       const { user } = await authLogin(username, password);
       setSessionUser(user);
-      setActiveChallenge(null);
-      setPage('home');
     } catch (e) {
       setAuthError(
         e instanceof ApiError ? e.message : 'Sign in failed.',
@@ -149,8 +181,6 @@ export default function App() {
     try {
       const { user } = await authRegister(username, password);
       setSessionUser(user);
-      setActiveChallenge(null);
-      setPage('home');
     } catch (e) {
       setAuthError(
         e instanceof ApiError ? e.message : 'Could not create account.',
@@ -167,8 +197,6 @@ export default function App() {
       /* still clear local session */
     }
     setSessionUser(null);
-    setActiveChallenge(null);
-    setPage('home');
   }
 
   if (sessionUser === undefined) {
@@ -187,44 +215,42 @@ export default function App() {
   }
 
   return (
-    <AppShell
-      user={sessionUser}
-      page={page}
-      onNavigate={navigate}
-      onSignOut={() => void handleSignOut()}
-    >
-      {page === 'home' ? (
-        <ChallengesPage
-          key={homeResetKey}
-          onOpenChallenge={openChallenge}
-          onOpenStreak={openStreak}
-        />
-      ) : null}
+    <AppShell user={sessionUser} onSignOut={() => void handleSignOut()}>
+      <LegacyUbRedirect />
+      <Routes>
+        <Route path="/" element={<ChallengesPage />} />
 
-      {page === 'challenge' && activeChallenge != null ? (
-        <ChallengeView
-          key={`${activeChallenge.challengeId}-${activeChallenge.userBracketId ?? 'x'}-${activeChallenge.initialTab ?? 'bracket'}`}
-          challengeId={activeChallenge.challengeId}
-          userBracketId={activeChallenge.userBracketId}
-          initialTab={activeChallenge.initialTab}
-          currentUser={sessionUser}
-          onBack={() => navigate('home')}
-          onSubmitted={() => void refreshUserBrackets()}
+        <Route
+          path="/challenge/:challengeId"
+          element={<ChallengeTabRedirect />}
         />
-      ) : null}
-
-      {page === 'streak' && activeStreakId != null ? (
-        <StreakChallengeView
-          key={activeStreakId}
-          streakChallengeId={activeStreakId}
-          currentUser={sessionUser}
-          onBack={() => navigate('home')}
+        <Route
+          path="/challenge/:challengeId/player/:userBracketId"
+          element={<ChallengeViewRoute currentUser={sessionUser} />}
         />
-      ) : null}
+        <Route
+          path="/challenge/:challengeId/:tab"
+          element={<ChallengeViewRoute currentUser={sessionUser} />}
+        />
 
-      {page === 'admin' && sessionUser.is_staff ? (
-        <AdminPanel tab={adminTab} onTabChange={setAdminTab} />
-      ) : null}
+        <Route path="/streak/:streakId" element={<StreakTabRedirect />} />
+        <Route
+          path="/streak/:streakId/player/:userId"
+          element={<StreakChallengeViewRoute currentUser={sessionUser} />}
+        />
+        <Route
+          path="/streak/:streakId/:tab"
+          element={<StreakChallengeViewRoute currentUser={sessionUser} />}
+        />
+
+        <Route path="/admin" element={<AdminTabRedirect />} />
+        <Route
+          path="/admin/:tab"
+          element={<AdminRoute user={sessionUser} />}
+        />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </AppShell>
   );
 }

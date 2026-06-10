@@ -1,54 +1,52 @@
 import type { ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
+import { adminPath } from '../../routes';
 import type { ApiUser } from '../../utils/api';
 import { BracketsLogoMark } from '../BracketsLogoMark';
 
 import './AppShell.css';
 
-export type AppPage = 'home' | 'challenge' | 'streak' | 'admin';
-
 type Props = {
   user: ApiUser;
-  page: AppPage;
-  onNavigate: (page: AppPage) => void;
   onSignOut: () => void;
   children: ReactNode;
 };
 
-export function AppShell({
-  user,
-  page,
-  onNavigate,
-  onSignOut,
-  children,
-}: Props) {
+export function AppShell({ user, onSignOut, children }: Props) {
   const initial = user.username.charAt(0).toUpperCase();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onAdmin = location.pathname.startsWith('/admin');
+
+  function handleSignOut() {
+    onSignOut();
+    navigate('/', { replace: true });
+  }
 
   return (
     <div className="shell">
       <header className="shell__header">
         <div className="shell__header-inner">
-          <button
-            type="button"
+          <Link
+            to="/"
             className="shell__logo"
             aria-label="brackets.win home"
-            onClick={() => onNavigate('home')}
           >
             <span className="shell__logo-mark">
               <BracketsLogoMark />
             </span>
             <span className="shell__logo-text">brackets.win</span>
-          </button>
+          </Link>
 
           <div className="shell__user">
             {user.is_staff ? (
-              <button
-                type="button"
-                className={`btn btn--secondary shell__admin${page === 'admin' ? ' shell__admin--active' : ''}`}
-                onClick={() => onNavigate('admin')}
+              <Link
+                to={adminPath('contestants')}
+                className={`btn btn--secondary shell__admin${onAdmin ? ' shell__admin--active' : ''}`}
               >
                 Admin
-              </button>
+              </Link>
             ) : null}
             <span className="shell__avatar" aria-hidden>
               {initial}
@@ -57,7 +55,7 @@ export function AppShell({
             <button
               type="button"
               className="btn btn--ghost shell__signout"
-              onClick={onSignOut}
+              onClick={handleSignOut}
             >
               Sign out
             </button>

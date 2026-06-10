@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { BracketFill } from '../bracket/BracketFill';
 import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
@@ -26,6 +27,12 @@ import {
   themeKeyForInstanceType,
 } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
+import {
+  challengePath,
+  challengePlayerPath,
+  parseRouteId,
+  type ChallengeTab,
+} from '../../routes';
 
 import { ChallengeLeaderboard } from './ChallengeLeaderboard';
 import { ChallengeStats as ChallengeStatsPanel } from './ChallengeStats';
@@ -34,31 +41,24 @@ import { TournamentTeamsPanel } from './TournamentTeamsPanel';
 import './challengeThemes.css';
 import './ChallengeView.css';
 
-export type ChallengeTab =
-  | 'bracket'
-  | 'teams'
-  | 'official'
-  | 'leaderboard'
-  | 'stats'
-  | 'settings';
+export type { ChallengeTab };
 
 type Props = {
   challengeId: number;
-  userBracketId?: number | null;
-  initialTab?: ChallengeTab;
+  tab: ChallengeTab;
+  viewingPlayerId?: number | null;
   currentUser: ApiUser;
-  onBack: () => void;
-  onSubmitted: () => void;
 };
 
 export function ChallengeView({
   challengeId,
-  userBracketId,
-  initialTab,
+  tab,
+  viewingPlayerId = null,
   currentUser,
-  onBack,
-  onSubmitted,
 }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [challenge, setChallenge] = useState<ChallengeSummary | null>(null);
   const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
@@ -71,13 +71,11 @@ export function ChallengeView({
   const [statsErr, setStatsErr] = useState('');
   const statsFetchGen = useRef(0);
   const [loadErr, setLoadErr] = useState('');
-  const [tab, setTab] = useState<ChallengeTab>(initialTab ?? 'bracket');
-  const [viewingPlayer, setViewingPlayer] = useState<{
-    userBracketId: number;
-    name: string;
-  } | null>(null);
+  const entryFromUrl =
+    parseRouteId(searchParams.get('entry')) ??
+    parseRouteId(searchParams.get('ub'));
   const [activeBracketId, setActiveBracketId] = useState<number | null>(
-    userBracketId ?? null,
+    entryFromUrl,
   );
   const [addEntryName, setAddEntryName] = useState('');
   const [addEntryBusy, setAddEntryBusy] = useState(false);
@@ -90,6 +88,10 @@ export function ChallengeView({
   const [maxEntriesErr, setMaxEntriesErr] = useState('');
   const [bracketRevision, setBracketRevision] = useState(0);
   const autoTeamsTabDone = useRef(false);
+
+  const playerNameFromState = (
+    location.state as { playerName?: string } | null | undefined
+  )?.playerName;
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -113,6 +115,21 @@ export function ChallengeView({
       );
     }
   }, [challengeId]);
+
+  const viewingPlayer = useMemo(() => {
+    if (viewingPlayerId == null) return null;
+    const fromBoard = entries.find(
+      (entry) => entry.user_bracket_id === viewingPlayerId,
+    );
+    return {
+      userBracketId: viewingPlayerId,
+      name:
+        playerNameFromState ??
+        fromBoard?.display_name?.trim() ??
+        fromBoard?.username ??
+        'Player',
+    };
+  }, [viewingPlayerId, entries, playerNameFromState]);
 
   useEffect(() => {
     void reload();
@@ -183,24 +200,44 @@ export function ChallengeView({
     challenge.teams_configured === false;
 
   useEffect(() => {
-    if (!challenge || autoTeamsTabDone.current || initialTab != null) return;
-    if (teamsNeedSetup) {
-      setTab('teams');
+    if (!challenge || autoTeamsTabDone.current) return;
+    if (teamsNeedSetup && tab !== 'teams') {
       autoTeamsTabDone.current = true;
+      navigate(challengePath(challengeId, 'teams'), { replace: true });
     }
-  }, [challenge, teamsNeedSetup, initialTab]);
+  }, [challenge, teamsNeedSetup, tab, navigate, challengeId]);
+
+  function goToTab(nextTab: ChallengeTab) {
+    navigate(
+      challengePath(
+        challengeId,
+        nextTab,
+        activeBracketId != null && nextTab === 'bracket'
+          ? { entry: activeBracketId }
+          : undefined,
+      ),
+    );
+  }
+
+  function selectEntry(entryId: number) {
+    setActiveBracketId(entryId);
+    const next = new URLSearchParams(searchParams);
+    next.set('entry', String(entryId));
+    next.delete('ub');
+    setSearchParams(next, { replace: true });
+  }
 
   function handleTeamsSaved() {
     void reload();
     setBracketRevision((n) => n + 1);
-    setTab('bracket');
+    goToTab('bracket');
   }
 
   useEffect(() => {
-    if (userBracketId != null) {
-      setActiveBracketId(userBracketId);
+    if (entryFromUrl != null) {
+      setActiveBracketId(entryFromUrl);
     }
-  }, [userBracketId, challengeId]);
+  }, [entryFromUrl, challengeId]);
 
   useEffect(() => {
     if (challenge) {
@@ -211,10 +248,10 @@ export function ChallengeView({
 
   useEffect(() => {
     if (!challenge || challenge.can_view_peer_brackets) return;
-    if (viewingPlayer != null) {
-      setViewingPlayer(null);
+    if (viewingPlayerId != null) {
+      navigate(challengePath(challengeId, 'leaderboard'), { replace: true });
     }
-  }, [challenge, viewingPlayer]);
+  }, [challenge, viewingPlayerId, navigate, challengeId]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -247,7 +284,9 @@ export function ChallengeView({
         display_name: name,
       });
       setChallenge(updated);
-      setActiveBracketId(updated.user_bracket_id);
+      if (updated.user_bracket_id != null) {
+        selectEntry(updated.user_bracket_id);
+      }
       setAddEntryName('');
     } catch (err) {
       setAddEntryErr(
@@ -260,8 +299,7 @@ export function ChallengeView({
 
   function handleSubmitted() {
     void reload();
-    onSubmitted();
-    setTab('bracket');
+    goToTab('bracket');
   }
 
   async function handleSaveMaxEntries(e: React.FormEvent) {
@@ -294,7 +332,7 @@ export function ChallengeView({
     try {
       await deleteChallenge(challengeId);
       setDeleteOpen(false);
-      onBack();
+      navigate('/');
     } catch (err) {
       setDeleteErr(
         err instanceof ApiError ? err.message : 'Could not delete challenge.',
@@ -310,9 +348,9 @@ export function ChallengeView({
         className={`${challengeThemeClass('bracket_challenge')} challenge-view`}
       >
         <div className="alert alert--error">{loadErr}</div>
-        <button type="button" className="btn btn--ghost" onClick={onBack}>
+        <Link to="/" className="btn btn--ghost">
           ← My Challenges
-        </button>
+        </Link>
       </div>
     );
   }
@@ -386,22 +424,18 @@ export function ChallengeView({
     return (
       <div className={`${themeClass} challenge-view`}>
         <p className="challenge-view__muted">No bracket linked yet.</p>
-        <button type="button" className="btn btn--ghost" onClick={onBack}>
+        <Link to="/" className="btn btn--ghost">
           ← My Challenges
-        </button>
+        </Link>
       </div>
     );
   }
 
   return (
     <div className={`${themeClass} challenge-view`}>
-      <button
-        type="button"
-        className="btn btn--ghost challenge-view__back"
-        onClick={onBack}
-      >
+      <Link to="/" className="btn btn--ghost challenge-view__back">
         ← My Challenges
-      </button>
+      </Link>
 
       <header className="challenge-view__head card">
         <div className="challenge-view__head-inner">
@@ -462,7 +496,7 @@ export function ChallengeView({
                       ? 'challenge-view__entry-tab challenge-view__entry-tab--active'
                       : 'challenge-view__entry-tab'
                   }
-                  onClick={() => setActiveBracketId(entry.user_bracket_id)}
+                  onClick={() => selectEntry(entry.user_bracket_id)}
                 >
                   {entry.display_name || 'Entry'}
                   {entry.is_submitted ? ' ✓' : ''}
@@ -521,7 +555,7 @@ export function ChallengeView({
                 ? 'challenge-view__tab challenge-view__tab--active'
                 : 'challenge-view__tab'
             }
-            onClick={() => setTab('leaderboard')}
+            onClick={() => goToTab('leaderboard')}
           >
             Leaderboard
           </button>
@@ -534,7 +568,7 @@ export function ChallengeView({
                 ? 'challenge-view__tab challenge-view__tab--active'
                 : 'challenge-view__tab'
             }
-            onClick={() => setTab('official')}
+            onClick={() => goToTab('official')}
           >
             {challenge.bracket_name}
           </button>
@@ -547,7 +581,7 @@ export function ChallengeView({
                 ? 'challenge-view__tab challenge-view__tab--active'
                 : 'challenge-view__tab'
             }
-            onClick={() => setTab('teams')}
+            onClick={() => goToTab('teams')}
           >
             Teams
           </button>
@@ -560,7 +594,7 @@ export function ChallengeView({
                 ? 'challenge-view__tab challenge-view__tab--active'
                 : 'challenge-view__tab'
             }
-            onClick={() => setTab('bracket')}
+            onClick={() => goToTab('bracket')}
           >
             {bracketTabLabel}
           </button>
@@ -573,7 +607,7 @@ export function ChallengeView({
                 ? 'challenge-view__tab challenge-view__tab--active'
                 : 'challenge-view__tab'
             }
-            onClick={() => setTab('stats')}
+            onClick={() => goToTab('stats')}
           >
             Stats
           </button>
@@ -585,7 +619,7 @@ export function ChallengeView({
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('settings')}
+          onClick={() => goToTab('settings')}
         >
           Settings
         </button>
@@ -597,7 +631,7 @@ export function ChallengeView({
             <button
               type="button"
               className="btn btn--ghost"
-              onClick={() => setViewingPlayer(null)}
+              onClick={() => goToTab('leaderboard')}
             >
               ← Leaderboard
             </button>
@@ -669,7 +703,9 @@ export function ChallengeView({
             onSelectPlayer={
               canViewPeerBrackets
                 ? (id, name) => {
-                    setViewingPlayer({ userBracketId: id, name });
+                    navigate(challengePlayerPath(challengeId, id), {
+                      state: { playerName: name },
+                    });
                   }
                 : undefined
             }

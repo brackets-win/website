@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import {
   ApiError,
@@ -26,9 +27,13 @@ import {
   SHOW_TOURNAMENT_AND_POLL_SECTIONS,
 } from '../../utils/challengeTypes';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
+import {
+  challengePath,
+  streakPath,
+  type ChallengeTab,
+} from '../../routes';
 
 import { ActivityTypeIcon } from './ActivityTypeIcons';
-import type { ChallengeTab } from './ChallengeView';
 import './ChallengesPage.css';
 
 function ChallengeThumb({ url, name }: { url: string | null | undefined; name: string }) {
@@ -99,27 +104,37 @@ type PanelState = {
   mode: PanelMode;
 };
 
-type Props = {
-  onOpenChallenge: (
+export function ChallengesPage() {
+  const navigate = useNavigate();
+
+  function openChallenge(
     challengeId: number,
     userBracketId?: number | null,
     initialTab?: ChallengeTab,
-  ) => void;
-  onOpenStreak: (streakChallengeId: number) => void;
-};
+  ) {
+    navigate(
+      challengePath(
+        challengeId,
+        initialTab ?? 'bracket',
+        userBracketId != null ? { entry: userBracketId } : undefined,
+      ),
+    );
+  }
 
-function slugify(value: string): string {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'activity'
-  );
-}
+  function openStreak(streakChallengeId: number) {
+    navigate(streakPath(streakChallengeId, 'leaderboard'));
+  }
 
-export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
+  function slugify(value: string): string {
+    return (
+      value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || 'activity'
+    );
+  }
   const [rows, setRows] = useState<ChallengeSummary[]>([]);
   const [streakRows, setStreakRows] = useState<StreakChallengeSummary[]>([]);
   const [streakCompetitions, setStreakCompetitions] = useState<
@@ -294,14 +309,14 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
 
   function openChallengeRow(c: ChallengeSummary) {
     if (c.instance_type === INSTANCE_TOURNAMENT) {
-      onOpenChallenge(c.id, null);
+      openChallenge(c.id, null);
       return;
     }
     if (c.user_bracket_id == null) {
       void startEntry(c);
       return;
     }
-    onOpenChallenge(c.id, c.user_bracket_id);
+    openChallenge(c.id, c.user_bracket_id);
   }
 
   async function startEntry(challenge: ChallengeSummary) {
@@ -320,7 +335,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
       });
       const updated = { ...challenge, user_bracket_id: user_bracket.id };
       upsertChallenge(updated);
-      onOpenChallenge(challenge.id, user_bracket.id);
+      openChallenge(challenge.id, user_bracket.id);
     } catch (err) {
       setFormErr(
         err instanceof ApiError ? err.message : 'Could not start.',
@@ -361,7 +376,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
           return next;
         });
         closePanel();
-        onOpenStreak(streak_challenge.id);
+        openStreak(streak_challenge.id);
         return;
       }
 
@@ -411,7 +426,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
       upsertChallenge(challenge);
       closePanel();
       if (challenge.user_bracket_id != null) {
-        onOpenChallenge(
+        openChallenge(
           challenge.id,
           challenge.user_bracket_id,
           challenge.is_private && challenge.join_code ? 'settings' : undefined,
@@ -484,7 +499,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
       });
       setStreakRows((prev) => [streak_challenge, ...prev]);
       closePanel();
-      onOpenStreak(streak_challenge.id);
+      openStreak(streak_challenge.id);
     } catch (err) {
       setFormErr(err instanceof ApiError ? err.message : 'Could not create.');
     } finally {
@@ -546,7 +561,7 @@ export function ChallengesPage({ onOpenChallenge, onOpenStreak }: Props) {
             <button
               type="button"
               className="challenge-card card challenge-card--clickable"
-              onClick={() => onOpenStreak(s.id)}
+              onClick={() => openStreak(s.id)}
             >
               <div className="challenge-card__body">
                 <ChallengeThumb url={s.image_url} name={s.name} />

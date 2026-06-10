@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
 import {
@@ -21,6 +22,11 @@ import {
 } from '../../utils/leaderboardRows';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
+import {
+  streakPath,
+  streakPlayerPath,
+  type StreakTab,
+} from '../../routes';
 
 import { CopyJoinCode } from './CopyJoinCode';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
@@ -33,8 +39,9 @@ const streakThemeClass = challengeThemeClass('streak');
 
 type Props = {
   streakChallengeId: number;
+  tab: StreakTab;
+  viewingPlayerId?: number | null;
   currentUser: ApiUser;
-  onBack: () => void;
 };
 
 function streakPlayerLabel(entry: StreakLeaderboardEntry): string {
@@ -71,8 +78,6 @@ function streakSortCompare(
   });
 }
 
-type Tab = 'leaderboard' | 'make' | 'past' | 'settings';
-
 function compareClosesAtAsc(
   a: { closes_at: string; id: number },
   b: { closes_at: string; id: number },
@@ -100,21 +105,39 @@ type SelectedPlayer = {
 
 export function StreakChallengeView({
   streakChallengeId,
+  tab,
+  viewingPlayerId = null,
   currentUser,
-  onBack,
 }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const playerNameFromState = (
+    location.state as { playerName?: string } | null | undefined
+  )?.playerName;
+
+  function goToTab(nextTab: StreakTab) {
+    navigate(streakPath(streakChallengeId, nextTab));
+  }
+
   const [summary, setSummary] = useState<StreakChallengeSummary | null>(null);
   const [questions, setQuestions] = useState<StreakQuestionInfo[]>([]);
   const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
   const [loadErr, setLoadErr] = useState('');
-  const [tab, setTab] = useState<Tab>('leaderboard');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState('');
 
-  const [selectedPlayer, setSelectedPlayer] = useState<SelectedPlayer | null>(
-    null,
-  );
+  const selectedPlayer = useMemo<SelectedPlayer | null>(() => {
+    if (viewingPlayerId == null) return null;
+    const fromBoard = entries.find((entry) => entry.user_id === viewingPlayerId);
+    return {
+      userId: viewingPlayerId,
+      displayName:
+        playerNameFromState ??
+        (fromBoard ? streakPlayerLabel(fromBoard) : 'Player'),
+    };
+  }, [viewingPlayerId, entries, playerNameFromState]);
+
   const [playerPicks, setPlayerPicks] = useState<StreakParticipantPickRow[]>(
     [],
   );
@@ -305,7 +328,7 @@ export function StreakChallengeView({
     try {
       await deleteStreakChallenge(streakChallengeId);
       setDeleteOpen(false);
-      onBack();
+      navigate('/');
     } catch (err) {
       setDeleteErr(
         err instanceof ApiError ? err.message : 'Could not delete challenge.',
@@ -319,9 +342,9 @@ export function StreakChallengeView({
     return (
       <div className={`${streakThemeClass} streak-view`}>
         <div className="alert alert--error">{loadErr}</div>
-        <button type="button" className="btn btn--ghost" onClick={onBack}>
+        <Link to="/" className="btn btn--ghost">
           ← My Challenges
-        </button>
+        </Link>
       </div>
     );
   }
@@ -340,7 +363,7 @@ export function StreakChallengeView({
         <button
           type="button"
           className="btn btn--ghost streak-player-picks__back"
-          onClick={() => setSelectedPlayer(null)}
+          onClick={() => goToTab('leaderboard')}
         >
           ← Leaderboard
         </button>
@@ -381,13 +404,9 @@ export function StreakChallengeView({
 
   return (
     <div className={`${streakThemeClass} streak-view`}>
-      <button
-        type="button"
-        className="btn btn--ghost challenge-view__back"
-        onClick={onBack}
-      >
+      <Link to="/" className="btn btn--ghost challenge-view__back">
         ← My Challenges
-      </button>
+      </Link>
 
       <header className="challenge-view__head card">
         <div className="challenge-view__head-inner">
@@ -437,7 +456,7 @@ export function StreakChallengeView({
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('leaderboard')}
+          onClick={() => goToTab('leaderboard')}
         >
           Leaderboard
         </button>
@@ -448,7 +467,7 @@ export function StreakChallengeView({
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('make')}
+          onClick={() => goToTab('make')}
         >
           Make Picks
         </button>
@@ -459,7 +478,7 @@ export function StreakChallengeView({
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('past')}
+          onClick={() => goToTab('past')}
         >
           Past Picks
         </button>
@@ -470,7 +489,7 @@ export function StreakChallengeView({
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => setTab('settings')}
+          onClick={() => goToTab('settings')}
         >
           Settings
         </button>
@@ -497,10 +516,14 @@ export function StreakChallengeView({
                           type="button"
                           className="streak-leaderboard__player leaderboard-card__name"
                           onClick={() =>
-                            setSelectedPlayer({
-                              userId: e.user_id,
-                              displayName: streakPlayerLabel(e),
-                            })
+                            navigate(
+                              streakPlayerPath(streakChallengeId, e.user_id),
+                              {
+                                state: {
+                                  playerName: streakPlayerLabel(e),
+                                },
+                              },
+                            )
                           }
                         >
                           {streakPlayerLabel(e)}
@@ -566,10 +589,14 @@ export function StreakChallengeView({
                         type="button"
                         className="streak-leaderboard__player"
                         onClick={() =>
-                          setSelectedPlayer({
-                            userId: e.user_id,
-                            displayName: streakPlayerLabel(e),
-                          })
+                          navigate(
+                            streakPlayerPath(streakChallengeId, e.user_id),
+                            {
+                              state: {
+                                playerName: streakPlayerLabel(e),
+                              },
+                            },
+                          )
                         }
                       >
                         {streakPlayerLabel(e)}

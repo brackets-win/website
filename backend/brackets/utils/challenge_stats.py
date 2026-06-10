@@ -5,8 +5,95 @@ from __future__ import annotations
 from typing import Any
 
 from brackets.api.serializers import bracket_groups_preview, contestant_public
-from brackets.models import BracketChallenge, BracketContestant, BracketStage, KnockoutStage, UserBracket
+from brackets.models import Bracket, BracketChallenge, BracketContestant, BracketStage, KnockoutStage, UserBracket
 from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
+
+CHALLENGE_STATS_REVISION_KEY = "challenge_stats_revision"
+CHALLENGE_STATS_CACHE_KEY = "challenge_stats_cache"
+
+
+def get_challenge_stats_revision(challenge: BracketChallenge) -> int:
+    meta = challenge.metadata if isinstance(challenge.metadata, dict) else {}
+    return int(meta.get(CHALLENGE_STATS_REVISION_KEY) or 0)
+
+
+def bump_challenge_stats_revision(challenge: BracketChallenge) -> int:
+    meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
+    revision = int(meta.get(CHALLENGE_STATS_REVISION_KEY) or 0) + 1
+    meta[CHALLENGE_STATS_REVISION_KEY] = revision
+    meta.pop(CHALLENGE_STATS_CACHE_KEY, None)
+    challenge.metadata = meta
+    challenge.save(update_fields=["metadata"])
+    return revision
+
+
+def bump_challenge_stats_for_bracket(bracket: Bracket) -> None:
+    for challenge in BracketChallenge.objects.filter(bracket=bracket).only(
+        "id", "metadata"
+    ):
+        bump_challenge_stats_revision(challenge)
+
+
+def invalidate_challenge_stats_for_user_bracket(ub: UserBracket) -> None:
+    """Drop cached stats after a challenge entry or master bracket changes."""
+    if ub.challenge_id is not None:
+        challenge = BracketChallenge.objects.filter(pk=ub.challenge_id).first()
+        if challenge is not None:
+            bump_challenge_stats_revision(challenge)
+        return
+    if ub.is_master:
+        bump_challenge_stats_for_bracket(ub.bracket)
+
+
+def _read_cached_stats(
+    challenge: BracketChallenge, revision: int
+) -> dict[str, Any] | None:
+    meta = challenge.metadata if isinstance(challenge.metadata, dict) else {}
+    cache = meta.get(CHALLENGE_STATS_CACHE_KEY)
+    if not isinstance(cache, dict):
+        return None
+    if cache.get("revision") != revision:
+        return None
+    submitted_count = cache.get("submitted_count")
+    group_stage = cache.get("group_stage")
+    knockout = cache.get("knockout")
+    if (
+        not isinstance(submitted_count, int)
+        or not isinstance(group_stage, list)
+        or not isinstance(knockout, dict)
+    ):
+        return None
+    return {
+        "submitted_count": submitted_count,
+        "group_stage": group_stage,
+        "knockout": knockout,
+    }
+
+
+def _write_cached_stats(
+    challenge: BracketChallenge,
+    revision: int,
+    stats: dict[str, Any],
+) -> None:
+    meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
+    meta[CHALLENGE_STATS_CACHE_KEY] = {
+        "revision": revision,
+        "submitted_count": stats["submitted_count"],
+        "group_stage": stats["group_stage"],
+        "knockout": stats["knockout"],
+    }
+    challenge.metadata = meta
+    challenge.save(update_fields=["metadata"])
+
+
+def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
+    revision = get_challenge_stats_revision(challenge)
+    cached = _read_cached_stats(challenge, revision)
+    if cached is not None:
+        return cached
+    stats = compute_challenge_stats(challenge)
+    _write_cached_stats(challenge, revision, stats)
+    return stats
 
 
 def _team_position_in_row(row: dict, team_id: int) -> int | None:
