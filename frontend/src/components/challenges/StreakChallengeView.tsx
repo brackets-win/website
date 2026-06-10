@@ -537,15 +537,7 @@ export function StreakChallengeView({
                           </span>
                         </div>
                       </div>
-                      <dl className="leaderboard-card__stats">
-                        <div className="leaderboard-card__stat">
-                          <dt>Record</dt>
-                          <dd>{e.record}</dd>
-                        </div>
-                        <div className="leaderboard-card__stat">
-                          <dt>Win %</dt>
-                          <dd>{e.win_pct}%</dd>
-                        </div>
+                      <dl className="leaderboard-card__stats leaderboard-card__stats--column-major">
                         <div className="leaderboard-card__stat">
                           <dt>Long W</dt>
                           <dd>{e.long_win_display}</dd>
@@ -553,6 +545,14 @@ export function StreakChallengeView({
                         <div className="leaderboard-card__stat">
                           <dt>Long L</dt>
                           <dd>{e.long_loss_display}</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Record</dt>
+                          <dd>{e.record}</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Win %</dt>
+                          <dd>{e.win_pct}%</dd>
                         </div>
                       </dl>
                     </li>

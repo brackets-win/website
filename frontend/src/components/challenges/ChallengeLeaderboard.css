@@ -146,6 +146,13 @@
   flex-shrink: 0;
 }
 
+@media (max-width: 640px) {
+  .leaderboard-card__stats--column-major {
+    grid-auto-flow: column;
+    grid-template-rows: repeat(2, auto);
+  }
+}
+
 .leaderboard-card__top-four {
   display: flex;
   align-items: center;

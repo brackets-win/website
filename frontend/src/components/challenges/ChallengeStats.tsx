@@ -1,6 +1,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 
-import type { ChallengeStats, ChallengeStatsKnockoutRow } from '../../utils/api';
+import type {
+  ChallengeStats,
+  ChallengeStatsKnockoutRow,
+  LeaderboardColumn,
+} from '../../utils/api';
 
 import './ChallengeStats.css';
 
@@ -54,6 +58,54 @@ function formatPct(value: number): string {
 function formatProgression(value: number): string {
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2);
+}
+
+function formatMobileStatLabel(name: string, key: string): string {
+  if (key === 'progression_score') return 'Progression Score';
+  if (/third place/i.test(name)) return 'Third Place';
+  return name;
+}
+
+function isSemifinalColumn(name: string): boolean {
+  return /semi/i.test(name) && /final/i.test(name);
+}
+
+function isFinalStageColumn(name: string, key: string): boolean {
+  if (!key.startsWith('stage:')) return false;
+  const trimmed = name.trim();
+  return (
+    /^final$/i.test(trimmed) ||
+    (/\bfinal\b/i.test(trimmed) && !/semi/i.test(trimmed))
+  );
+}
+
+function isThirdPlaceColumn(name: string): boolean {
+  return /third place/i.test(name);
+}
+
+function partitionMobileKnockoutColumns(columns: LeaderboardColumn[]): {
+  left: LeaderboardColumn[];
+  right: LeaderboardColumn[];
+  ordered: LeaderboardColumn[];
+} {
+  const used = new Set<string>();
+  const right: LeaderboardColumn[] = [];
+
+  const pick = (predicate: (col: LeaderboardColumn) => boolean) => {
+    const col = columns.find((c) => !used.has(c.key) && predicate(c));
+    if (col) {
+      right.push(col);
+      used.add(col.key);
+    }
+  };
+
+  pick((c) => isSemifinalColumn(c.name));
+  pick((c) => isFinalStageColumn(c.name, c.key));
+  pick((c) => isThirdPlaceColumn(c.name));
+  pick((c) => c.key === 'champion');
+
+  const left = columns.filter((col) => !used.has(col.key));
+  return { left, right, ordered: [...left, ...right] };
 }
 
 const BRACKET_HEAT_RGB = [87, 130, 168] as const;
@@ -181,6 +233,36 @@ export function ChallengeStats({ stats }: Props) {
     return rows;
   }, [knockout.rows, sort]);
 
+  const mobileKnockoutColumns = useMemo(
+    () => partitionMobileKnockoutColumns(knockout.columns),
+    [knockout.columns],
+  );
+
+  function renderMobileKnockoutStat(
+    row: ChallengeStatsKnockoutRow,
+    col: LeaderboardColumn,
+  ) {
+    if (col.key === 'progression_score') {
+      return (
+        <div key={col.key} className="challenge-stats__ko-card-stat">
+          <dt>{formatMobileStatLabel(col.name, col.key)}</dt>
+          <dd>{formatProgression(row.progression_score)}</dd>
+        </div>
+      );
+    }
+    const pct = row.percentages[col.key] ?? 0;
+    return (
+      <div
+        key={col.key}
+        className="challenge-stats__ko-card-stat challenge-stats__ko-card-stat--pct"
+        style={pctCellStyle(pct)}
+      >
+        <dt>{formatMobileStatLabel(col.name, col.key)}</dt>
+        <dd>{formatPct(pct)}</dd>
+      </div>
+    );
+  }
+
   function onSort(key: KnockoutSortKey) {
     setSort((prev) => {
       if (prev.key === key) {
@@ -265,7 +347,7 @@ export function ChallengeStats({ stats }: Props) {
               >
                 Team
               </button>
-              {knockout.columns.map((col) => (
+              {mobileKnockoutColumns.ordered.map((col) => (
                 <button
                   key={col.key}
                   type="button"
@@ -276,7 +358,7 @@ export function ChallengeStats({ stats }: Props) {
                   }
                   onClick={() => onSort(col.key)}
                 >
-                  {col.name}
+                  {formatMobileStatLabel(col.name, col.key)}
                 </button>
               ))}
             </div>
@@ -290,31 +372,18 @@ export function ChallengeStats({ stats }: Props) {
                     displayName={row.display_name}
                     imageUrl={row.image_url}
                   />
-                  <dl className="challenge-stats__ko-card-stats">
-                    {knockout.columns.map((col) => {
-                      if (col.key === 'progression_score') {
-                        return (
-                          <div
-                            key={col.key}
-                            className="challenge-stats__ko-card-stat"
-                          >
-                            <dt>{col.name}</dt>
-                            <dd>{formatProgression(row.progression_score)}</dd>
-                          </div>
-                        );
-                      }
-                      const pct = row.percentages[col.key] ?? 0;
-                      return (
-                        <div
-                          key={col.key}
-                          className="challenge-stats__ko-card-stat challenge-stats__ko-card-stat--pct"
-                          style={pctCellStyle(pct)}
-                        >
-                          <dt>{col.name}</dt>
-                          <dd>{formatPct(pct)}</dd>
-                        </div>
-                      );
-                    })}
+                  <dl
+                    className="challenge-stats__ko-card-stats"
+                    style={{
+                      gridTemplateRows: `repeat(${Math.max(
+                        mobileKnockoutColumns.left.length,
+                        mobileKnockoutColumns.right.length,
+                      )}, auto)`,
+                    }}
+                  >
+                    {mobileKnockoutColumns.ordered.map((col) =>
+                      renderMobileKnockoutStat(row, col),
+                    )}
                   </dl>
                 </li>
               ))}
