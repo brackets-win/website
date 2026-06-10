@@ -191,7 +191,7 @@
   font-size: 0.9375rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--activity-accent, var(--app-accent, #5782a8));
+  color: var(--app-text, #1a1d21);
   text-align: right;
 }
 
