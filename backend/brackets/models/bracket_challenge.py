@@ -25,6 +25,8 @@ class BracketChallenge(models.Model):
     seed_mapping = models.JSONField(null=True, blank=True)
     # How many brackets each user may submit in this challenge (Bracket Challenge only).
     max_entries = models.PositiveIntegerField(default=1)
+    # Cached challenge stats revision + payload (see challenge_stats.py).
+    metadata = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return f"{self.name} - {self.bracket.name}"

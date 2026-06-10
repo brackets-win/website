@@ -87,6 +87,8 @@ def _write_cached_stats(
 
 
 def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
+    if challenge.pk is not None:
+        challenge.refresh_from_db(fields=["metadata"])
     revision = get_challenge_stats_revision(challenge)
     cached = _read_cached_stats(challenge, revision)
     if cached is not None:
