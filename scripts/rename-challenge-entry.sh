@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rename a bracket challenge entry by join code and current display name.
+# Rename a bracket or streak challenge entry by join code and current display name.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
