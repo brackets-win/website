@@ -17,6 +17,7 @@ import {
   type LeaderboardColumn,
   type LeaderboardEntry,
 } from '../../utils/api';
+import { invalidateHome } from '../../utils/homeCache';
 import {
   INSTANCE_BRACKET_CHALLENGE,
   INSTANCE_POLL,
@@ -283,6 +284,7 @@ export function ChallengeView({
         challenge_id: challenge.id,
         display_name: name,
       });
+      invalidateHome('challenges');
       setChallenge(updated);
       if (updated.user_bracket_id != null) {
         selectEntry(updated.user_bracket_id);
@@ -298,6 +300,7 @@ export function ChallengeView({
   }
 
   function handleSubmitted() {
+    invalidateHome('challenges');
     void reload();
     goToTab('bracket');
   }
@@ -331,6 +334,7 @@ export function ChallengeView({
     setDeleteErr('');
     try {
       await deleteChallenge(challengeId);
+      invalidateHome('challenges');
       setDeleteOpen(false);
       navigate('/');
     } catch (err) {

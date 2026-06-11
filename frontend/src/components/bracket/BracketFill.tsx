@@ -21,6 +21,7 @@ import {
   patchMatchupWinner,
   submitUserBracket,
 } from '../../utils/api';
+import { invalidateHomeForUserBracket } from '../../utils/homeCache';
 import { GroupStagePanel } from './GroupStagePanel';
 import {
   buildMirrorBracketLayout,
@@ -308,19 +309,21 @@ export function BracketFill({
     });
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<UserBracketDetail | null> => {
     setError(null);
     try {
       const { user_bracket: ub } = await getUserBracket(userBracketId);
       const { bracket: b } = await getBracket(ub.bracket_id);
       setDetail(ub);
       setBracketDef(b);
+      return ub;
     } catch (e) {
       setDetail(null);
       setBracketDef(null);
       setError(
         e instanceof ApiError ? e.message : 'Could not load bracket.',
       );
+      return null;
     }
   }, [userBracketId]);
 
@@ -328,9 +331,12 @@ export function BracketFill({
     (ub?: UserBracketDetail) => {
       if (ub) {
         setDetail(ub);
+        invalidateHomeForUserBracket(ub);
         return;
       }
-      void load();
+      void load().then((loaded) => {
+        if (loaded) invalidateHomeForUserBracket(loaded);
+      });
     },
     [load],
   );
@@ -434,7 +440,8 @@ export function BracketFill({
       setError(null);
       try {
         await patchMatchupWinner(feederMatchupId, contestantId);
-        await load();
+        const ub = await load();
+        if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save pick.');
       } finally {
@@ -451,7 +458,8 @@ export function BracketFill({
       setError(null);
       try {
         await patchMatchupWinner(matchupId, null);
-        await load();
+        const ub = await load();
+        if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not clear pick.');
       } finally {
@@ -469,7 +477,8 @@ export function BracketFill({
     setError(null);
     try {
       await submitUserBracket(userBracketId);
-      await load();
+      const ub = await load();
+      if (ub) invalidateHomeForUserBracket(ub);
       onSubmitted?.();
     } catch (e) {
       setError(

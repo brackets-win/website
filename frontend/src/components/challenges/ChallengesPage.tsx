@@ -8,11 +8,6 @@ import {
   createUserBracket,
   joinChallenge,
   joinStreakChallenge,
-  listBrackets,
-  listMyChallenges,
-  listMyStreakChallenges,
-  listPublicChallenges,
-  listStreakCompetitions,
   type BracketSummary,
   type ChallengeSummary,
   type LeaderboardPreview,
@@ -20,6 +15,15 @@ import {
   type StreakChallengeSummary,
   type StreakCompetitionSummary,
 } from '../../utils/api';
+import {
+  getHomeSnapshot,
+  hasHomeSnapshot,
+  invalidateHome,
+  refreshHome,
+  subscribeHome,
+  upsertHomeChallenge,
+  upsertHomeStreakChallenge,
+} from '../../utils/homeCache';
 import {
   defaultChallengeTab,
   INSTANCE_BRACKET_CHALLENGE,
@@ -136,15 +140,24 @@ export function ChallengesPage() {
         .slice(0, 48) || 'activity'
     );
   }
-  const [rows, setRows] = useState<ChallengeSummary[]>([]);
-  const [streakRows, setStreakRows] = useState<StreakChallengeSummary[]>([]);
+  const initialHome = getHomeSnapshot();
+  const [rows, setRows] = useState<ChallengeSummary[]>(
+    () => initialHome?.challenges ?? [],
+  );
+  const [streakRows, setStreakRows] = useState<StreakChallengeSummary[]>(
+    () => initialHome?.streakChallenges ?? [],
+  );
   const [streakCompetitions, setStreakCompetitions] = useState<
     StreakCompetitionSummary[]
-  >([]);
-  const [publicRows, setPublicRows] = useState<ChallengeSummary[]>([]);
-  const [brackets, setBrackets] = useState<BracketSummary[]>([]);
+  >(() => initialHome?.streakCompetitions ?? []);
+  const [publicRows, setPublicRows] = useState<ChallengeSummary[]>(
+    () => initialHome?.publicChallenges ?? [],
+  );
+  const [brackets, setBrackets] = useState<BracketSummary[]>(
+    () => initialHome?.brackets ?? [],
+  );
   const [loadErr, setLoadErr] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => initialHome == null);
   const [panel, setPanel] = useState<PanelState | null>(null);
   const [formErr, setFormErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -168,93 +181,37 @@ export function ChallengesPage() {
   const [sCompetitionId, setSCompetitionId] = useState<number | ''>('');
   const [sPrivate, setSPrivate] = useState(false);
 
-  const reload = useCallback(async () => {
-    setLoadErr('');
-    setLoading(true);
-
-    try {
-      const { challenges } = await listMyChallenges();
-      setRows(challenges);
-    } catch (e) {
-      setLoadErr(
-        e instanceof ApiError ? e.message : 'Unable to load your challenges.',
-      );
-    } finally {
-      setLoading(false);
-    }
-
-    const [publicResult, bracketsResult, streakResult, compResult] =
-      await Promise.allSettled([
-        listPublicChallenges(),
-        listBrackets(),
-        listMyStreakChallenges(),
-        listStreakCompetitions(),
-      ]);
-
-    const errors: string[] = [];
-
-    if (publicResult.status === 'fulfilled') {
-      setPublicRows(publicResult.value.challenges);
-    } else {
-      errors.push(
-        publicResult.reason instanceof ApiError
-          ? publicResult.reason.message
-          : 'Unable to load public challenges.',
-      );
-    }
-
-    if (bracketsResult.status === 'fulfilled') {
-      const bracketRows = bracketsResult.value.brackets;
-      setBrackets(bracketRows);
-      setBcBracketId((prev) => {
-        if (prev !== '') return prev;
-        return bracketRows[0]?.id ?? '';
-      });
-    } else {
-      errors.push(
-        bracketsResult.reason instanceof ApiError
-          ? bracketsResult.reason.message
-          : 'Unable to load brackets.',
-      );
-    }
-
-    if (streakResult.status === 'fulfilled') {
-      setStreakRows(streakResult.value.streak_challenges);
-    } else {
-      setStreakRows([]);
-      errors.push(
-        streakResult.reason instanceof ApiError
-          ? streakResult.reason.message
-          : 'Unable to load streak challenges.',
-      );
-    }
-
-    if (compResult.status === 'fulfilled') {
-      const competitions = compResult.value.streak_competitions.filter(
-        (c) => !c.is_over,
-      );
-      setStreakCompetitions(competitions);
-      setSCompetitionId((prev) => {
-        if (prev !== '') return prev;
-        return competitions[0]?.id ?? '';
-      });
-    } else {
-      setStreakCompetitions([]);
-      errors.push(
-        compResult.reason instanceof ApiError
-          ? compResult.reason.message
-          : 'Unable to load streak competitions.',
-      );
-    }
-
-    if (errors.length > 0) {
-      setLoadErr((prev) => prev || errors[0]);
-    }
+  const applySnapshot = useCallback((home: NonNullable<ReturnType<typeof getHomeSnapshot>>) => {
+    setRows(home.challenges);
+    setStreakRows(home.streakChallenges);
+    setPublicRows(home.publicChallenges);
+    setBrackets(home.brackets);
+    setStreakCompetitions(home.streakCompetitions);
+    setBcBracketId((prev) => {
+      if (prev !== '') return prev;
+      return home.brackets[0]?.id ?? '';
+    });
+    setSCompetitionId((prev) => {
+      if (prev !== '') return prev;
+      return home.streakCompetitions[0]?.id ?? '';
+    });
+    setLoading(false);
   }, []);
 
+  useEffect(() => subscribeHome(() => {
+    const home = getHomeSnapshot();
+    if (home) applySnapshot(home);
+  }), [applySnapshot]);
+
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    setLoadErr('');
+    void refreshHome().then(({ error }) => {
+      if (error && !hasHomeSnapshot()) {
+        setLoadErr(error);
+      }
+      setLoading(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (
@@ -301,6 +258,7 @@ export function ChallengesPage() {
   }
 
   function upsertChallenge(challenge: ChallengeSummary) {
+    upsertHomeChallenge(challenge);
     setRows((prev) => {
       const idx = prev.findIndex((c) => c.id === challenge.id);
       if (idx < 0) return [challenge, ...prev];
@@ -338,6 +296,7 @@ export function ChallengesPage() {
       });
       const updated = { ...challenge, user_bracket_id: user_bracket.id };
       upsertChallenge(updated);
+      invalidateHome('challenges');
       openChallenge(challenge.id, user_bracket.id);
     } catch (err) {
       setFormErr(
@@ -371,6 +330,7 @@ export function ChallengesPage() {
             ? { streak_challenge_id: challengeId, display_name: displayName }
             : { join_code: code, display_name: displayName },
         );
+        upsertHomeStreakChallenge(streak_challenge);
         setStreakRows((prev) => {
           const idx = prev.findIndex((s) => s.id === streak_challenge.id);
           if (idx < 0) return [streak_challenge, ...prev];
@@ -378,6 +338,7 @@ export function ChallengesPage() {
           next[idx] = streak_challenge;
           return next;
         });
+        invalidateHome('streaks');
         closePanel();
         openStreak(streak_challenge.id);
         return;
@@ -390,6 +351,7 @@ export function ChallengesPage() {
         instance_type: instanceType,
       });
       upsertChallenge(challenge);
+      invalidateHome('challenges');
       closePanel();
       openChallengeRow(challenge);
     } catch (err) {
@@ -427,6 +389,7 @@ export function ChallengesPage() {
         max_entries: Math.max(1, parseInt(bcMaxEntries, 10) || 1),
       });
       upsertChallenge(challenge);
+      invalidateHome('challenges');
       closePanel();
       if (challenge.user_bracket_id != null) {
         openChallenge(
@@ -472,6 +435,7 @@ export function ChallengesPage() {
         },
       });
       upsertChallenge(challenge);
+      invalidateHome('challenges');
       closePanel();
       openChallengeRow(challenge);
     } catch (err) {
@@ -500,7 +464,9 @@ export function ChallengesPage() {
         streak_competition_id: sCompetitionId,
         is_private: sPrivate,
       });
+      upsertHomeStreakChallenge(streak_challenge);
       setStreakRows((prev) => [streak_challenge, ...prev]);
+      invalidateHome('streaks', 'competitions');
       closePanel();
       openStreak(streak_challenge.id);
     } catch (err) {

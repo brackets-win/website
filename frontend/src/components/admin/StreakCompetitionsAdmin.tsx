@@ -14,6 +14,7 @@ import {
   type StreakCompetitionQuestionAdmin,
   type StreakCompetitionSummary,
 } from '../../utils/api';
+import { invalidateHomeForStreakCompetition } from '../../utils/homeCache';
 import {
   estLocalInputToIso,
   formatDeadlineEst,
@@ -320,6 +321,7 @@ export function StreakCompetitionsAdmin() {
     setPageMsg(null);
     try {
       await adminUpdateStreakCompetition(questionsId, { end_competition: true });
+      invalidateHomeForStreakCompetition(questionsId);
       await reloadQuestions(questionsId);
       await reloadList();
       setEndCompetitionOpen(false);
@@ -401,6 +403,7 @@ export function StreakCompetitionsAdmin() {
     setPageMsg(null);
     try {
       await adminResolveStreakQuestion(questionId, choiceId);
+      invalidateHomeForStreakCompetition(questionsId);
       await reloadQuestions(questionsId);
       await reloadList();
     } catch (err) {

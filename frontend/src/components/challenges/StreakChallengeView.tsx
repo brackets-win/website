@@ -18,6 +18,7 @@ import {
   type StreakQuestionInfo,
   type StreakChallengeSummary,
 } from '../../utils/api';
+import { invalidateHome } from '../../utils/homeCache';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
 import {
@@ -313,6 +314,7 @@ export function StreakChallengeView({
     setDeleteErr('');
     try {
       await deleteStreakChallenge(streakChallengeId);
+      invalidateHome('streaks');
       setDeleteOpen(false);
       navigate('/');
     } catch (err) {

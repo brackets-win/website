@@ -35,6 +35,7 @@ import {
   type ApiUser,
 } from './utils/api';
 import { defaultChallengeTab } from './utils/challengeTypes';
+import { clearHomeCache } from './utils/homeCache';
 
 import './components/admin/admin-shared.css';
 
@@ -189,6 +190,7 @@ export default function App() {
     setAuthError('');
     try {
       const { user } = await authLogin(username, password);
+      clearHomeCache();
       setSessionUser(user);
     } catch (e) {
       setAuthError(
@@ -204,6 +206,7 @@ export default function App() {
     setAuthError('');
     try {
       const { user } = await authRegister(username, password);
+      clearHomeCache();
       setSessionUser(user);
     } catch (e) {
       setAuthError(
@@ -220,6 +223,7 @@ export default function App() {
     } catch {
       /* still clear local session */
     }
+    clearHomeCache();
     setSessionUser(null);
   }
 
