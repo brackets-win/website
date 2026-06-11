@@ -28,6 +28,7 @@ import {
 
 import { CopyJoinCode } from './CopyJoinCode';
 import { StreakAwards } from './StreakAwards';
+import { StreakChallengeStats } from './StreakChallengeStats';
 import { StreakLeaderboard } from './StreakLeaderboard';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
 import './challengeThemes.css';
@@ -485,6 +486,17 @@ export function StreakChallengeView({
         <button
           type="button"
           className={
+            tab === 'stats'
+              ? 'challenge-view__tab challenge-view__tab--active'
+              : 'challenge-view__tab'
+          }
+          onClick={() => goToTab('stats')}
+        >
+          Stats
+        </button>
+        <button
+          type="button"
+          className={
             tab === 'rules'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
@@ -543,26 +555,33 @@ export function StreakChallengeView({
       ) : null}
 
 
+      {tab === 'stats' ? (
+        <StreakChallengeStats
+          streakChallengeId={streakChallengeId}
+          onSelectPlayer={onSelectLeaderboardPlayer}
+        />
+      ) : null}
+
       {tab === 'rules' ? (
         <section className="card streak-view__rules">
           <p>
-            Win the challenge by earning the longest winning streak. Make your picks
-            before the questions close. You can adjust your picks anytime before they
-            close.
+            Win the challenge by earning the longest winning streak, active or
+            inactive.
           </p>
-          <p>
-            You cannot make multiple picks with the exact same closing time. Tap on
-            your selected answer again to clear the pick.
-          </p>
-          <p>
-            You can make as many picks or as few picks as you want. The goal is to
-            create the longest winning streak with your picks.
-          </p>
-          <p>
-            The leaderboard ranks players by longest win streak (Long W), then
-            current streak, then total wins, then win percentage. Tied players share
-            the same rank. Record sorts by total wins.
-          </p>
+          <ul className="streak-view__rules-list">
+            <li>
+              Make your picks before the questions close. You can adjust your picks
+              anytime before they close.
+            </li>
+            <li>
+              You cannot make multiple picks with the exact same closing time. Tap on
+              your selected answer again to clear the pick.
+            </li>
+            <li>
+              You can make as many picks or as few picks as you want. The goal is to
+              create the longest winning streak with your picks.
+            </li>
+          </ul>
         </section>
       ) : null}
 
