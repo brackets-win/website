@@ -77,6 +77,7 @@ class LeaderboardPreviewTests(TestCase):
             wins=3,
             losses=1,
             streak_signed=2,
+            best_win_streak=4,
         )
         StreakParticipant.objects.create(
             streak_challenge=challenge,
@@ -85,10 +86,11 @@ class LeaderboardPreviewTests(TestCase):
             wins=1,
             losses=2,
             streak_signed=-1,
+            best_win_streak=1,
         )
         preview = streak_challenge_leaderboard_preview(challenge, u1)
         self.assertEqual(preview["top"][0]["display_name"], "Player One")
-        self.assertEqual(preview["top"][0]["points_label"], "2W")
+        self.assertEqual(preview["top"][0]["points_label"], "4W")
         self.assertTrue(preview["top"][0]["is_viewer"])
         self.assertIsNone(preview["viewer"])
 
@@ -153,6 +155,7 @@ class LeaderboardPreviewTests(TestCase):
                 wins=max(streak, 0),
                 losses=0,
                 streak_signed=streak,
+                best_win_streak=max(streak, 0),
             )
 
         preview = streak_challenge_leaderboard_preview(challenge, viewer, limit=3)

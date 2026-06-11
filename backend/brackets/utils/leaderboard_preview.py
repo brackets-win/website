@@ -108,6 +108,12 @@ def _streak_display(streak_signed: int) -> str:
     return "—"
 
 
+def _long_win_display(best_win_streak: int) -> str:
+    if best_win_streak <= 0:
+        return "—"
+    return _streak_display(best_win_streak)
+
+
 def streak_participant_label(p: StreakParticipant) -> str:
     return (p.display_name or "").strip() or p.user.username
 
@@ -218,8 +224,8 @@ def streak_challenge_leaderboard_preview(
         {
             "user_id": p.user_id,
             "display_name": streak_participant_label(p),
-            "points": p.streak_signed,
-            "points_label": _streak_display(p.streak_signed),
+            "points": p.best_win_streak,
+            "points_label": _long_win_display(p.best_win_streak),
             "rank": rank,
         }
         for p, rank in streak_ranked_participants(participants)
