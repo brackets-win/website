@@ -140,8 +140,12 @@ function SortableHeader({
   );
 }
 
-const SORT_OPTIONS: { key: StreakSortKey; label: string }[] = [
-  { key: 'rank', label: '#' },
+const SORT_OPTIONS: {
+  key: StreakSortKey;
+  label: string;
+  mobileLabel?: string;
+}[] = [
+  { key: 'rank', label: '#', mobileLabel: 'Rank' },
   { key: 'player', label: 'Player' },
   { key: 'current', label: 'Current' },
   { key: 'long_w', label: 'Long W' },
@@ -156,8 +160,8 @@ export function StreakLeaderboard({
   onSelectPlayer,
 }: Props) {
   const [sort, setSort] = useState<SortState>({
-    key: 'long_w',
-    direction: 'desc',
+    key: 'rank',
+    direction: 'asc',
   });
 
   const ranks = useMemo(
@@ -213,7 +217,7 @@ export function StreakLeaderboard({
               }
               onClick={() => onSort(opt.key)}
             >
-              {opt.label}
+              {opt.mobileLabel ?? opt.label}
             </button>
           ))}
         </div>

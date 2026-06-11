@@ -23,6 +23,7 @@ import {
   parseRouteId,
   streakPath,
   type AdminTab,
+  type ChallengeTab,
 } from './routes';
 import {
   ApiError,
@@ -30,13 +31,36 @@ import {
   authLogout,
   authMe,
   authRegister,
+  getChallenge,
   type ApiUser,
 } from './utils/api';
+import { defaultChallengeTab } from './utils/challengeTypes';
 
 import './components/admin/admin-shared.css';
 
-function ChallengeTabRedirect() {
-  return <Navigate to="bracket" replace />;
+function ChallengeLandingRedirect() {
+  const { challengeId: challengeIdParam } = useParams();
+  const challengeId = parseRouteId(challengeIdParam);
+  const [tab, setTab] = useState<ChallengeTab | 'error' | null>(null);
+
+  useEffect(() => {
+    if (challengeId == null) return;
+    setTab(null);
+    void getChallenge(challengeId)
+      .then(({ challenge }) => setTab(defaultChallengeTab(challenge)))
+      .catch(() => setTab('error'));
+  }, [challengeId]);
+
+  if (challengeId == null) {
+    return <Navigate to="/" replace />;
+  }
+  if (tab == null) {
+    return null;
+  }
+  if (tab === 'error') {
+    return <Navigate to={challengePath(challengeId, 'bracket')} replace />;
+  }
+  return <Navigate to={challengePath(challengeId, tab)} replace />;
 }
 
 function StreakTabRedirect() {
@@ -222,7 +246,7 @@ export default function App() {
 
         <Route
           path="/challenge/:challengeId"
-          element={<ChallengeTabRedirect />}
+          element={<ChallengeLandingRedirect />}
         />
         <Route
           path="/challenge/:challengeId/player/:userBracketId"

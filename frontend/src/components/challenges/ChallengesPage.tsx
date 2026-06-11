@@ -21,6 +21,7 @@ import {
   type StreakCompetitionSummary,
 } from '../../utils/api';
 import {
+  defaultChallengeTab,
   INSTANCE_BRACKET_CHALLENGE,
   INSTANCE_POLL,
   INSTANCE_TOURNAMENT,
@@ -318,7 +319,7 @@ export function ChallengesPage() {
       void startEntry(c);
       return;
     }
-    openChallenge(c.id, c.user_bracket_id);
+    openChallenge(c.id, c.user_bracket_id, defaultChallengeTab(c));
   }
 
   async function startEntry(challenge: ChallengeSummary) {

@@ -27,6 +27,19 @@ export function usesPredictionLeaderboard(instanceType: string): boolean {
   return instanceType === INSTANCE_BRACKET_CHALLENGE;
 }
 
+export function defaultChallengeTab(challenge: {
+  instance_type: string;
+  is_submitted: boolean;
+}): 'bracket' | 'leaderboard' {
+  if (
+    challenge.instance_type === INSTANCE_BRACKET_CHALLENGE &&
+    challenge.is_submitted
+  ) {
+    return 'leaderboard';
+  }
+  return 'bracket';
+}
+
 export function instanceTypeLabel(instanceType: string): string {
   const row = BRACKET_INSTANCE_TYPES.find((t) => t.value === instanceType);
   return row?.label ?? instanceType;
