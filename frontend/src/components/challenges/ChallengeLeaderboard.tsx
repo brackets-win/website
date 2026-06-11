@@ -256,6 +256,23 @@ export function ChallengeLeaderboard({
               viewerUsername != null && row.username === viewerUsername;
             const topFourCol = columns.find((c) => c.key === 'top_four_picks');
             const statColumns = columns.filter((c) => c.key !== 'top_four_picks');
+            const statSplitAt = Math.ceil(statColumns.length / 2);
+            const statColumnsLeft = statColumns.slice(0, statSplitAt);
+            const statColumnsRight = statColumns.slice(statSplitAt);
+
+            function renderStat(col: LeaderboardColumn) {
+              const value =
+                col.key === 'potential'
+                  ? row.potential
+                  : row.stage_scores[col.key];
+              return (
+                <div key={col.key} className="leaderboard-card__stat">
+                  <dt>{col.name}</dt>
+                  <dd>{value != null ? value : '—'}</dd>
+                </div>
+              );
+            }
+
             return (
               <li
                 key={row.user_bracket_id}
@@ -284,20 +301,14 @@ export function ChallengeLeaderboard({
                   </div>
                 </div>
                 {statColumns.length > 0 ? (
-                  <dl className="leaderboard-card__stats">
-                    {statColumns.map((col) => {
-                      const value =
-                        col.key === 'potential'
-                          ? row.potential
-                          : row.stage_scores[col.key];
-                      return (
-                        <div key={col.key} className="leaderboard-card__stat">
-                          <dt>{col.name}</dt>
-                          <dd>{value != null ? value : '—'}</dd>
-                        </div>
-                      );
-                    })}
-                  </dl>
+                  <div className="leaderboard-card__stats">
+                    <dl className="leaderboard-card__stats-col">
+                      {statColumnsLeft.map(renderStat)}
+                    </dl>
+                    <dl className="leaderboard-card__stats-col">
+                      {statColumnsRight.map(renderStat)}
+                    </dl>
+                  </div>
                 ) : null}
                 {topFourCol ? (
                   <div className="leaderboard-card__top-four">

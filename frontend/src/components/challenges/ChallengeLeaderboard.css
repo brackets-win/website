@@ -123,6 +123,13 @@
   border-top: 1px solid var(--app-border, #e2e8f0);
 }
 
+.leaderboard-card__stats-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+}
+
 .leaderboard-card__stat {
   display: flex;
   justify-content: space-between;
