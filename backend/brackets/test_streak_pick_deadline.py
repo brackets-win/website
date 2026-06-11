@@ -133,4 +133,7 @@ class StreakPickDeadlineTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 400)
-        self.assertIn("closed", res.json()["error"].lower())
+        self.assertIn(
+            "closed",
+            res.json()["error"]["message"].lower(),
+        )
