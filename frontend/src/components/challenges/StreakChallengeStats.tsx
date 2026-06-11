@@ -12,11 +12,63 @@ import './StreakChallengeStats.css';
 
 type Props = {
   streakChallengeId: number;
+  viewerUserId: number;
+  userChoiceByQuestionId: Record<number, number | null>;
   onSelectPlayer: (userId: number, displayName: string) => void;
 };
 
+type PickStatus = 'correct' | 'wrong' | 'none';
+
+function pickStatus(
+  userChoiceId: number | null | undefined,
+  correctChoiceId: number | null,
+): PickStatus {
+  if (userChoiceId == null) return 'none';
+  if (correctChoiceId == null) return 'none';
+  return userChoiceId === correctChoiceId ? 'correct' : 'wrong';
+}
+
+function PickStatusIcon({ status }: { status: PickStatus }) {
+  if (status === 'correct') {
+    return (
+      <span
+        className="streak-question__pick-status streak-question__pick-status--correct"
+        aria-label="Correct pick"
+      >
+        <span className="streak-question__pick-status-mark" aria-hidden>
+          ✓
+        </span>
+      </span>
+    );
+  }
+  if (status === 'wrong') {
+    return (
+      <span
+        className="streak-question__pick-status streak-question__pick-status--wrong"
+        aria-label="Incorrect pick"
+      >
+        <span className="streak-question__pick-status-mark" aria-hidden>
+          ✗
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className="streak-question__pick-status streak-question__pick-status--none"
+      aria-label="No pick"
+    >
+      <span className="streak-question__pick-status-mark" aria-hidden>
+        —
+      </span>
+    </span>
+  );
+}
+
 export function StreakChallengeStats({
   streakChallengeId,
+  viewerUserId,
+  userChoiceByQuestionId,
   onSelectPlayer,
 }: Props) {
   const [stats, setStats] = useState<StreakChallengeStatsPayload | null>(null);
@@ -37,7 +89,7 @@ export function StreakChallengeStats({
       .catch((e) => {
         if (gen !== fetchGen.current) return;
         setError(
-          e instanceof ApiError ? e.message : 'Unable to load stats.',
+          e instanceof ApiError ? e.message : 'Unable to load results.',
         );
       })
       .finally(() => {
@@ -66,8 +118,17 @@ export function StreakChallengeStats({
   return (
     <section className="streak-view__questions streak-challenge-stats">
       <ul className="streak-question-list">
-        {stats.questions.map((question) => (
-          <li key={question.question_id} className="card streak-question">
+        {stats.questions.map((question) => {
+          const userChoiceId =
+            userChoiceByQuestionId[question.question_id] ?? null;
+          const status = pickStatus(userChoiceId, question.correct_choice_id);
+          return (
+          <li
+            key={question.question_id}
+            className="card streak-question streak-question--results"
+          >
+            <PickStatusIcon status={status} />
+            <div className="streak-question__body">
             <div className="streak-question__head">
               <div className="streak-question__head-main">
                 <p className="streak-question__text">{question.text}</p>
@@ -78,7 +139,7 @@ export function StreakChallengeStats({
             </div>
             <StreakQuestionChoices
               choices={question.choices}
-              userChoiceId={null}
+              userChoiceId={userChoiceId}
               correctChoiceId={question.correct_choice_id}
               resolved
               statsMode
@@ -86,11 +147,14 @@ export function StreakChallengeStats({
               expandableStats
               expandedKey={expandedKey}
               questionId={question.question_id}
+              viewerUserId={viewerUserId}
               onToggleExpand={toggleExpanded}
               onSelectPicker={onSelectPlayer}
             />
+            </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </section>
   );

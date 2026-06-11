@@ -148,6 +148,10 @@ function StreakChallengeViewRoute({ currentUser }: { currentUser: ApiUser }) {
     );
   }
 
+  if (tab === 'past' || tab === 'stats') {
+    return <Navigate to={streakPath(streakId, 'results')} replace />;
+  }
+
   if (tab === 'player' || tab == null || !isStreakTab(tab)) {
     return <Navigate to={streakPath(streakId, 'leaderboard')} replace />;
   }

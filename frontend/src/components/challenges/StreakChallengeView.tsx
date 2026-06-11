@@ -164,21 +164,20 @@ export function StreakChallengeView({
     });
   }
 
-  const { makeQuestions, pastQuestions } = useMemo(() => {
-    const past: StreakQuestionInfo[] = [];
-    const make: StreakQuestionInfo[] = [];
+  const userChoiceByQuestionId = useMemo(() => {
+    const map: Record<number, number | null> = {};
     for (const q of questions) {
       if (q.resolved_at != null) {
-        if (q.user_choice_id != null) {
-          past.push(q);
-        }
-      } else {
-        make.push(q);
+        map[q.id] = q.user_choice_id;
       }
     }
+    return map;
+  }, [questions]);
+
+  const makeQuestions = useMemo(() => {
+    const make = questions.filter((q) => q.resolved_at == null);
     make.sort(compareClosesAtAsc);
-    past.sort(compareClosesAtDesc);
-    return { makeQuestions: make, pastQuestions: past };
+    return make;
   }, [questions]);
 
   const sortedPlayerPicks = useMemo(
@@ -238,9 +237,8 @@ export function StreakChallengeView({
     }
   }
 
-  function renderQuestion(q: StreakQuestionInfo, mode: 'make' | 'past') {
-    const resolved = q.resolved_at != null;
-    const deadlineLocked = mode === 'make' && q.deadline_locked;
+  function renderQuestion(q: StreakQuestionInfo) {
+    const deadlineLocked = q.deadline_locked;
     return (
       <li
         key={q.id}
@@ -254,9 +252,7 @@ export function StreakChallengeView({
           <div className="streak-question__head-main">
             <p className="streak-question__text">{q.text}</p>
             <p className="streak-question__meta">
-              {mode === 'make'
-                ? `Closes ${formatDeadlineEst(q.closes_at)}`
-                : `Closed ${formatDeadlineEst(q.closes_at)}`}
+              Closes {formatDeadlineEst(q.closes_at)}
             </p>
           </div>
           {deadlineLocked ? (
@@ -289,20 +285,17 @@ export function StreakChallengeView({
           choices={q.choices}
           userChoiceId={q.user_choice_id}
           correctChoiceId={q.correct_choice_id}
-          resolved={resolved}
-          showPickPct={mode === 'past'}
-          disabled={mode === 'past' || !q.is_open}
+          resolved={q.resolved_at != null}
+          disabled={!q.is_open}
           deadlineLocked={deadlineLocked}
-          canClearPick={mode === 'make' && q.can_clear_pick}
+          canClearPick={q.can_clear_pick}
           onPick={
-            mode === 'make' && q.is_open && !q.deadline_locked
+            q.is_open && !q.deadline_locked
               ? (choiceId) => void onPick(q.id, choiceId)
               : undefined
           }
           onClearPick={
-            mode === 'make' && q.can_clear_pick
-              ? () => void onClearPick(q.id)
-              : undefined
+            q.can_clear_pick ? () => void onClearPick(q.id) : undefined
           }
         />
       </li>
@@ -461,6 +454,17 @@ export function StreakChallengeView({
         >
           Leaderboard
         </button>
+        <button
+          type="button"
+          className={
+            tab === 'results'
+              ? 'challenge-view__tab challenge-view__tab--active'
+              : 'challenge-view__tab'
+          }
+          onClick={() => goToTab('results')}
+        >
+          Results
+        </button>
         {!competitionIsOver ? (
           <button
             type="button"
@@ -474,28 +478,6 @@ export function StreakChallengeView({
             Make Picks
           </button>
         ) : null}
-        <button
-          type="button"
-          className={
-            tab === 'past'
-              ? 'challenge-view__tab challenge-view__tab--active'
-              : 'challenge-view__tab'
-          }
-          onClick={() => goToTab('past')}
-        >
-          Past Picks
-        </button>
-        <button
-          type="button"
-          className={
-            tab === 'stats'
-              ? 'challenge-view__tab challenge-view__tab--active'
-              : 'challenge-view__tab'
-          }
-          onClick={() => goToTab('stats')}
-        >
-          Stats
-        </button>
         <button
           type="button"
           className={
@@ -537,7 +519,7 @@ export function StreakChallengeView({
       {tab === 'make' ? (
         <section className="streak-view__questions streak-view__questions--make">
           <ul className="streak-question-list">
-            {makeQuestions.map((q) => renderQuestion(q, 'make'))}
+            {makeQuestions.map((q) => renderQuestion(q))}
           </ul>
           {makeQuestions.length === 0 ? (
             <p className="streak-view__muted">No open questions right now.</p>
@@ -545,21 +527,11 @@ export function StreakChallengeView({
         </section>
       ) : null}
 
-      {tab === 'past' ? (
-        <section className="streak-view__questions">
-          <ul className="streak-question-list">
-            {pastQuestions.map((q) => renderQuestion(q, 'past'))}
-          </ul>
-          {pastQuestions.length === 0 ? (
-            <p className="streak-view__muted">No picks yet.</p>
-          ) : null}
-        </section>
-      ) : null}
-
-
-      {tab === 'stats' ? (
+      {tab === 'results' ? (
         <StreakChallengeStats
           streakChallengeId={streakChallengeId}
+          viewerUserId={currentUser.id}
+          userChoiceByQuestionId={userChoiceByQuestionId}
           onSelectPlayer={onSelectLeaderboardPlayer}
         />
       ) : null}

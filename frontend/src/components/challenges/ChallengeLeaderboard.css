@@ -52,8 +52,8 @@
 }
 
 .challenge-leaderboard__sort-pill--active {
-  background: var(--app-accent, #5782a8);
-  border-color: var(--app-accent, #5782a8);
+  background: var(--activity-btn, var(--app-accent, #5782a8));
+  border-color: var(--activity-btn, var(--app-accent, #5782a8));
   color: #fff;
 }
 

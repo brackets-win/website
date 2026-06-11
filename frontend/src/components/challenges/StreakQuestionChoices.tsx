@@ -26,6 +26,7 @@ type Props = {
   onClearPick?: () => void;
   onToggleExpand?: (questionId: number, choiceId: number) => void;
   onSelectPicker?: (userId: number, displayName: string) => void;
+  viewerUserId?: number;
 };
 
 function choicePickers(choice: ChoiceRow): StreakStatsPicker[] {
@@ -50,6 +51,7 @@ export function StreakQuestionChoices({
   onClearPick,
   onToggleExpand,
   onSelectPicker,
+  viewerUserId,
 }: Props) {
   const actionsClassName = expandableStats
     ? 'streak-question__actions streak-question__actions--fill streak-question__actions--stats'
@@ -189,7 +191,14 @@ export function StreakQuestionChoices({
                   <p className="streak-choice__expand-empty">No picks</p>
                 ) : (
                   <ul className="streak-choice__expand-list">
-                    {pickers.map((picker) => (
+                    {pickers.map((picker) => {
+                      const isViewer =
+                        viewerUserId != null &&
+                        picker.user_id === viewerUserId;
+                      const pickerClassName = isViewer
+                        ? 'streak-choice__picker streak-choice__picker--viewer'
+                        : 'streak-choice__picker';
+                      return (
                       <li
                         key={picker.user_id}
                         className="streak-choice__expand-item"
@@ -197,7 +206,7 @@ export function StreakQuestionChoices({
                         {onSelectPicker ? (
                           <button
                             type="button"
-                            className="streak-choice__picker"
+                            className={pickerClassName}
                             onClick={() =>
                               onSelectPicker(
                                 picker.user_id,
@@ -208,12 +217,13 @@ export function StreakQuestionChoices({
                             {picker.display_name}
                           </button>
                         ) : (
-                          <span className="streak-choice__picker">
+                          <span className={pickerClassName}>
                             {picker.display_name}
                           </span>
                         )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
               </div>
