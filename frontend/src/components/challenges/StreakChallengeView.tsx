@@ -5,21 +5,19 @@ import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
 import {
   ApiError,
   deleteStreakChallenge,
+  getStreakAwards,
   getStreakChallenge,
   getStreakLeaderboard,
   getStreakParticipantPicks,
   clearStreakPick,
   streakPick,
   type ApiUser,
+  type StreakAwardsPayload,
   type StreakLeaderboardEntry,
   type StreakParticipantPickRow,
   type StreakQuestionInfo,
   type StreakChallengeSummary,
 } from '../../utils/api';
-import {
-  computeCompetitionRanks,
-  leaderboardRowClassName,
-} from '../../utils/leaderboardRows';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
 import {
@@ -29,7 +27,8 @@ import {
 } from '../../routes';
 
 import { CopyJoinCode } from './CopyJoinCode';
-import { StreakChallengeStats } from './StreakChallengeStats';
+import { StreakAwards } from './StreakAwards';
+import { StreakLeaderboard } from './StreakLeaderboard';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
 import './challengeThemes.css';
 import './StreakChallengeView.css';
@@ -47,36 +46,6 @@ type Props = {
 
 function streakPlayerLabel(entry: StreakLeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
-}
-
-function streakStatsCompare(
-  a: StreakLeaderboardEntry,
-  b: StreakLeaderboardEntry,
-): number {
-  if (b.streak_signed !== a.streak_signed) {
-    return b.streak_signed - a.streak_signed;
-  }
-  if (b.win_pct !== a.win_pct) {
-    return b.win_pct - a.win_pct;
-  }
-  if (b.wins !== a.wins) {
-    return b.wins - a.wins;
-  }
-  if (b.losses !== a.losses) {
-    return a.losses - b.losses;
-  }
-  return 0;
-}
-
-function streakSortCompare(
-  a: StreakLeaderboardEntry,
-  b: StreakLeaderboardEntry,
-): number {
-  const stats = streakStatsCompare(a, b);
-  if (stats !== 0) return stats;
-  return streakPlayerLabel(a).localeCompare(streakPlayerLabel(b), undefined, {
-    sensitivity: 'base',
-  });
 }
 
 function compareClosesAtAsc(
@@ -120,15 +89,10 @@ export function StreakChallengeView({
     navigate(streakPath(streakChallengeId, nextTab));
   }
 
-  function onSelectLeaderboardPlayer(userId: number, displayName: string) {
-    navigate(streakPlayerPath(streakChallengeId, userId), {
-      state: { playerName: displayName },
-    });
-  }
-
   const [summary, setSummary] = useState<StreakChallengeSummary | null>(null);
   const [questions, setQuestions] = useState<StreakQuestionInfo[]>([]);
   const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
+  const [awards, setAwards] = useState<StreakAwardsPayload | null>(null);
   const [loadErr, setLoadErr] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -154,13 +118,20 @@ export function StreakChallengeView({
   const reload = useCallback(async () => {
     setLoadErr('');
     try {
-      const [detail, board] = await Promise.all([
-        getStreakChallenge(streakChallengeId),
-        getStreakLeaderboard(streakChallengeId),
-      ]);
+      const detail = await getStreakChallenge(streakChallengeId);
+      const board = await getStreakLeaderboard(streakChallengeId);
       setSummary(detail.streak_challenge);
       setQuestions(detail.questions);
       setEntries(board.entries);
+      if (detail.streak_challenge.competition_is_over) {
+        try {
+          setAwards(await getStreakAwards(streakChallengeId));
+        } catch {
+          setAwards(null);
+        }
+      } else {
+        setAwards(null);
+      }
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load streak challenge.',
@@ -172,16 +143,24 @@ export function StreakChallengeView({
     void reload();
   }, [reload]);
 
-  const sortedEntries = useMemo(
-    () => [...entries].sort(streakSortCompare),
-    [entries],
-  );
+  const competitionIsOver = summary?.competition_is_over === true;
 
-  const streakRanks = useMemo(
-    () =>
-      computeCompetitionRanks(sortedEntries, streakStatsCompare, (e) => e.user_id),
-    [sortedEntries],
-  );
+  useEffect(() => {
+    if (!summary) return;
+    if (competitionIsOver && tab === 'make') {
+      navigate(streakPath(streakChallengeId, 'awards'), { replace: true });
+      return;
+    }
+    if (!competitionIsOver && tab === 'awards') {
+      navigate(streakPath(streakChallengeId, 'leaderboard'), { replace: true });
+    }
+  }, [summary, competitionIsOver, tab, navigate, streakChallengeId]);
+
+  function onSelectLeaderboardPlayer(userId: number, displayName: string) {
+    navigate(streakPlayerPath(streakChallengeId, userId), {
+      state: { playerName: displayName },
+    });
+  }
 
   const { makeQuestions, pastQuestions } = useMemo(() => {
     const past: StreakQuestionInfo[] = [];
@@ -257,10 +236,7 @@ export function StreakChallengeView({
     }
   }
 
-  function renderQuestion(
-    q: StreakQuestionInfo,
-    mode: 'make' | 'past',
-  ) {
+  function renderQuestion(q: StreakQuestionInfo, mode: 'make' | 'past') {
     const resolved = q.resolved_at != null;
     const deadlineLocked = mode === 'make' && q.deadline_locked;
     return (
@@ -276,7 +252,9 @@ export function StreakChallengeView({
           <div className="streak-question__head-main">
             <p className="streak-question__text">{q.text}</p>
             <p className="streak-question__meta">
-              Closes {formatDeadlineEst(q.closes_at)}
+              {mode === 'make'
+                ? `Closes ${formatDeadlineEst(q.closes_at)}`
+                : `Closed ${formatDeadlineEst(q.closes_at)}`}
             </p>
           </div>
           {deadlineLocked ? (
@@ -456,6 +434,19 @@ export function StreakChallengeView({
       {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
 
       <nav className="challenge-view__tabs" aria-label="Streak sections">
+        {competitionIsOver ? (
+          <button
+            type="button"
+            className={
+              tab === 'awards'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('awards')}
+          >
+            Awards
+          </button>
+        ) : null}
         <button
           type="button"
           className={
@@ -467,17 +458,19 @@ export function StreakChallengeView({
         >
           Leaderboard
         </button>
-        <button
-          type="button"
-          className={
-            tab === 'make'
-              ? 'challenge-view__tab challenge-view__tab--active'
-              : 'challenge-view__tab'
-          }
-          onClick={() => goToTab('make')}
-        >
-          Make Picks
-        </button>
+        {!competitionIsOver ? (
+          <button
+            type="button"
+            className={
+              tab === 'make'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('make')}
+          >
+            Make Picks
+          </button>
+        ) : null}
         <button
           type="button"
           className={
@@ -492,13 +485,13 @@ export function StreakChallengeView({
         <button
           type="button"
           className={
-            tab === 'stats'
+            tab === 'rules'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
           }
-          onClick={() => goToTab('stats')}
+          onClick={() => goToTab('rules')}
         >
-          Stats
+          Rules
         </button>
         <button
           type="button"
@@ -513,127 +506,17 @@ export function StreakChallengeView({
         </button>
       </nav>
 
+      {tab === 'awards' && competitionIsOver && awards ? (
+        <StreakAwards awards={awards} />
+      ) : null}
+
       {tab === 'leaderboard' ? (
         <section className="card streak-view__panel">
-          <div className="streak-leaderboard__mobile">
-            {sortedEntries.length === 0 ? (
-              <p className="streak-view__muted">No players yet.</p>
-            ) : (
-              <ol className="leaderboard-cards">
-                {sortedEntries.map((e) => {
-                  const rank = streakRanks.get(e.user_id)!;
-                  const isViewer = e.user_id === currentUser.id;
-                  return (
-                    <li
-                      key={e.user_id}
-                      className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
-                    >
-                      <div className="leaderboard-card__head">
-                        <span className="leaderboard-card__rank">{rank}</span>
-                        <button
-                          type="button"
-                          className="streak-leaderboard__player leaderboard-card__name"
-                          onClick={() =>
-                            navigate(
-                              streakPlayerPath(streakChallengeId, e.user_id),
-                              {
-                                state: {
-                                  playerName: streakPlayerLabel(e),
-                                },
-                              },
-                            )
-                          }
-                        >
-                          {streakPlayerLabel(e)}
-                        </button>
-                        <div>
-                          <span className="leaderboard-card__total-label">
-                            Current
-                          </span>
-                          <span className="leaderboard-card__total">
-                            {e.current_display}
-                          </span>
-                        </div>
-                      </div>
-                      <dl className="leaderboard-card__stats leaderboard-card__stats--column-major">
-                        <div className="leaderboard-card__stat">
-                          <dt>Long W</dt>
-                          <dd>{e.long_win_display}</dd>
-                        </div>
-                        <div className="leaderboard-card__stat">
-                          <dt>Long L</dt>
-                          <dd>{e.long_loss_display}</dd>
-                        </div>
-                        <div className="leaderboard-card__stat">
-                          <dt>Record</dt>
-                          <dd>{e.record}</dd>
-                        </div>
-                        <div className="leaderboard-card__stat">
-                          <dt>Win %</dt>
-                          <dd>{e.win_pct}%</dd>
-                        </div>
-                      </dl>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </div>
-          <div className="table-scroll streak-leaderboard__desktop">
-            <table className="data-table streak-leaderboard__table">
-              <thead>
-                <tr>
-                  <th className="is-num">#</th>
-                  <th className="is-player">Player</th>
-                  <th className="is-num">Current</th>
-                  <th className="is-num">Long W</th>
-                  <th className="is-num">Long L</th>
-                  <th className="is-num">Record</th>
-                  <th className="is-num">WIN %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedEntries.map((e) => {
-                  const rank = streakRanks.get(e.user_id)!;
-                  const isViewer = e.user_id === currentUser.id;
-                  return (
-                  <tr
-                    key={e.user_id}
-                    className={leaderboardRowClassName(rank, isViewer)}
-                  >
-                    <td className="is-num">{rank}</td>
-                    <td className="is-player">
-                      <button
-                        type="button"
-                        className="streak-leaderboard__player"
-                        onClick={() =>
-                          navigate(
-                            streakPlayerPath(streakChallengeId, e.user_id),
-                            {
-                              state: {
-                                playerName: streakPlayerLabel(e),
-                              },
-                            },
-                          )
-                        }
-                      >
-                        {streakPlayerLabel(e)}
-                      </button>
-                    </td>
-                    <td className="is-num">{e.current_display}</td>
-                    <td className="is-num">{e.long_win_display}</td>
-                    <td className="is-num">{e.long_loss_display}</td>
-                    <td className="is-num">{e.record}</td>
-                    <td className="is-num">{e.win_pct}%</td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {sortedEntries.length === 0 ? (
-            <p className="streak-view__muted streak-leaderboard__desktop">No players yet.</p>
-          ) : null}
+          <StreakLeaderboard
+            entries={entries}
+            viewerUserId={currentUser.id}
+            onSelectPlayer={onSelectLeaderboardPlayer}
+          />
         </section>
       ) : null}
 
@@ -659,11 +542,28 @@ export function StreakChallengeView({
         </section>
       ) : null}
 
-      {tab === 'stats' ? (
-        <StreakChallengeStats
-          streakChallengeId={streakChallengeId}
-          onSelectPlayer={onSelectLeaderboardPlayer}
-        />
+
+      {tab === 'rules' ? (
+        <section className="card streak-view__rules">
+          <p>
+            Win the challenge by earning the longest winning streak. Make your picks
+            before the questions close. You can adjust your picks anytime before they
+            close.
+          </p>
+          <p>
+            You cannot make multiple picks with the exact same closing time. Tap on
+            your selected answer again to clear the pick.
+          </p>
+          <p>
+            You can make as many picks or as few picks as you want. The goal is to
+            create the longest winning streak with your picks.
+          </p>
+          <p>
+            The leaderboard ranks players by longest win streak (Long W), then
+            current streak, then total wins, then win percentage. Tied players share
+            the same rank. Record sorts by total wins.
+          </p>
+        </section>
       ) : null}
 
       {tab === 'settings' ? (

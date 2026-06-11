@@ -229,7 +229,9 @@ export function ChallengesPage() {
     }
 
     if (compResult.status === 'fulfilled') {
-      const competitions = compResult.value.streak_competitions;
+      const competitions = compResult.value.streak_competitions.filter(
+        (c) => !c.is_over,
+      );
       setStreakCompetitions(competitions);
       setSCompetitionId((prev) => {
         if (prev !== '') return prev;

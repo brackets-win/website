@@ -846,3 +846,23 @@
     overflow-y: auto;
   }
 }
+
+.streak-competition-status {
+  margin-bottom: 1.25rem;
+}
+
+.streak-competition-status__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.streak-competition-status__select {
+  min-width: 10rem;
+}
+
+.streak-competition-status__note {
+  color: var(--app-muted);
+  font-size: 0.875rem;
+}

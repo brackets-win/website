@@ -51,6 +51,20 @@
   padding: 1.25rem 1.5rem;
 }
 
+.streak-view__rules {
+  padding: 1.25rem 1.5rem;
+}
+
+.streak-view__rules p {
+  margin: 0 0 1rem;
+  line-height: 1.6;
+  color: var(--app-text);
+}
+
+.streak-view__rules p:last-child {
+  margin-bottom: 0;
+}
+
 .streak-view__panel .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;

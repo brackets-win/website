@@ -9,9 +9,18 @@ class StreakCompetition(models.Model):
         upload_to="streak-competitions/images/", blank=True, null=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When set, the competition is over; picks are locked and awards are shown.",
+    )
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_over(self) -> bool:
+        return self.ended_at is not None
 
 
 class StreakChallenge(models.Model):

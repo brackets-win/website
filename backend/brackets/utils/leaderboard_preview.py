@@ -112,17 +112,20 @@ def streak_participant_label(p: StreakParticipant) -> str:
     return (p.display_name or "").strip() or p.user.username
 
 
-def streak_participant_stats_key(p: StreakParticipant) -> tuple:
+def streak_win_rate(p: StreakParticipant) -> float:
     answered = p.wins + p.losses
-    rate = round(p.wins / answered, 4) if answered else 0.0
-    return (p.streak_signed, p.best_win_streak, p.wins, rate)
+    return round(p.wins / answered, 4) if answered else 0.0
+
+
+def streak_participant_stats_key(p: StreakParticipant) -> tuple:
+    return (p.best_win_streak, p.streak_signed, p.wins, streak_win_rate(p))
 
 
 def streak_participant_sort_key(p: StreakParticipant) -> tuple:
-    streak_signed, best_win, wins, rate = streak_participant_stats_key(p)
+    best_win, streak_signed, wins, rate = streak_participant_stats_key(p)
     return (
-        -streak_signed,
         -best_win,
+        -streak_signed,
         -wins,
         -rate,
         streak_participant_label(p).casefold(),

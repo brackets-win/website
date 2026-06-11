@@ -57,6 +57,10 @@ urlpatterns = [
         streak_views.streak_challenge_stats,
     ),
     path(
+        "streak-challenges/<int:streak_challenge_id>/awards",
+        streak_views.streak_challenge_awards,
+    ),
+    path(
         "streak-challenges/<int:streak_challenge_id>/players/<int:user_id>/picks",
         streak_views.streak_participant_picks,
     ),

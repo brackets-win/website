@@ -11,6 +11,7 @@ from collections import defaultdict
 from django.db.models import Count
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from brackets.api import serializers
@@ -37,6 +38,7 @@ from brackets.utils.leaderboard_preview import (
     streak_participant_label,
     streak_ranked_participants,
 )
+from brackets.utils.streak_awards import compute_streak_awards
 from brackets.utils.streak_deadlines import (
     closes_at_key,
     open_deadline_pick_map,
@@ -76,6 +78,8 @@ def _competition_public(
         "image_url": serializers.streak_competition_image_url(c),
         "question_count": c.questions.count(),
         "challenge_count": challenge_count,
+        "ended_at": c.ended_at.isoformat() if c.ended_at else None,
+        "is_over": c.ended_at is not None,
     }
 
 
@@ -114,6 +118,10 @@ def _streak_summary(
             participant.streak_signed if participant else 0
         ),
         "is_creator": c.created_by_id == user.id,
+        "competition_is_over": competition.is_over if competition is not None else False,
+        "competition_ended_at": competition.ended_at.isoformat()
+        if competition is not None and competition.ended_at
+        else None,
     }
 
 
@@ -234,6 +242,8 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "losses": p.losses,
         "record": f"{p.wins}-{p.losses}",
         "win_pct": round(rate * 100),
+        "best_win_streak": p.best_win_streak,
+        "best_loss_streak": p.best_loss_streak,
         "streak_display": serializers.streak_display(p.streak_signed),
         "win_rate": round(rate, 4),
     }
@@ -458,13 +468,16 @@ def streak_competition_detail(
                 return _json_error("Invalid JSON body", 400)
 
             name = (body.get("name") or "").strip()
-            if not name:
-                return _json_error("name is required", 400)
-            competition.name = name
-            update_fields.append("name")
+            if name:
+                competition.name = name
+                update_fields.append("name")
+            if body.get("end_competition") is True:
+                if competition.ended_at is None:
+                    competition.ended_at = timezone.now()
+                    update_fields.append("ended_at")
 
         if not update_fields:
-            return _json_error("name is required", 400)
+            return _json_error("No changes requested", 400)
         competition.save(update_fields=update_fields)
         return JsonResponse(
             {"streak_competition": _competition_public(competition)}
@@ -701,6 +714,33 @@ def streak_challenge_stats(
 
 
 @require_http_methods(["GET"])
+def streak_challenge_awards(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        StreakChallenge.objects.select_related("streak_competition"),
+        pk=streak_challenge_id,
+    )
+    if _streak_participant_or_none(challenge, user) is None:
+        return _json_error("Forbidden", 403)
+
+    competition = challenge.streak_competition
+    if competition.ended_at is None:
+        return _json_error("Competition is still active", 400)
+
+    participants = list(
+        StreakParticipant.objects.filter(streak_challenge=challenge).select_related(
+            "user"
+        )
+    )
+    return JsonResponse(compute_streak_awards(participants))
+
+
+@require_http_methods(["GET"])
 def streak_participant_picks(
     request: HttpRequest, streak_challenge_id: int, user_id: int
 ) -> JsonResponse:
@@ -849,6 +889,9 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
 
     if question.resolved_at is not None:
         return _json_error("This question is closed", 400)
+
+    if question.streak_competition.ended_at is not None:
+        return _json_error("This competition has ended", 400)
 
     deadline_picks = open_deadline_pick_map(challenge.id, user.id)
 

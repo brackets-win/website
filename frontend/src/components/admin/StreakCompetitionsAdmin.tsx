@@ -154,10 +154,13 @@ export function StreakCompetitionsAdmin() {
 
   const [questionsId, setQuestionsId] = useState<number | null>(null);
   const [questionsName, setQuestionsName] = useState('');
+  const [questionsIsOver, setQuestionsIsOver] = useState(false);
   const [questions, setQuestions] = useState<StreakCompetitionQuestionAdmin[]>(
     [],
   );
   const [questionsBusy, setQuestionsBusy] = useState(false);
+  const [endCompetitionOpen, setEndCompetitionOpen] = useState(false);
+  const [endCompetitionBusy, setEndCompetitionBusy] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newText, setNewText] = useState('');
@@ -200,6 +203,7 @@ export function StreakCompetitionsAdmin() {
     try {
       const data = await adminGetStreakCompetition(id);
       setQuestionsName(data.streak_competition.name);
+      setQuestionsIsOver(data.streak_competition.is_over === true);
       setQuestions(data.questions);
     } catch (e) {
       setLoadErr(
@@ -307,6 +311,29 @@ export function StreakCompetitionsAdmin() {
       });
     } finally {
       setEditBusy(false);
+    }
+  }
+
+  async function handleEndCompetition() {
+    if (questionsId == null) return;
+    setEndCompetitionBusy(true);
+    setPageMsg(null);
+    try {
+      await adminUpdateStreakCompetition(questionsId, { end_competition: true });
+      await reloadQuestions(questionsId);
+      await reloadList();
+      setEndCompetitionOpen(false);
+      setPageMsg({
+        type: 'ok',
+        text: 'Competition ended. Awards are now visible in streak challenges.',
+      });
+    } catch (err) {
+      setPageMsg({
+        type: 'err',
+        text: err instanceof ApiError ? err.message : 'Could not end competition.',
+      });
+    } finally {
+      setEndCompetitionBusy(false);
     }
   }
 
@@ -648,6 +675,33 @@ export function StreakCompetitionsAdmin() {
               </div>
             ) : null}
 
+            <div className="streak-competition-status">
+              <label className="field__label" htmlFor="streak-competition-status">
+                Competition status
+              </label>
+              <div className="streak-competition-status__row">
+                <select
+                  id="streak-competition-status"
+                  className="select streak-competition-status__select"
+                  value={questionsIsOver ? 'ended' : 'active'}
+                  disabled={questionsIsOver || endCompetitionBusy}
+                  onChange={(e) => {
+                    if (e.target.value === 'ended' && !questionsIsOver) {
+                      setEndCompetitionOpen(true);
+                    }
+                  }}
+                >
+                  <option value="active">Active</option>
+                  <option value="ended">Ended</option>
+                </select>
+                {questionsIsOver ? (
+                  <span className="streak-competition-status__note">
+                    This competition is over. Picks are locked and awards are shown.
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
             <ul className="streak-question-grid">
               {sortedQuestions.map((q) => (
                 <QuestionTile
@@ -882,6 +936,16 @@ export function StreakCompetitionsAdmin() {
             </div>
           </div>
         ) : null}
+
+        <DeleteConfirmDialog
+          open={endCompetitionOpen}
+          title="End Competition?"
+          label={questionsName || 'Competition'}
+          intro="This locks picks in every streak challenge using this competition and shows awards. This cannot be undone."
+          busy={endCompetitionBusy}
+          onCancel={() => setEndCompetitionOpen(false)}
+          onConfirm={() => void handleEndCompetition()}
+        />
 
         <DeleteConfirmDialog
           open={deleteQuestionTarget != null}

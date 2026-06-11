@@ -94,6 +94,8 @@ export type StreakCompetitionSummary = {
   image_url?: string | null;
   question_count: number;
   challenge_count?: number;
+  ended_at?: string | null;
+  is_over?: boolean;
 };
 
 export type StreakQuestionChoiceInfo = {
@@ -133,6 +135,8 @@ export type StreakChallengeSummary = {
   streak_signed: number;
   streak_display: string;
   is_creator?: boolean;
+  competition_is_over?: boolean;
+  competition_ended_at?: string | null;
   leaderboard_preview?: LeaderboardPreview;
 };
 
@@ -165,10 +169,36 @@ export type StreakLeaderboardEntry = {
   losses: number;
   record: string;
   win_pct: number;
+  best_win_streak: number;
+  best_loss_streak: number;
   /** @deprecated use current_display */
   streak_display?: string;
   /** @deprecated use win_pct */
   win_rate?: number;
+};
+
+
+export type StreakAwardWinner = {
+  user_id: number;
+  username: string;
+  display_name: string;
+  long_win_display?: string;
+  best_win_streak?: number;
+  win_pct?: number;
+  wins?: number;
+  current_display?: string;
+  streak_signed?: number;
+};
+
+export type StreakAwardCategory = {
+  winners: StreakAwardWinner[];
+};
+
+export type StreakAwardsPayload = {
+  streak_champion: StreakAwardCategory;
+  best_picker: StreakAwardCategory;
+  most_wins: StreakAwardCategory;
+  active_streak: StreakAwardCategory;
 };
 
 export type StreakParticipantPickRow = {
@@ -677,6 +707,12 @@ export async function getStreakLeaderboard(
   );
 }
 
+export async function getStreakAwards(
+  streakChallengeId: number,
+): Promise<StreakAwardsPayload> {
+  return apiFetch('GET', `streak-challenges/${streakChallengeId}/awards`);
+}
+
 export async function getStreakChallengeStats(
   streakChallengeId: number,
 ): Promise<StreakChallengeStatsPayload> {
@@ -730,7 +766,7 @@ export async function adminGetStreakCompetition(
 
 export async function adminUpdateStreakCompetition(
   streakCompetitionId: number,
-  body: FormData | { name: string },
+  body: FormData | { name?: string; end_competition?: boolean },
 ): Promise<{ streak_competition: StreakCompetitionSummary }> {
   return apiFetch('PATCH', `streak-competitions/${streakCompetitionId}`, body);
 }

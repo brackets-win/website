@@ -1,0 +1,58 @@
+.streak-awards {
+  padding: 1.25rem 1.5rem;
+}
+
+.streak-awards__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+}
+
+.streak-awards__card {
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--app-bg, #f8fafc);
+}
+
+.streak-awards__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.streak-awards__empty {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.875rem;
+}
+
+.streak-awards__winners {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.streak-awards__winner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.streak-awards__name {
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.streak-awards__value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--app-accent);
+}
