@@ -238,12 +238,17 @@ export function StreakChallengeView({
   }
 
   function renderQuestion(q: StreakQuestionInfo) {
+    const closesAtPassed = !q.is_open;
     const deadlineLocked = q.deadline_locked;
+    const isLocked = closesAtPassed || deadlineLocked;
+    const lockLabel = closesAtPassed
+      ? 'Closed'
+      : 'Multiple picks cannot share a deadline';
     return (
       <li
         key={q.id}
         className={
-          deadlineLocked
+          isLocked
             ? 'card streak-question streak-question--locked'
             : 'card streak-question'
         }
@@ -252,13 +257,15 @@ export function StreakChallengeView({
           <div className="streak-question__head-main">
             <p className="streak-question__text">{q.text}</p>
             <p className="streak-question__meta">
-              Closes {formatDeadlineEst(q.closes_at)}
+              {closesAtPassed
+                ? `Closed ${formatDeadlineEst(q.closes_at)}`
+                : `Closes ${formatDeadlineEst(q.closes_at)}`}
             </p>
           </div>
-          {deadlineLocked ? (
+          {isLocked ? (
             <p
               className="streak-question__locked"
-              aria-label="Multiple picks cannot share a deadline"
+              aria-label={lockLabel}
             >
               <svg
                 className="streak-question__lock-icon"
@@ -275,9 +282,7 @@ export function StreakChallengeView({
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
-              <span className="streak-question__locked-text">
-                Multiple picks cannot share a deadline
-              </span>
+              <span className="streak-question__locked-text">{lockLabel}</span>
             </p>
           ) : null}
         </div>
@@ -286,11 +291,11 @@ export function StreakChallengeView({
           userChoiceId={q.user_choice_id}
           correctChoiceId={q.correct_choice_id}
           resolved={q.resolved_at != null}
-          disabled={!q.is_open}
-          deadlineLocked={deadlineLocked}
+          disabled={!q.is_open || deadlineLocked}
+          deadlineLocked={isLocked}
           canClearPick={q.can_clear_pick}
           onPick={
-            q.is_open && !q.deadline_locked
+            q.is_open && !deadlineLocked
               ? (choiceId) => void onPick(q.id, choiceId)
               : undefined
           }

@@ -189,7 +189,8 @@ def _question_public(
         .first()
     )
     correct_label = q.correct_choice.label if q.correct_choice_id else None
-    is_open = q.resolved_at is None
+    now = timezone.now()
+    is_open = q.resolved_at is None and q.closes_at > now
     locked_by_question_id = None
     deadline_locked = False
     if is_open and deadline_picks is not None:
@@ -888,6 +889,9 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
     user, body, question, challenge = ctx
 
     if question.resolved_at is not None:
+        return _json_error("This question is closed", 400)
+
+    if question.closes_at <= timezone.now():
         return _json_error("This question is closed", 400)
 
     if question.streak_competition.ended_at is not None:

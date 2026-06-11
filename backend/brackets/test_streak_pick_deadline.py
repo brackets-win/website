@@ -112,3 +112,25 @@ class StreakPickDeadlineTests(TestCase):
         self.assertTrue(by_id[self.q1.id]["can_clear_pick"])
         self.assertTrue(by_id[self.q2.id]["deadline_locked"])
         self.assertEqual(by_id[self.q2.id]["locked_by_question_id"], self.q1.id)
+
+    def test_past_closes_at_marks_question_closed(self):
+        self.q1.closes_at = timezone.now() - timezone.timedelta(minutes=5)
+        self.q1.save(update_fields=["closes_at"])
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}"
+        )
+        self.assertEqual(res.status_code, 200)
+        by_id = {q["id"]: q for q in res.json()["questions"]}
+        self.assertFalse(by_id[self.q1.id]["is_open"])
+        self.assertFalse(by_id[self.q1.id]["deadline_locked"])
+
+    def test_pick_rejected_after_closes_at(self):
+        self.q1.closes_at = timezone.now() - timezone.timedelta(minutes=5)
+        self.q1.save(update_fields=["closes_at"])
+        res = self.client.post(
+            self.pick_url.format(self.q1.id),
+            data=json.dumps({**self.body, "choice_id": self.c1a.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("closed", res.json()["error"].lower())
