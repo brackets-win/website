@@ -1,0 +1,65 @@
+.streak-challenge-stats .streak-question__actions--stats {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.streak-choice-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.streak-choice-wrap .streak-choice {
+  width: 100%;
+  max-width: none;
+}
+
+.streak-choice--expandable {
+  cursor: pointer;
+}
+
+.streak-choice__expand {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--app-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--app-surface-muted, #f8fafc);
+}
+
+.streak-choice__expand-empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--app-muted, #64748b);
+}
+
+.streak-choice__expand-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.streak-choice__expand-item {
+  margin: 0;
+}
+
+.streak-choice__picker {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.15rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--app-text);
+  cursor: pointer;
+}
+
+.streak-choice__picker:hover,
+.streak-choice__picker:focus-visible {
+  color: var(--app-link, #2563eb);
+  text-decoration: underline;
+}

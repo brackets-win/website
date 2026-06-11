@@ -353,9 +353,11 @@ class StreakQuestionPickPctTests(TestCase):
         payload = next(
             q for q in res.json()["questions"] if q["id"] == question.id
         )
-        by_label = {c["label"]: c["pick_pct"] for c in payload["choices"]}
-        self.assertEqual(by_label["Yes"], 50)
-        self.assertEqual(by_label["No"], 50)
+        by_label = {c["label"]: c for c in payload["choices"]}
+        self.assertEqual(by_label["Yes"]["pick_pct"], 50)
+        self.assertEqual(by_label["Yes"]["pick_count"], 1)
+        self.assertEqual(by_label["No"]["pick_pct"], 50)
+        self.assertEqual(by_label["No"]["pick_count"], 1)
 
 
 class StreakParticipantPicksApiTests(TestCase):

@@ -101,6 +101,8 @@ export type StreakQuestionChoiceInfo = {
   label: string;
   /** Whole-number share of challenge picks; present on resolved questions only. */
   pick_pct?: number;
+  /** Number of entrants who picked this choice; present on resolved questions only. */
+  pick_count?: number;
 };
 
 export type StreakCompetitionQuestionAdmin = {
@@ -179,6 +181,31 @@ export type StreakParticipantPickRow = {
   pick_label: string;
   correct_answer: string | null;
   is_correct: boolean;
+};
+
+export type StreakStatsPicker = {
+  user_id: number;
+  display_name: string;
+};
+
+export type StreakStatsChoice = {
+  id: number;
+  label: string;
+  pick_count: number;
+  pick_pct: number;
+  pickers: StreakStatsPicker[];
+};
+
+export type StreakStatsQuestion = {
+  question_id: number;
+  text: string;
+  closes_at: string;
+  correct_choice_id: number | null;
+  choices: StreakStatsChoice[];
+};
+
+export type StreakChallengeStatsPayload = {
+  questions: StreakStatsQuestion[];
 };
 
 export type LeaderboardColumn = {
@@ -648,6 +675,12 @@ export async function getStreakLeaderboard(
     'GET',
     `streak-challenges/${streakChallengeId}/leaderboard`,
   );
+}
+
+export async function getStreakChallengeStats(
+  streakChallengeId: number,
+): Promise<StreakChallengeStatsPayload> {
+  return apiFetch('GET', `streak-challenges/${streakChallengeId}/stats`);
 }
 
 export async function getStreakParticipantPicks(

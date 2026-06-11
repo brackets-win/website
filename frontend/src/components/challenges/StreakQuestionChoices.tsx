@@ -1,19 +1,36 @@
-import type { StreakQuestionChoiceInfo } from '../../utils/api';
+import type {
+  StreakQuestionChoiceInfo,
+  StreakStatsChoice,
+  StreakStatsPicker,
+} from '../../utils/api';
 
 import './StreakQuestionChoices.css';
 
+type ChoiceRow = StreakQuestionChoiceInfo | StreakStatsChoice;
+
 type Props = {
-  choices: StreakQuestionChoiceInfo[];
+  choices: ChoiceRow[];
   userChoiceId: number | null;
   correctChoiceId: number | null;
   resolved: boolean;
   showPickPct?: boolean;
+  showPickStats?: boolean;
+  statsMode?: boolean;
+  expandableStats?: boolean;
+  expandedKey?: string | null;
+  questionId?: number;
   disabled?: boolean;
   deadlineLocked?: boolean;
   canClearPick?: boolean;
   onPick?: (choiceId: number) => void;
   onClearPick?: () => void;
+  onToggleExpand?: (questionId: number, choiceId: number) => void;
+  onSelectPicker?: (userId: number, displayName: string) => void;
 };
+
+function choicePickers(choice: ChoiceRow): StreakStatsPicker[] {
+  return 'pickers' in choice ? choice.pickers : [];
+}
 
 export function StreakQuestionChoices({
   choices,
@@ -21,30 +38,38 @@ export function StreakQuestionChoices({
   correctChoiceId,
   resolved,
   showPickPct = false,
+  showPickStats = false,
+  statsMode = false,
+  expandableStats = false,
+  expandedKey = null,
+  questionId,
   disabled = false,
   deadlineLocked = false,
   canClearPick = false,
   onPick,
   onClearPick,
+  onToggleExpand,
+  onSelectPicker,
 }: Props) {
+  const actionsClassName = expandableStats
+    ? 'streak-question__actions streak-question__actions--fill streak-question__actions--stats'
+    : 'streak-question__actions streak-question__actions--fill';
+
   return (
-    <div
-      className="streak-question__actions streak-question__actions--fill"
-      role="group"
-      aria-label="Choices"
-    >
+    <div className={actionsClassName} role="group" aria-label="Choices">
       {choices.map((choice) => {
         const isUserPick = userChoiceId === choice.id;
         const isCorrect =
           resolved &&
           correctChoiceId != null &&
           choice.id === correctChoiceId &&
-          isUserPick;
+          (statsMode || isUserPick);
         const isWrong =
           resolved &&
           correctChoiceId != null &&
-          isUserPick &&
-          choice.id !== correctChoiceId;
+          (statsMode
+            ? choice.id !== correctChoiceId
+            : isUserPick && choice.id !== correctChoiceId);
 
         let className = 'streak-choice btn btn--secondary';
         if (!resolved) {
@@ -60,41 +85,140 @@ export function StreakQuestionChoices({
         const canToggleClear =
           !resolved && canClearPick && isUserPick && onClearPick != null;
 
-        return (
-          <button
-            key={choice.id}
-            type="button"
-            className={className}
-            disabled={
-              disabled ||
-              resolved ||
-              deadlineLocked ||
-              (canToggleClear ? false : !onPick)
-            }
-            title={canToggleClear ? 'Click again to clear' : undefined}
-            onClick={() => {
-              if (canToggleClear) {
-                onClearPick();
-                return;
+        const expandKey =
+          questionId != null ? `${questionId}-${choice.id}` : null;
+        const isExpanded =
+          expandableStats && expandKey != null && expandedKey === expandKey;
+        const pickers = choicePickers(choice);
+
+        if (expandableStats) {
+          className += ' streak-choice--expandable';
+        }
+
+        if (!expandableStats) {
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              className={className}
+              disabled={
+                disabled ||
+                resolved ||
+                deadlineLocked ||
+                (canToggleClear ? false : !onPick)
               }
-              onPick?.(choice.id);
-            }}
-          >
-            {isCorrect ? (
-              <span className="streak-choice__mark streak-choice__mark--correct" aria-hidden>
-                ✓
-              </span>
+              title={canToggleClear ? 'Click again to clear' : undefined}
+              onClick={() => {
+                if (canToggleClear) {
+                  onClearPick?.();
+                  return;
+                }
+                onPick?.(choice.id);
+              }}
+            >
+              {isCorrect ? (
+                <span
+                  className="streak-choice__mark streak-choice__mark--correct"
+                  aria-hidden
+                >
+                  ✓
+                </span>
+              ) : null}
+              {isWrong ? (
+                <span
+                  className="streak-choice__mark streak-choice__mark--wrong"
+                  aria-hidden
+                >
+                  ✗
+                </span>
+              ) : null}
+              <span className="streak-choice__label">{choice.label}</span>
+              {showPickStats &&
+              choice.pick_count != null &&
+              choice.pick_pct != null ? (
+                <span className="streak-choice__pct">
+                  {choice.pick_count} ({choice.pick_pct}%)
+                </span>
+              ) : showPickPct && choice.pick_pct != null ? (
+                <span className="streak-choice__pct">{choice.pick_pct}%</span>
+              ) : null}
+            </button>
+          );
+        }
+
+        return (
+          <div key={choice.id} className="streak-choice-wrap">
+            <button
+              type="button"
+              className={className}
+              aria-expanded={isExpanded}
+              onClick={() => {
+                if (questionId != null && onToggleExpand) {
+                  onToggleExpand(questionId, choice.id);
+                }
+              }}
+            >
+              {isCorrect ? (
+                <span
+                  className="streak-choice__mark streak-choice__mark--correct"
+                  aria-hidden
+                >
+                  ✓
+                </span>
+              ) : null}
+              {isWrong ? (
+                <span
+                  className="streak-choice__mark streak-choice__mark--wrong"
+                  aria-hidden
+                >
+                  ✗
+                </span>
+              ) : null}
+              <span className="streak-choice__label">{choice.label}</span>
+              {showPickStats &&
+              choice.pick_count != null &&
+              choice.pick_pct != null ? (
+                <span className="streak-choice__pct">
+                  {choice.pick_count} ({choice.pick_pct}%)
+                </span>
+              ) : null}
+            </button>
+            {isExpanded ? (
+              <div className="streak-choice__expand">
+                {pickers.length === 0 ? (
+                  <p className="streak-choice__expand-empty">No picks</p>
+                ) : (
+                  <ul className="streak-choice__expand-list">
+                    {pickers.map((picker) => (
+                      <li
+                        key={picker.user_id}
+                        className="streak-choice__expand-item"
+                      >
+                        {onSelectPicker ? (
+                          <button
+                            type="button"
+                            className="streak-choice__picker"
+                            onClick={() =>
+                              onSelectPicker(
+                                picker.user_id,
+                                picker.display_name,
+                              )
+                            }
+                          >
+                            {picker.display_name}
+                          </button>
+                        ) : (
+                          <span className="streak-choice__picker">
+                            {picker.display_name}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             ) : null}
-            {isWrong ? (
-              <span className="streak-choice__mark streak-choice__mark--wrong" aria-hidden>
-                ✗
-              </span>
-            ) : null}
-            <span className="streak-choice__label">{choice.label}</span>
-            {showPickPct && choice.pick_pct != null ? (
-              <span className="streak-choice__pct">{choice.pick_pct}%</span>
-            ) : null}
-          </button>
+          </div>
         );
       })}
     </div>

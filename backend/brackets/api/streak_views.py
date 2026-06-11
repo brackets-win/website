@@ -117,10 +117,10 @@ def _streak_summary(
     }
 
 
-def _pick_pct_by_question(
+def _pick_stats_by_question(
     streak_challenge_id: int, question_ids: list[int]
-) -> dict[int, dict[int, int]]:
-    """question_id -> choice_id -> whole-number percent of picks in this challenge."""
+) -> dict[int, dict[int, dict[str, int]]]:
+    """question_id -> choice_id -> {count, pick_pct} for this challenge."""
     if not question_ids:
         return {}
     rows = (
@@ -134,14 +134,17 @@ def _pick_pct_by_question(
     counts: dict[int, dict[int, int]] = defaultdict(dict)
     for row in rows:
         counts[row["question_id"]][row["choice_id"]] = row["count"]
-    result: dict[int, dict[int, int]] = {}
+    result: dict[int, dict[int, dict[str, int]]] = {}
     for question_id, choice_counts in counts.items():
         total = sum(choice_counts.values())
         if total == 0:
             result[question_id] = {}
             continue
         result[question_id] = {
-            choice_id: round(count * 100 / total)
+            choice_id: {
+                "count": count,
+                "pick_pct": round(count * 100 / total),
+            }
             for choice_id, count in choice_counts.items()
         }
     return result
@@ -149,13 +152,15 @@ def _pick_pct_by_question(
 
 def _choices_payload(
     question: StreakQuestion,
-    pick_pcts: dict[int, int] | None = None,
+    pick_stats: dict[int, dict[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     rows = []
     for choice in question.choices.all():
         item: dict[str, Any] = {"id": choice.id, "label": choice.label}
-        if pick_pcts is not None:
-            item["pick_pct"] = pick_pcts.get(choice.id, 0)
+        if pick_stats is not None:
+            stats = pick_stats.get(choice.id, {})
+            item["pick_count"] = stats.get("count", 0)
+            item["pick_pct"] = stats.get("pick_pct", 0)
         rows.append(item)
     return rows
 
@@ -166,7 +171,7 @@ def _question_public(
     streak_challenge_id: int,
     *,
     deadline_picks: dict | None = None,
-    pick_pcts: dict[int, int] | None = None,
+    pick_stats: dict[int, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     pick = (
         StreakPick.objects.filter(
@@ -192,7 +197,7 @@ def _question_public(
         "closes_at": q.closes_at.isoformat(),
         "resolved_at": q.resolved_at.isoformat() if q.resolved_at else None,
         "choices": _choices_payload(
-            q, pick_pcts if q.resolved_at is not None else None
+            q, pick_stats if q.resolved_at is not None else None
         ),
         "correct_choice_id": q.correct_choice_id,
         "correct_answer": correct_label,
@@ -633,14 +638,14 @@ def streak_challenge_detail(
         )
     )
     resolved_ids = [q.id for q in question_rows if q.resolved_at is not None]
-    pick_pct_map = _pick_pct_by_question(challenge.id, resolved_ids)
+    pick_stats_map = _pick_stats_by_question(challenge.id, resolved_ids)
     questions = [
         _question_public(
             q,
             user,
             challenge.id,
             deadline_picks=deadline_picks,
-            pick_pcts=pick_pct_map.get(q.id),
+            pick_stats=pick_stats_map.get(q.id),
         )
         for q in question_rows
     ]
@@ -676,6 +681,23 @@ def streak_challenge_leaderboard(
         for p, rank in streak_ranked_participants(participants)
     ]
     return JsonResponse({"entries": entries})
+
+
+@require_http_methods(["GET"])
+def streak_challenge_stats(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(StreakChallenge, pk=streak_challenge_id)
+    if _streak_participant_or_none(challenge, user) is None:
+        return _json_error("Forbidden", 403)
+
+    from brackets.utils.streak_challenge_stats import get_streak_challenge_stats
+
+    return JsonResponse(get_streak_challenge_stats(challenge))
 
 
 @require_http_methods(["GET"])

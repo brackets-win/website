@@ -31,6 +31,8 @@ class StreakChallenge(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_public = models.BooleanField(default=False)
     join_code = models.CharField(max_length=8, unique=True, null=True, blank=True)
+    # Cached stats revision + payload (see streak_challenge_stats.py).
+    metadata = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return self.name

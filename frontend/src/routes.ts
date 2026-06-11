@@ -9,7 +9,7 @@ export const CHALLENGE_TABS = [
 
 export type ChallengeTab = (typeof CHALLENGE_TABS)[number];
 
-export const STREAK_TABS = ['leaderboard', 'make', 'past', 'settings'] as const;
+export const STREAK_TABS = ['leaderboard', 'make', 'past', 'stats', 'settings'] as const;
 
 export type StreakTab = (typeof STREAK_TABS)[number];
 

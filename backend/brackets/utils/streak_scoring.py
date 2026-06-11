@@ -128,6 +128,9 @@ def clear_question_resolution(question: StreakQuestion) -> None:
     question.correct_choice = None
     question.resolved_at = None
     question.save(update_fields=["correct_choice", "resolved_at"])
+    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
+
+    bump_streak_stats_for_competition(question.streak_competition_id)
     recalculate_streak_competition(question.streak_competition_id)
 
 
@@ -143,4 +146,7 @@ def resolve_question(question: StreakQuestion, correct_choice_id: int) -> None:
         question.resolved_at = timezone.now()
         update_fields.append("resolved_at")
     question.save(update_fields=update_fields)
+    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
+
+    bump_streak_stats_for_competition(question.streak_competition_id)
     recalculate_streak_competition(question.streak_competition_id)

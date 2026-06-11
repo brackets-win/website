@@ -29,6 +29,7 @@ import {
 } from '../../routes';
 
 import { CopyJoinCode } from './CopyJoinCode';
+import { StreakChallengeStats } from './StreakChallengeStats';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
 import './challengeThemes.css';
 import './StreakChallengeView.css';
@@ -117,6 +118,12 @@ export function StreakChallengeView({
 
   function goToTab(nextTab: StreakTab) {
     navigate(streakPath(streakChallengeId, nextTab));
+  }
+
+  function onSelectLeaderboardPlayer(userId: number, displayName: string) {
+    navigate(streakPlayerPath(streakChallengeId, userId), {
+      state: { playerName: displayName },
+    });
   }
 
   const [summary, setSummary] = useState<StreakChallengeSummary | null>(null);
@@ -485,6 +492,17 @@ export function StreakChallengeView({
         <button
           type="button"
           className={
+            tab === 'stats'
+              ? 'challenge-view__tab challenge-view__tab--active'
+              : 'challenge-view__tab'
+          }
+          onClick={() => goToTab('stats')}
+        >
+          Stats
+        </button>
+        <button
+          type="button"
+          className={
             tab === 'settings'
               ? 'challenge-view__tab challenge-view__tab--active'
               : 'challenge-view__tab'
@@ -639,6 +657,13 @@ export function StreakChallengeView({
             <p className="streak-view__muted">No picks yet.</p>
           ) : null}
         </section>
+      ) : null}
+
+      {tab === 'stats' ? (
+        <StreakChallengeStats
+          streakChallengeId={streakChallengeId}
+          onSelectPlayer={onSelectLeaderboardPlayer}
+        />
       ) : null}
 
       {tab === 'settings' ? (
