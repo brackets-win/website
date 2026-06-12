@@ -481,75 +481,6 @@ export function ChallengeView({
         </div>
       </header>
 
-      {showEntrySwitcher && !viewingPlayer ? (
-        <section className="challenge-view__entries card">
-          {userEntries.length > 0 ? (
-            <div
-              className="challenge-view__entry-tabs"
-              role="tablist"
-              aria-label="Your entries"
-            >
-              {userEntries.map((entry) => (
-                <button
-                  key={entry.user_bracket_id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeBracketId === entry.user_bracket_id}
-                  className={
-                    activeBracketId === entry.user_bracket_id
-                      ? 'challenge-view__entry-tab challenge-view__entry-tab--active'
-                      : 'challenge-view__entry-tab'
-                  }
-                  onClick={() => selectEntry(entry.user_bracket_id)}
-                >
-                  {entry.display_name || 'Entry'}
-                  {entry.is_submitted ? ' ✓' : ''}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {challenge.can_add_entry ? (
-            <form
-              className="challenge-view__add-entry"
-              onSubmit={(e) => void handleAddEntry(e)}
-            >
-              <label htmlFor="add-entry-name" className="challenge-view__add-entry-label">
-                {challenge.entry_count > 0 ? 'Add another entry' : 'Your name'}
-              </label>
-              <div className="challenge-view__add-entry-row">
-                <input
-                  id="add-entry-name"
-                  className="input"
-                  value={addEntryName}
-                  onChange={(e) => setAddEntryName(e.target.value)}
-                  placeholder="Name on the leaderboard"
-                  maxLength={80}
-                  disabled={addEntryBusy}
-                  required
-                />
-                <button
-                  type="submit"
-                  className="btn btn--secondary"
-                  disabled={addEntryBusy}
-                >
-                  {addEntryBusy ? 'Adding…' : 'Add Entry'}
-                </button>
-              </div>
-              <p className="challenge-view__entry-limit">
-                {challenge.entry_count} of {challenge.max_entries} entries used
-              </p>
-              {addEntryErr ? (
-                <p className="challenge-view__add-entry-err">{addEntryErr}</p>
-              ) : null}
-            </form>
-          ) : (
-            <p className="challenge-view__entry-limit">
-              {challenge.entry_count} of {challenge.max_entries} entries used
-            </p>
-          )}
-        </section>
-      ) : null}
-
       <nav className="challenge-view__tabs" aria-label="Challenge sections">
         {showLeaderboard ? (
           <button
@@ -628,6 +559,75 @@ export function ChallengeView({
           Settings
         </button>
       </nav>
+
+      {showEntrySwitcher && !viewingPlayer && tab === 'bracket' ? (
+        <section className="challenge-view__entries card">
+          {userEntries.length > 0 ? (
+            <div
+              className="challenge-view__entry-tabs"
+              role="tablist"
+              aria-label="Your entries"
+            >
+              {userEntries.map((entry) => (
+                <button
+                  key={entry.user_bracket_id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeBracketId === entry.user_bracket_id}
+                  className={
+                    activeBracketId === entry.user_bracket_id
+                      ? 'challenge-view__entry-tab challenge-view__entry-tab--active'
+                      : 'challenge-view__entry-tab'
+                  }
+                  onClick={() => selectEntry(entry.user_bracket_id)}
+                >
+                  {entry.display_name || 'Entry'}
+                  {entry.is_submitted ? ' ✓' : ''}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {challenge.can_add_entry ? (
+            <form
+              className="challenge-view__add-entry"
+              onSubmit={(e) => void handleAddEntry(e)}
+            >
+              <label htmlFor="add-entry-name" className="challenge-view__add-entry-label">
+                {challenge.entry_count > 0 ? 'Add another entry' : 'Your name'}
+              </label>
+              <div className="challenge-view__add-entry-row">
+                <input
+                  id="add-entry-name"
+                  className="input"
+                  value={addEntryName}
+                  onChange={(e) => setAddEntryName(e.target.value)}
+                  placeholder="Name on the leaderboard"
+                  maxLength={80}
+                  disabled={addEntryBusy}
+                  required
+                />
+                <button
+                  type="submit"
+                  className="btn btn--secondary"
+                  disabled={addEntryBusy}
+                >
+                  {addEntryBusy ? 'Adding…' : 'Add Entry'}
+                </button>
+              </div>
+              <p className="challenge-view__entry-limit">
+                {challenge.entry_count} of {challenge.max_entries} entries used
+              </p>
+              {addEntryErr ? (
+                <p className="challenge-view__add-entry-err">{addEntryErr}</p>
+              ) : null}
+            </form>
+          ) : (
+            <p className="challenge-view__entry-limit">
+              {challenge.entry_count} of {challenge.max_entries} entries used
+            </p>
+          )}
+        </section>
+      ) : null}
 
       {!viewingPlayer &&
       tab === 'leaderboard' &&

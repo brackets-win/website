@@ -133,6 +133,7 @@
 
 .challenge-view__entries {
   padding: 1rem 1.25rem;
+  margin-top: -0.35rem;
   margin-bottom: 1rem;
 }
 
