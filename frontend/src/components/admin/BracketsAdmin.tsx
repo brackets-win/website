@@ -1068,7 +1068,11 @@ export function BracketsAdmin() {
             <h2>Master bracket — {fillBracketName}</h2>
           </header>
           <div className="card__body">
-            <BracketFill userBracketId={fillMasterUbId} allowMasterEdit />
+            <BracketFill
+              userBracketId={fillMasterUbId}
+              allowMasterEdit
+              showGroupResultsModeControl
+            />
           </div>
         </section>
       </div>

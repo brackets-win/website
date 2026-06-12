@@ -10,6 +10,10 @@ urlpatterns = [
     path("brackets", views.brackets_list),
     path("bracket-templates", views.bracket_templates_list),
     path("brackets/<int:bracket_id>", views.bracket_detail),
+    path(
+        "brackets/<int:bracket_id>/group-results-mode",
+        views.bracket_group_results_mode,
+    ),
     path("user-brackets", views.user_brackets_list_create),
     path("user-brackets/<int:user_bracket_id>", views.user_bracket_detail),
     path(

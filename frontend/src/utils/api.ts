@@ -520,6 +520,15 @@ export async function getBracket(
   return apiFetch('GET', `brackets/${bracketId}`);
 }
 
+export async function updateBracketGroupResultsMode(
+  bracketId: number,
+  group_results_mode: 'live' | 'confirmed',
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('PATCH', `brackets/${bracketId}/group-results-mode`, {
+    group_results_mode,
+  });
+}
+
 export async function listMyChallenges(): Promise<{
   challenges: ChallengeSummary[];
 }> {

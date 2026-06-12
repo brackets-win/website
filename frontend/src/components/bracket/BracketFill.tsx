@@ -20,8 +20,16 @@ import {
   getUserBracket,
   patchMatchupWinner,
   submitUserBracket,
+  updateBracketGroupResultsMode,
 } from '../../utils/api';
-import { invalidateHomeForUserBracket } from '../../utils/homeCache';
+import {
+  getGroupResultsMode,
+  type GroupResultsMode,
+} from '../../utils/groupResultsMode';
+import {
+  invalidateHome,
+  invalidateHomeForUserBracket,
+} from '../../utils/homeCache';
 import { GroupStagePanel } from './GroupStagePanel';
 import {
   buildMirrorBracketLayout,
@@ -280,6 +288,8 @@ type Props = {
   allowMasterEdit?: boolean;
   /** Read-only display of the official (master) bracket in challenges. */
   allowMasterView?: boolean;
+  /** Admin master fill only: Live / Confirmed group results control. */
+  showGroupResultsModeControl?: boolean;
   showSubmit?: boolean;
   showScoringHighlights?: boolean;
   onSubmitted?: () => void;
@@ -290,6 +300,7 @@ export function BracketFill({
   readOnly = false,
   allowMasterEdit = false,
   allowMasterView = false,
+  showGroupResultsModeControl = false,
   showSubmit = false,
   showScoringHighlights = false,
   onSubmitted,
@@ -299,6 +310,9 @@ export function BracketFill({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
+  const [groupResultsMode, setGroupResultsMode] =
+    useState<GroupResultsMode>('confirmed');
+  const [groupResultsModeBusy, setGroupResultsModeBusy] = useState(false);
   const [phase, setPhase] = useState<'groups' | 'knockout'>('knockout');
   const phaseInitForUb = useRef<number | null>(null);
 
@@ -345,6 +359,12 @@ export function BracketFill({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (bracketDef) {
+      setGroupResultsMode(getGroupResultsMode(bracketDef.metadata));
+    }
+  }, [bracketDef]);
+
   const sortedStages = useMemo(() => {
     if (!bracketDef) return [];
     return sortStages(bracketDef.stages);
@@ -369,6 +389,48 @@ export function BracketFill({
       'world_cup_2026';
 
   const firstGroupStage = groupStages[0];
+
+  const showGroupResultsMode =
+    showGroupResultsModeControl &&
+    detail?.is_master === true &&
+    hasGroupUi &&
+    !!firstGroupStage;
+
+  const showLiveGroupResultsNote =
+    groupResultsMode === 'live' &&
+    hasGroupUi &&
+    !!firstGroupStage &&
+    !showGroupResultsModeControl;
+
+  const onGroupResultsModeChange = useCallback(
+    async (next: GroupResultsMode) => {
+      if (!bracketDef || next === groupResultsMode || groupResultsModeBusy) return;
+      setGroupResultsModeBusy(true);
+      setError(null);
+      try {
+        const { bracket } = await updateBracketGroupResultsMode(
+          bracketDef.id,
+          next,
+        );
+        setBracketDef(bracket);
+        setGroupResultsMode(getGroupResultsMode(bracket.metadata));
+        if (detail) {
+          invalidateHomeForUserBracket(detail);
+        } else {
+          invalidateHome('challenges');
+        }
+      } catch (e) {
+        setError(
+          e instanceof ApiError
+            ? e.message
+            : 'Could not update group results mode.',
+        );
+      } finally {
+        setGroupResultsModeBusy(false);
+      }
+    },
+    [bracketDef, detail, groupResultsMode, groupResultsModeBusy],
+  );
 
   useEffect(() => {
     if (!hasGroupUi) return;
@@ -703,68 +765,113 @@ export function BracketFill({
         const showToolbar =
           (hasGroupUi && firstGroupStage) ||
           (showSubmit && !locked) ||
-          showPointsBadge;
-        if (!showToolbar) return null;
+          showPointsBadge ||
+          showGroupResultsMode;
+        if (!showToolbar && !showLiveGroupResultsNote) return null;
         const points =
           detail.score_vs_master != null ? detail.score_vs_master : null;
         return (
-          <div className="bf-toolbar">
-            {hasGroupUi && firstGroupStage ? (
-              <div
-                className="bf-tabs"
-                role="tablist"
-                aria-label="Bracket sections"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={phase === 'groups'}
-                  className={
-                    phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
-                  }
-                  onClick={() => goToPhase('groups')}
+          <div className="bf-toolbar-stack">
+            <div className="bf-toolbar">
+              {hasGroupUi && firstGroupStage ? (
+                <div
+                  className="bf-tabs"
+                  role="tablist"
+                  aria-label="Bracket sections"
                 >
-                  Group Stage
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={phase === 'knockout'}
-                  className={
-                    phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
-                  }
-                  onClick={() => goToPhase('knockout')}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={phase === 'groups'}
+                    className={
+                      phase === 'groups' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                    }
+                    onClick={() => goToPhase('groups')}
+                  >
+                    Group Stage
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={phase === 'knockout'}
+                    className={
+                      phase === 'knockout' ? 'bf-tab bf-tab--active' : 'bf-tab'
+                    }
+                    onClick={() => goToPhase('knockout')}
+                  >
+                    Knockout
+                  </button>
+                </div>
+              ) : null}
+              {showGroupResultsMode ? (
+                <div
+                  className="bf-group-mode"
+                  role="radiogroup"
+                  aria-label="Group results"
                 >
-                  Knockout
-                </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={groupResultsMode === 'live'}
+                    className={
+                      groupResultsMode === 'live'
+                        ? 'bf-group-mode__btn bf-group-mode__btn--active'
+                        : 'bf-group-mode__btn'
+                    }
+                    disabled={groupResultsModeBusy || busy}
+                    onClick={() => void onGroupResultsModeChange('live')}
+                  >
+                    Live
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={groupResultsMode === 'confirmed'}
+                    className={
+                      groupResultsMode === 'confirmed'
+                        ? 'bf-group-mode__btn bf-group-mode__btn--active'
+                        : 'bf-group-mode__btn'
+                    }
+                    disabled={groupResultsModeBusy || busy}
+                    onClick={() => void onGroupResultsModeChange('confirmed')}
+                  >
+                    Confirmed
+                  </button>
+                </div>
+              ) : null}
+              <div className="bf-toolbar__end">
+                {showPointsBadge ? (
+                  <p className="bf-toolbar__points" aria-live="polite">
+                    {points != null ? `${points} POINTS` : '— POINTS'}
+                  </p>
+                ) : null}
+                {showSubmit && !locked ? (
+                  <button
+                    type="button"
+                    className="btn btn--primary bf-toolbar__submit"
+                    disabled={
+                      submitBusy ||
+                      busy ||
+                      !detail.is_complete ||
+                      !!detail.submitted_at
+                    }
+                    onClick={() => void handleSubmit()}
+                  >
+                    {submitBusy
+                      ? 'Submitting…'
+                      : detail.submitted_at
+                        ? 'Submitted'
+                        : 'Submit Bracket'}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-            <div className="bf-toolbar__end">
-              {showPointsBadge ? (
-                <p className="bf-toolbar__points" aria-live="polite">
-                  {points != null ? `${points} POINTS` : '— POINTS'}
-                </p>
-              ) : null}
-              {showSubmit && !locked ? (
-                <button
-                  type="button"
-                  className="btn btn--primary bf-toolbar__submit"
-                  disabled={
-                    submitBusy ||
-                    busy ||
-                    !detail.is_complete ||
-                    !!detail.submitted_at
-                  }
-                  onClick={() => void handleSubmit()}
-                >
-                  {submitBusy
-                    ? 'Submitting…'
-                    : detail.submitted_at
-                      ? 'Submitted'
-                      : 'Submit Bracket'}
-                </button>
-              ) : null}
             </div>
+            {showLiveGroupResultsNote ? (
+              <p className="bf-group-mode-note">
+                Group stage results are not final. Bracket points are only
+                projections that assume that group standings hold.
+              </p>
+            ) : null}
           </div>
         );
       })()}

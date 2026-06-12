@@ -299,6 +299,10 @@ def _can_manage_bracket(user, challenge: BracketChallenge) -> bool:
     )
 
 
+def _can_edit_bracket_group_results_mode(user, bracket: Bracket) -> bool:
+    return user.is_staff
+
+
 def _normalize_display_name(raw: str) -> str:
     name = (raw or "").strip()
     if not name:
@@ -464,6 +468,46 @@ def bracket_detail(request: HttpRequest, bracket_id: int) -> JsonResponse:
         b, master_user_bracket_id=master_id, request=request
     )
     return JsonResponse({"bracket": detail})
+
+
+@require_http_methods(["PATCH"])
+def bracket_group_results_mode(
+    request: HttpRequest, bracket_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    bracket = get_object_or_404(Bracket.objects.prefetch_related("stages"), pk=bracket_id)
+    if not _can_edit_bracket_group_results_mode(user, bracket):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    from brackets.utils.group_results_mode import (
+        VALID_GROUP_RESULTS_MODES,
+        set_group_results_mode_on_metadata,
+    )
+
+    raw_mode = body.get("group_results_mode")
+    if raw_mode not in VALID_GROUP_RESULTS_MODES:
+        return _json_error("group_results_mode must be live or confirmed", 400)
+
+    bracket.metadata = set_group_results_mode_on_metadata(bracket.metadata, raw_mode)
+    with transaction.atomic():
+        bracket.save(update_fields=["metadata"])
+        from brackets.utils.leaderboard_scoring import bump_master_scoring_revision
+        from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
+
+        bump_master_scoring_revision(bracket)
+        bump_challenge_stats_for_bracket(bracket)
+
+    return JsonResponse(
+        {"bracket": serializers.bracket_detail(bracket, request=request)}
+    )
 
 
 @require_http_methods(["GET", "POST"])

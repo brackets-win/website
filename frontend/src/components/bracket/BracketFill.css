@@ -398,12 +398,56 @@
   margin-top: 0.15rem;
 }
 
+.bf-toolbar-stack {
+  margin-bottom: 1rem;
+}
+
 .bf-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem 1rem;
-  margin-bottom: 1rem;
+}
+
+.bf-group-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: var(--bf-surface);
+  border: 1px solid var(--bf-border);
+}
+
+.bf-group-mode__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--bf-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.bf-group-mode__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bf-group-mode__btn--active {
+  background: var(--bf-accent);
+  color: #fff;
+}
+
+.bf-group-mode-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--bf-muted);
 }
 
 .bf-toolbar .bf-tabs {
