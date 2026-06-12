@@ -11,7 +11,7 @@ from brackets.utils.challenge_types import uses_prediction_scoring
 from brackets.utils.leaderboard_scoring import (
     LeaderboardScoringContext,
     load_leaderboard_scoring_context,
-    total_score_for_user_bracket,
+    score_for_leaderboard_preview,
 )
 
 
@@ -191,7 +191,7 @@ def bracket_challenge_leaderboard_preview(
         .select_related("user", "bracket")
         .prefetch_related(matchup_prefetch)
     ):
-        score = total_score_for_user_bracket(ub, ctx)
+        score = score_for_leaderboard_preview(ub, ctx)
         if score is None:
             continue
         name = (ub.display_name or "").strip() or ub.user.username

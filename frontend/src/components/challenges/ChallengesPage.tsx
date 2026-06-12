@@ -17,7 +17,6 @@ import {
 } from '../../utils/api';
 import {
   getHomeSnapshot,
-  hasHomeSnapshot,
   invalidateHome,
   refreshHome,
   subscribeHome,
@@ -158,6 +157,9 @@ export function ChallengesPage() {
   );
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(() => initialHome == null);
+  const [challengesLoaded, setChallengesLoaded] = useState(
+    () => (initialHome?.challenges.length ?? 0) > 0,
+  );
   const [panel, setPanel] = useState<PanelState | null>(null);
   const [formErr, setFormErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -195,7 +197,9 @@ export function ChallengesPage() {
       if (prev !== '') return prev;
       return home.streakCompetitions[0]?.id ?? '';
     });
-    setLoading(false);
+    if (home.challenges.length > 0) {
+      setChallengesLoaded(true);
+    }
   }, []);
 
   useEffect(() => subscribeHome(() => {
@@ -205,10 +209,20 @@ export function ChallengesPage() {
 
   useEffect(() => {
     setLoadErr('');
-    void refreshHome().then(({ error }) => {
-      if (error && !hasHomeSnapshot()) {
+    void refreshHome([
+      'challenges',
+      'streaks',
+      'public',
+      'brackets',
+      'competitions',
+    ]).then(({ error, snapshot: refreshed }) => {
+      const hasCards =
+        (refreshed?.challenges.length ?? 0) > 0 ||
+        (refreshed?.streakChallenges.length ?? 0) > 0;
+      if (error && !hasCards) {
         setLoadErr(error);
       }
+      setChallengesLoaded(true);
       setLoading(false);
     });
   }, []);
@@ -479,7 +493,11 @@ export function ChallengesPage() {
   function renderActivityList(
     items: ChallengeSummary[],
     showDeadline: boolean,
+    loaded = true,
   ) {
+    if (!loaded && items.length === 0) {
+      return <p className="activity-section__empty">Loading…</p>;
+    }
     if (items.length === 0) {
       return <p className="activity-section__empty">None yet.</p>;
     }
@@ -708,14 +726,16 @@ export function ChallengesPage() {
 
       {loadErr ? <div className="alert alert--error">{loadErr}</div> : null}
 
-      {loading ? (
+      {loading &&
+      rows.length === 0 &&
+      streakRows.length === 0 ? (
         <p className="challenges-page__muted">Loading…</p>
       ) : (
         <div className="challenges-page__sections">
           {renderSection(
             'bracket_challenge',
             'Bracket Challenge',
-            renderActivityList(bracketChallengeRows, true),
+            renderActivityList(bracketChallengeRows, true, challengesLoaded),
             <form className="activity-panel__form" onSubmit={handleCreateBracketChallenge}>
               <div className="field">
                 <label htmlFor="bc-name">Challenge name</label>

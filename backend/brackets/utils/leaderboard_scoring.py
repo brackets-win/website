@@ -210,6 +210,25 @@ def total_score_for_user_bracket(
     return get_leaderboard_scores(ub, ctx, revision=revision).score
 
 
+def score_for_leaderboard_preview(
+    ub: UserBracket,
+    ctx: LeaderboardScoringContext,
+    *,
+    revision: int | None = None,
+) -> int | None:
+    """Current score for home-page cards — uses cache when warm, skips potential."""
+    if ub.is_master or ub.submitted_at is None:
+        return None
+    rev = revision if revision is not None else get_master_scoring_revision(ub.bracket)
+    cached = _read_cached_scores(ub, rev)
+    if cached is not None:
+        return cached.score
+    if not ctx.master:
+        return None
+    stage_scores = stage_scores_for_user_bracket(ub, ctx)
+    return sum(v for v in stage_scores.values() if v is not None)
+
+
 def stage_scores_for_user_bracket(
     ub: UserBracket,
     ctx: LeaderboardScoringContext,

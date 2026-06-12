@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import string
 from typing import Any
@@ -877,19 +878,24 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
             if is_participant
             else None
         )
-        rows.append(
-            serializers.challenge_summary(
-                c,
-                user=user,
-                user_bracket_id=ub.id if ub else None,
-                user_bracket=ub,
-                user_entries=ubs,
-                master_user_bracket_id=master_id,
-                can_manage_bracket=_can_manage_bracket(user, c),
-                request=request,
-                scoring_contexts=scoring_contexts,
+        try:
+            rows.append(
+                serializers.challenge_summary(
+                    c,
+                    user=user,
+                    user_bracket_id=ub.id if ub else None,
+                    user_bracket=ub,
+                    user_entries=ubs,
+                    master_user_bracket_id=master_id,
+                    can_manage_bracket=_can_manage_bracket(user, c),
+                    request=request,
+                    scoring_contexts=scoring_contexts,
+                )
             )
-        )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "challenge_summary failed for challenge %s", c.id
+            )
     return JsonResponse({"challenges": rows})
 
 

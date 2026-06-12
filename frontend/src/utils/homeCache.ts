@@ -58,6 +58,23 @@ function scopesToFetch(requested: HomeScope[]): HomeScope[] {
   return ALL_SCOPES.filter((scope) => out.has(scope));
 }
 
+function snapshotNeedsChallengesFetch(): boolean {
+  return (snapshot?.challenges.length ?? 0) === 0;
+}
+
+function defaultScopesToFetch(): HomeScope[] {
+  if (stale.size > 0) {
+    return [...stale];
+  }
+  if (snapshot == null) {
+    return ALL_SCOPES;
+  }
+  if (snapshotNeedsChallengesFetch()) {
+    return ['challenges'];
+  }
+  return [];
+}
+
 export function getHomeSnapshot(): HomeSnapshot | null {
   return snapshot;
 }
@@ -77,7 +94,19 @@ export function clearHomeCache() {
   snapshot = null;
   stale.clear();
   refreshGen += 1;
+  refreshInFlight = null;
   notify();
+}
+
+function scheduleRefreshIfNeeded() {
+  if (listeners.size === 0 || refreshInFlight != null) {
+    return;
+  }
+  const scopes = defaultScopesToFetch();
+  if (scopes.length === 0) {
+    return;
+  }
+  void refreshHome(scopes);
 }
 
 export function invalidateHome(...scopes: HomeScope[]) {
@@ -86,13 +115,26 @@ export function invalidateHome(...scopes: HomeScope[]) {
   } else {
     for (const scope of scopes) stale.add(scope);
   }
-  void refreshHome();
+  scheduleRefreshIfNeeded();
 }
 
+let masterInvalidateTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function invalidateHomeForUserBracket(ub: UserBracketDetail) {
-  if (ub.is_master || ub.challenge_id != null) {
-    invalidateHome('challenges');
+  if (!ub.is_master && ub.challenge_id == null) return;
+
+  if (ub.is_master) {
+    if (masterInvalidateTimer != null) {
+      clearTimeout(masterInvalidateTimer);
+    }
+    masterInvalidateTimer = setTimeout(() => {
+      masterInvalidateTimer = null;
+      invalidateHome('challenges');
+    }, 750);
+    return;
   }
+
+  invalidateHome('challenges');
 }
 
 export function invalidateHomeForStreakCompetition(_competitionId: number) {
@@ -109,38 +151,27 @@ function emptySnapshot(): HomeSnapshot {
   };
 }
 
-function ensureSnapshot(): HomeSnapshot {
-  if (!snapshot) {
-    snapshot = emptySnapshot();
-  }
-  return snapshot;
-}
-
 export function upsertHomeChallenge(challenge: ChallengeSummary) {
-  const next = ensureSnapshot();
-  const idx = next.challenges.findIndex((row) => row.id === challenge.id);
-  if (idx < 0) {
-    next.challenges = [challenge, ...next.challenges];
-  } else {
-    const challenges = [...next.challenges];
-    challenges[idx] = challenge;
-    next.challenges = challenges;
-  }
+  const prev = snapshot ?? emptySnapshot();
+  const idx = prev.challenges.findIndex((row) => row.id === challenge.id);
+  const challenges =
+    idx < 0
+      ? [challenge, ...prev.challenges]
+      : prev.challenges.map((row, i) => (i === idx ? challenge : row));
+  snapshot = { ...prev, challenges };
   notify();
 }
 
 export function upsertHomeStreakChallenge(streakChallenge: StreakChallengeSummary) {
-  const next = ensureSnapshot();
-  const idx = next.streakChallenges.findIndex(
+  const prev = snapshot ?? emptySnapshot();
+  const idx = prev.streakChallenges.findIndex(
     (row) => row.id === streakChallenge.id,
   );
-  if (idx < 0) {
-    next.streakChallenges = [streakChallenge, ...next.streakChallenges];
-  } else {
-    const streakChallenges = [...next.streakChallenges];
-    streakChallenges[idx] = streakChallenge;
-    next.streakChallenges = streakChallenges;
-  }
+  const streakChallenges =
+    idx < 0
+      ? [streakChallenge, ...prev.streakChallenges]
+      : prev.streakChallenges.map((row, i) => (i === idx ? streakChallenge : row));
+  snapshot = { ...prev, streakChallenges };
   notify();
 }
 
@@ -152,9 +183,7 @@ export type RefreshHomeResult = {
 export async function refreshHome(
   scopes?: HomeScope[],
 ): Promise<RefreshHomeResult> {
-  const toFetch = scopesToFetch(
-    scopes ?? (stale.size > 0 ? [...stale] : snapshot ? [] : ALL_SCOPES),
-  );
+  const toFetch = scopesToFetch(scopes ?? defaultScopesToFetch());
   if (toFetch.length === 0) {
     return { snapshot };
   }
@@ -164,14 +193,16 @@ export async function refreshHome(
   }
 
   const gen = ++refreshGen;
-  refreshInFlight = (async () => {
+  refreshInFlight = (async (): Promise<RefreshHomeResult> => {
     const errors: string[] = [];
+    const succeeded = new Set<HomeScope>();
+    const previous = snapshot;
     const next: HomeSnapshot = {
-      challenges: snapshot?.challenges ?? [],
-      streakChallenges: snapshot?.streakChallenges ?? [],
-      publicChallenges: snapshot?.publicChallenges ?? [],
-      brackets: snapshot?.brackets ?? [],
-      streakCompetitions: snapshot?.streakCompetitions ?? [],
+      challenges: previous?.challenges ?? [],
+      streakChallenges: previous?.streakChallenges ?? [],
+      publicChallenges: previous?.publicChallenges ?? [],
+      brackets: previous?.brackets ?? [],
+      streakCompetitions: previous?.streakCompetitions ?? [],
     };
 
     const tasks: Promise<void>[] = [];
@@ -181,6 +212,7 @@ export async function refreshHome(
         listMyChallenges()
           .then(({ challenges }) => {
             next.challenges = challenges;
+            succeeded.add('challenges');
           })
           .catch((e) => {
             errors.push(
@@ -197,9 +229,9 @@ export async function refreshHome(
         listMyStreakChallenges()
           .then(({ streak_challenges }) => {
             next.streakChallenges = streak_challenges;
+            succeeded.add('streaks');
           })
           .catch((e) => {
-            next.streakChallenges = [];
             errors.push(
               e instanceof ApiError
                 ? e.message
@@ -214,6 +246,7 @@ export async function refreshHome(
         listPublicChallenges()
           .then(({ challenges }) => {
             next.publicChallenges = challenges;
+            succeeded.add('public');
           })
           .catch((e) => {
             errors.push(
@@ -230,6 +263,7 @@ export async function refreshHome(
         listBrackets()
           .then(({ brackets }) => {
             next.brackets = brackets;
+            succeeded.add('brackets');
           })
           .catch((e) => {
             errors.push(
@@ -246,9 +280,9 @@ export async function refreshHome(
             next.streakCompetitions = streak_competitions.filter(
               (c) => !c.is_over,
             );
+            succeeded.add('competitions');
           })
           .catch((e) => {
-            next.streakCompetitions = [];
             errors.push(
               e instanceof ApiError
                 ? e.message
@@ -258,24 +292,50 @@ export async function refreshHome(
       );
     }
 
-    await Promise.all(tasks);
+    try {
+      await Promise.all(tasks);
 
-    if (gen !== refreshGen) {
-      return { snapshot };
+      if (gen !== refreshGen) {
+        return { snapshot };
+      }
+
+      const challengesFailed =
+        toFetch.includes('challenges') && !succeeded.has('challenges');
+
+      for (const scope of toFetch) {
+        if (succeeded.has(scope)) {
+          stale.delete(scope);
+        }
+      }
+
+      if (challengesFailed && (previous?.challenges.length ?? 0) > 0) {
+        next.challenges = previous!.challenges;
+      }
+
+      const shouldCommit =
+        succeeded.size > 0 ||
+        (previous != null && !challengesFailed) ||
+        (!challengesFailed && !toFetch.includes('challenges'));
+
+      if (shouldCommit) {
+        snapshot = next;
+        notify();
+      }
+
+      if (challengesFailed) {
+        stale.add('challenges');
+      }
+
+      return {
+        snapshot,
+        error: errors[0],
+      };
+    } finally {
+      refreshInFlight = null;
+      if (gen === refreshGen) {
+        scheduleRefreshIfNeeded();
+      }
     }
-
-    for (const scope of toFetch) {
-      stale.delete(scope);
-    }
-
-    snapshot = next;
-    notify();
-    refreshInFlight = null;
-
-    return {
-      snapshot,
-      error: errors[0],
-    };
   })();
 
   return refreshInFlight;
