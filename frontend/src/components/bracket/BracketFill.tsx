@@ -396,12 +396,6 @@ export function BracketFill({
     hasGroupUi &&
     !!firstGroupStage;
 
-  const showLiveGroupResultsNote =
-    groupResultsMode === 'live' &&
-    hasGroupUi &&
-    !!firstGroupStage &&
-    !showGroupResultsModeControl;
-
   const onGroupResultsModeChange = useCallback(
     async (next: GroupResultsMode) => {
       if (!bracketDef || next === groupResultsMode || groupResultsModeBusy) return;
@@ -767,7 +761,7 @@ export function BracketFill({
           (showSubmit && !locked) ||
           showPointsBadge ||
           showGroupResultsMode;
-        if (!showToolbar && !showLiveGroupResultsNote) return null;
+        if (!showToolbar) return null;
         const points =
           detail.score_vs_master != null ? detail.score_vs_master : null;
         return (
@@ -866,12 +860,6 @@ export function BracketFill({
                 ) : null}
               </div>
             </div>
-            {showLiveGroupResultsNote ? (
-              <p className="bf-group-mode-note">
-                Group stage results are not final. Bracket points are only
-                projections that assume that group standings hold.
-              </p>
-            ) : null}
           </div>
         );
       })()}

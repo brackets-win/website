@@ -18,6 +18,7 @@ from brackets.models import (
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import deadline_passed
+from brackets.utils.group_results_mode import show_live_group_results_note_for_bracket
 from brackets.utils.leaderboard_preview import bracket_challenge_leaderboard_preview
 from brackets.utils.challenge_types import (
     CHALLENGE,
@@ -460,6 +461,11 @@ def challenge_summary(
             scoring_context=(
                 scoring_contexts.get(c.bracket_id) if scoring_contexts else None
             ),
+        ),
+        "show_live_group_results_note": (
+            show_live_group_results_note_for_bracket(c.bracket)
+            if c.instance_type == CHALLENGE
+            else False
         ),
     }
 

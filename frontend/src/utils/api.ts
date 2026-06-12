@@ -80,6 +80,7 @@ export type ChallengeSummary = {
   tournament_team_count?: number | null;
   teams_configured?: boolean | null;
   leaderboard_preview?: LeaderboardPreview;
+  show_live_group_results_note?: boolean;
 };
 
 export type TournamentTeamRow = {

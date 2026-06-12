@@ -28,3 +28,18 @@ def set_group_results_mode_on_metadata(
     base = dict(metadata) if isinstance(metadata, dict) else {}
     base[GROUP_RESULTS_MODE_KEY] = mode
     return base
+
+
+def show_live_group_results_note_for_bracket(bracket) -> bool:
+    """True when group UI exists and bracket metadata marks results as live."""
+    from brackets.api.serializers import bracket_groups_preview
+    from brackets.models import BracketStage
+
+    has_group_stage = bracket.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ).exists()
+    if not has_group_stage:
+        return False
+    if not bracket_groups_preview(bracket):
+        return False
+    return group_results_mode_from_metadata(bracket.metadata) == "live"

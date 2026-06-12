@@ -629,6 +629,17 @@ export function ChallengeView({
         </button>
       </nav>
 
+      {!viewingPlayer &&
+      tab === 'leaderboard' &&
+      showLeaderboard &&
+      isBracketChallenge &&
+      challenge.show_live_group_results_note ? (
+        <p className="challenge-view__live-note">
+          Group stage results are not final. Bracket points are only projections
+          that assume that group standings hold.
+        </p>
+      ) : null}
+
       {viewingPlayer ? (
         <section className="challenge-view__player-bracket card">
           <div className="challenge-view__player-bracket-head">
