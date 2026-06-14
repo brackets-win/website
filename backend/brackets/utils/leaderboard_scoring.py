@@ -1,4 +1,4 @@
-"""Shared scoring context for leaderboard endpoints and home-page previews."""
+"""Materialized leaderboard scores — compute on write, read on GET."""
 
 from __future__ import annotations
 
@@ -34,6 +34,12 @@ class LeaderboardScoreBundle:
     stage_scores: dict[str, int | None]
 
 
+@dataclass(frozen=True)
+class _ScoringExtras:
+    main_ko_stages: list[BracketStage]
+    groups_preview: list
+
+
 _MATCHUP_PREFETCH = Prefetch(
     "matchup_set",
     queryset=Matchup.objects.select_related(
@@ -59,7 +65,13 @@ def bump_master_scoring_revision(bracket: Bracket) -> int:
     return revision
 
 
-def _read_cached_scores(
+def on_master_bracket_changed(bracket: Bracket) -> int:
+    """Invalidate master revision and recompute all submitted user brackets."""
+    bump_master_scoring_revision(bracket)
+    return refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+
+
+def _read_metadata_scores(
     ub: UserBracket, revision: int
 ) -> LeaderboardScoreBundle | None:
     meta = ub.metadata if isinstance(ub.metadata, dict) else {}
@@ -78,11 +90,71 @@ def _read_cached_scores(
     )
 
 
-def _write_cached_scores(
+def _bundle_from_stored_fields(ub: UserBracket) -> LeaderboardScoreBundle | None:
+    if ub.leaderboard_score is None:
+        return None
+    stage_scores = ub.leaderboard_stage_scores
+    if not isinstance(stage_scores, dict):
+        stage_scores = {}
+    return LeaderboardScoreBundle(
+        score=ub.leaderboard_score,
+        potential=ub.leaderboard_potential,
+        stage_scores=stage_scores,
+    )
+
+
+def read_stored_leaderboard_scores(
+    ub: UserBracket,
+    *,
+    revision: int | None = None,
+) -> LeaderboardScoreBundle:
+    """Read materialized scores only — never computes on the request path."""
+    if ub.is_master or ub.submitted_at is None:
+        return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
+
+    rev = revision if revision is not None else get_master_scoring_revision(ub.bracket)
+
+    if ub.leaderboard_scores_revision == rev:
+        current = _bundle_from_stored_fields(ub)
+        if current is not None:
+            return current
+
+    legacy = _read_metadata_scores(ub, rev)
+    if legacy is not None:
+        return legacy
+
+    stale = _bundle_from_stored_fields(ub)
+    if stale is not None:
+        return stale
+
+    return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
+
+
+def get_leaderboard_scores(
+    ub: UserBracket,
+    ctx: LeaderboardScoringContext | None = None,
+    *,
+    revision: int | None = None,
+    main_ko_stages=None,
+    groups_preview=None,
+    knockout_by_id=None,
+    write_cache: bool = True,
+) -> LeaderboardScoreBundle:
+    """Backward-compatible alias for read_stored_leaderboard_scores."""
+    del ctx, main_ko_stages, groups_preview, knockout_by_id, write_cache
+    return read_stored_leaderboard_scores(ub, revision=revision)
+
+
+def _write_stored_scores(
     ub: UserBracket,
     revision: int,
     bundle: LeaderboardScoreBundle,
 ) -> None:
+    ub.leaderboard_score = bundle.score
+    ub.leaderboard_potential = bundle.potential
+    ub.leaderboard_stage_scores = bundle.stage_scores
+    ub.leaderboard_scores_revision = revision
+
     meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
     meta[LEADERBOARD_SCORES_KEY] = {
         "revision": revision,
@@ -91,7 +163,15 @@ def _write_cached_scores(
         "stage_scores": bundle.stage_scores,
     }
     ub.metadata = meta
-    ub.save(update_fields=["metadata"])
+    ub.save(
+        update_fields=[
+            "leaderboard_score",
+            "leaderboard_potential",
+            "leaderboard_stage_scores",
+            "leaderboard_scores_revision",
+            "metadata",
+        ]
+    )
 
 
 def _compute_leaderboard_scores(
@@ -120,42 +200,7 @@ def _compute_leaderboard_scores(
     )
 
 
-def get_leaderboard_scores(
-    ub: UserBracket,
-    ctx: LeaderboardScoringContext,
-    *,
-    revision: int | None = None,
-    main_ko_stages=None,
-    groups_preview=None,
-    knockout_by_id=None,
-    write_cache: bool = True,
-) -> LeaderboardScoreBundle:
-    if ub.is_master or ub.submitted_at is None:
-        return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
-
-    rev = revision if revision is not None else get_master_scoring_revision(ub.bracket)
-    cached = _read_cached_scores(ub, rev)
-    if cached is not None:
-        return cached
-
-    bundle = _compute_leaderboard_scores(
-        ub,
-        ctx,
-        main_ko_stages=main_ko_stages,
-        groups_preview=groups_preview,
-        knockout_by_id=knockout_by_id,
-    )
-    if write_cache and ctx.master is not None:
-        _write_cached_scores(ub, rev, bundle)
-    return bundle
-
-
-def refresh_user_bracket_leaderboard_cache(ub: UserBracket) -> None:
-    if ub.is_master or ub.submitted_at is None:
-        return
-    ctx = load_leaderboard_scoring_context(ub.bracket)
-    if not ctx.master:
-        return
+def _scoring_extras(ctx: LeaderboardScoringContext) -> _ScoringExtras:
     from brackets.api.serializers import bracket_groups_preview
 
     third_place_ids = {
@@ -167,15 +212,54 @@ def refresh_user_bracket_leaderboard_cache(ub: UserBracket) -> None:
         if s.stage_type == BracketStage.StageType.KNOCKOUT
         and s.pk not in third_place_ids
     ]
+    return _ScoringExtras(
+        main_ko_stages=main_ko_stages,
+        groups_preview=bracket_groups_preview(ctx.master.bracket),
+    )
+
+
+def refresh_user_bracket_leaderboard_cache(ub: UserBracket) -> None:
+    if ub.is_master or ub.submitted_at is None:
+        return
+    ctx = load_leaderboard_scoring_context(ub.bracket)
+    if not ctx.master:
+        return
+    extras = _scoring_extras(ctx)
     revision = get_master_scoring_revision(ub.bracket)
     bundle = _compute_leaderboard_scores(
         ub,
         ctx,
-        main_ko_stages=main_ko_stages,
-        groups_preview=bracket_groups_preview(ub.bracket),
+        main_ko_stages=extras.main_ko_stages,
+        groups_preview=extras.groups_preview,
         knockout_by_id=ctx.knockout_by_id,
     )
-    _write_cached_scores(ub, revision, bundle)
+    _write_stored_scores(ub, revision, bundle)
+
+
+def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> int:
+    ctx = load_leaderboard_scoring_context(bracket)
+    if not ctx.master:
+        return 0
+
+    extras = _scoring_extras(ctx)
+    revision = get_master_scoring_revision(bracket)
+    ubs = list(
+        UserBracket.objects.filter(
+            bracket=bracket,
+            is_master=False,
+            submitted_at__isnull=False,
+        ).prefetch_related(_MATCHUP_PREFETCH)
+    )
+    for ub in ubs:
+        bundle = _compute_leaderboard_scores(
+            ub,
+            ctx,
+            main_ko_stages=extras.main_ko_stages,
+            groups_preview=extras.groups_preview,
+            knockout_by_id=ctx.knockout_by_id,
+        )
+        _write_stored_scores(ub, revision, bundle)
+    return len(ubs)
 
 
 def load_leaderboard_scoring_context(bracket: Bracket) -> LeaderboardScoringContext:
@@ -203,30 +287,22 @@ def load_leaderboard_scoring_context(bracket: Bracket) -> LeaderboardScoringCont
 
 def total_score_for_user_bracket(
     ub: UserBracket,
-    ctx: LeaderboardScoringContext,
+    ctx: LeaderboardScoringContext | None = None,
     *,
     revision: int | None = None,
 ) -> int | None:
-    return get_leaderboard_scores(ub, ctx, revision=revision).score
+    del ctx
+    return read_stored_leaderboard_scores(ub, revision=revision).score
 
 
 def score_for_leaderboard_preview(
     ub: UserBracket,
-    ctx: LeaderboardScoringContext,
+    ctx: LeaderboardScoringContext | None = None,
     *,
     revision: int | None = None,
 ) -> int | None:
-    """Current score for home-page cards — uses cache when warm, skips potential."""
-    if ub.is_master or ub.submitted_at is None:
-        return None
-    rev = revision if revision is not None else get_master_scoring_revision(ub.bracket)
-    cached = _read_cached_scores(ub, rev)
-    if cached is not None:
-        return cached.score
-    if not ctx.master:
-        return None
-    stage_scores = stage_scores_for_user_bracket(ub, ctx)
-    return sum(v for v in stage_scores.values() if v is not None)
+    del ctx
+    return read_stored_leaderboard_scores(ub, revision=revision).score
 
 
 def stage_scores_for_user_bracket(

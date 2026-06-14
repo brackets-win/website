@@ -16,6 +16,9 @@ from brackets.utils.leaderboard_preview import (
     bracket_challenge_leaderboard_preview,
     streak_challenge_leaderboard_preview,
 )
+from brackets.utils.leaderboard_scoring import (
+    refresh_all_submitted_leaderboard_scores_for_bracket,
+)
 
 User = get_user_model()
 
@@ -51,6 +54,7 @@ class LeaderboardPreviewTests(TestCase):
         ub_alice.save(update_fields=["submitted_at"])
         ub_bob.submitted_at = timezone.now()
         ub_bob.save(update_fields=["submitted_at"])
+        refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
 
         preview = bracket_challenge_leaderboard_preview(challenge, u1)
         self.assertEqual(len(preview["top"]), 2)

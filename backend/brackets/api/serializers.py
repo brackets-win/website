@@ -264,13 +264,9 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     if ub.is_master:
         out["score_vs_master"] = None
     elif can_show_scoring:
-        from brackets.utils.leaderboard_scoring import (
-            get_leaderboard_scores,
-            load_leaderboard_scoring_context,
-        )
+        from brackets.utils.leaderboard_scoring import read_stored_leaderboard_scores
 
-        ctx = load_leaderboard_scoring_context(ub.bracket)
-        out["score_vs_master"] = get_leaderboard_scores(ub, ctx).score
+        out["score_vs_master"] = read_stored_leaderboard_scores(ub).score
     else:
         out["score_vs_master"] = None
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
@@ -353,7 +349,6 @@ def challenge_summary(
     master_user_bracket_id: int | None = None,
     can_manage_bracket: bool = False,
     request=None,
-    scoring_contexts: dict | None = None,
 ) -> dict[str, Any]:
     passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
@@ -458,9 +453,6 @@ def challenge_summary(
         "leaderboard_preview": bracket_challenge_leaderboard_preview(
             c,
             user,
-            scoring_context=(
-                scoring_contexts.get(c.bracket_id) if scoring_contexts else None
-            ),
         ),
         "show_live_group_results_note": (
             show_live_group_results_note_for_bracket(c.bracket)

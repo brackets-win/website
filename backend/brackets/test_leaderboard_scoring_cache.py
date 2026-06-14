@@ -8,10 +8,11 @@ from brackets.models import BracketChallenge, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.leaderboard_scoring import (
     LEADERBOARD_SCORES_KEY,
-    bump_master_scoring_revision,
-    get_leaderboard_scores,
     get_master_scoring_revision,
     load_leaderboard_scoring_context,
+    on_master_bracket_changed,
+    read_stored_leaderboard_scores,
+    refresh_all_submitted_leaderboard_scores_for_bracket,
     refresh_user_bracket_leaderboard_cache,
 )
 
@@ -37,34 +38,49 @@ class LeaderboardScoringCacheTests(TestCase):
             submitted_at=timezone.now(),
         )
 
-    def test_scores_are_cached_on_first_read(self):
-        ctx = load_leaderboard_scoring_context(self.bracket)
-        get_leaderboard_scores(self.ub, ctx)
+    def test_refresh_writes_materialized_columns(self):
+        refresh_user_bracket_leaderboard_cache(self.ub)
         self.ub.refresh_from_db()
+        self.assertIsNotNone(self.ub.leaderboard_score)
+        self.assertEqual(
+            self.ub.leaderboard_scores_revision,
+            get_master_scoring_revision(self.bracket),
+        )
         cache = self.ub.metadata.get(LEADERBOARD_SCORES_KEY)
         self.assertIsInstance(cache, dict)
         self.assertEqual(cache["revision"], get_master_scoring_revision(self.bracket))
 
-    def test_master_bump_invalidates_cached_scores(self):
-        ctx = load_leaderboard_scoring_context(self.bracket)
-        get_leaderboard_scores(self.ub, ctx)
+    def test_read_does_not_compute_on_miss(self):
+        bundle = read_stored_leaderboard_scores(self.ub)
+        self.assertIsNone(bundle.score)
+        self.ub.refresh_from_db()
+        self.assertIsNone(self.ub.leaderboard_score)
+
+    def test_master_change_recomputes_all_submitted(self):
+        refresh_user_bracket_leaderboard_cache(self.ub)
         old_revision = get_master_scoring_revision(self.bracket)
-        bump_master_scoring_revision(self.bracket)
+        on_master_bracket_changed(self.bracket)
         self.ub.refresh_from_db()
-        cache = self.ub.metadata.get(LEADERBOARD_SCORES_KEY)
-        self.assertEqual(cache["revision"], old_revision)
-        bundle = get_leaderboard_scores(
-            self.ub, ctx, revision=get_master_scoring_revision(self.bracket)
+        self.assertEqual(
+            self.ub.leaderboard_scores_revision,
+            get_master_scoring_revision(self.bracket),
         )
-        self.ub.refresh_from_db()
-        new_cache = self.ub.metadata.get(LEADERBOARD_SCORES_KEY)
-        self.assertEqual(new_cache["revision"], get_master_scoring_revision(self.bracket))
+        self.assertNotEqual(
+            get_master_scoring_revision(self.bracket),
+            old_revision,
+        )
+        bundle = read_stored_leaderboard_scores(self.ub)
         self.assertIsNotNone(bundle.score)
 
-    def test_refresh_updates_cache_after_user_pick_change(self):
-        ctx = load_leaderboard_scoring_context(self.bracket)
-        get_leaderboard_scores(self.ub, ctx)
-        refresh_user_bracket_leaderboard_cache(self.ub)
+    def test_refresh_all_submitted_for_bracket(self):
+        count = refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        self.assertEqual(count, 1)
         self.ub.refresh_from_db()
-        cache = self.ub.metadata.get(LEADERBOARD_SCORES_KEY)
-        self.assertEqual(cache["revision"], get_master_scoring_revision(self.bracket))
+        self.assertIsNotNone(self.ub.leaderboard_score)
+
+    def test_read_returns_stored_after_refresh(self):
+        ctx = load_leaderboard_scoring_context(self.bracket)
+        del ctx
+        refresh_user_bracket_leaderboard_cache(self.ub)
+        bundle = read_stored_leaderboard_scores(self.ub)
+        self.assertIsNotNone(bundle.score)
