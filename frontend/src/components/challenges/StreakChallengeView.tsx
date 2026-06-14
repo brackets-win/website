@@ -421,7 +421,7 @@ export function StreakChallengeView({
             ) : null}
             <p className="streak-view__stat">
               <span className="streak-view__stat-group">
-                <span className="streak-view__stat-label">LONG</span>
+                <span className="streak-view__stat-label">BEST</span>
                 <span className="streak-view__stat-value">
                   {summary.long_win_display}
                 </span>
@@ -580,7 +580,7 @@ export function StreakChallengeView({
               create the longest winning streak with correct picks.
             </li>
             <li>
-              Tiebreakers: Long Streak, then Current Streak, then Wins, then Win %
+              Tiebreakers: Best Streak, then Current Streak, then Wins, then Win %
             </li>
           </ul>
         </section>

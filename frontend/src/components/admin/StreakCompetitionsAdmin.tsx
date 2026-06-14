@@ -40,9 +40,9 @@ function isPastDeadline(closesAt: string): boolean {
 function sortQuestions(items: StreakCompetitionQuestionAdmin[]) {
   return [...items].sort((a, b) => {
     const byClose =
-      new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime();
+      new Date(b.closes_at).getTime() - new Date(a.closes_at).getTime();
     if (byClose !== 0) return byClose;
-    return a.id - b.id;
+    return b.id - a.id;
   });
 }
 

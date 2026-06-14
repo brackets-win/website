@@ -148,11 +148,11 @@ const SORT_OPTIONS: {
 }[] = [
   { key: 'rank', label: '#', mobileLabel: 'Rank' },
   { key: 'player', label: 'Player' },
-  { key: 'long_w', label: 'Long W' },
+  { key: 'long_w', label: 'Best' },
   { key: 'current', label: 'Current' },
   { key: 'record', label: 'Record' },
   { key: 'win_pct', label: 'Win %' },
-  { key: 'long_l', label: 'Long L' },
+  { key: 'long_l', label: 'Worst' },
 ];
 
 export function StreakLeaderboard({
@@ -252,7 +252,7 @@ export function StreakLeaderboard({
                     ) : null}
                   </button>
                   <div className="leaderboard-card__hero">
-                    <span className="leaderboard-card__total-label">Long</span>
+                    <span className="leaderboard-card__total-label">Best</span>
                     <span className="leaderboard-card__total">
                       {e.long_win_display}
                     </span>
@@ -268,7 +268,7 @@ export function StreakLeaderboard({
                     <dd>{e.record}</dd>
                   </div>
                   <div className="leaderboard-card__stat">
-                    <dt>Long L</dt>
+                    <dt>Worst</dt>
                     <dd>{e.long_loss_display}</dd>
                   </div>
                   <div className="leaderboard-card__stat">
@@ -312,7 +312,7 @@ export function StreakLeaderboard({
                 </button>
               </th>
               <SortableHeader
-                label="Long W"
+                label="Best"
                 sortKey="long_w"
                 sort={sort}
                 onSort={onSort}
@@ -336,7 +336,7 @@ export function StreakLeaderboard({
                 onSort={onSort}
               />
               <SortableHeader
-                label="Long L"
+                label="Worst"
                 sortKey="long_l"
                 sort={sort}
                 onSort={onSort}
