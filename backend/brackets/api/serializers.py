@@ -179,7 +179,10 @@ def bracket_detail(
 ) -> dict[str, Any]:
     stages = [stage_public(s) for s in b.stages.all()]
     contestants = [
-        contestant_public(bc) for bc in b.bracket_contestants.select_related("contestant")
+        contestant_public(bc)
+        for bc in b.bracket_contestants.select_related("contestant").prefetch_related(
+            "contestant__tags"
+        )
     ]
     out = bracket_summary(b, request)
     out["stages"] = stages
@@ -240,6 +243,11 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
             "contestant2__contestant",
             "winner",
             "winner__contestant",
+        )
+        .prefetch_related(
+            "contestant1__contestant__tags",
+            "contestant2__contestant__tags",
+            "winner__contestant__tags",
         )
         .order_by("stage__order", "position")
     )

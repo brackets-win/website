@@ -10,6 +10,7 @@ from django.core.cache import cache
 from brackets.models import Contestant
 
 FLAGCDN_BASE = "https://flagcdn.com"
+FLAGCDN_FLAG_WIDTH = "w40"
 NATION_TAG_NAME = "nation"
 CLUB_TAG_NAME = "club"
 THESPORTSDB_LOOKUP_URL = "https://www.thesportsdb.com/api/v1/json/3/lookupteam.php?id={team_id}"
@@ -104,7 +105,11 @@ NATION_FLAG_CODES: dict[str, str] = {
 def _contestant_tag_names_lower(contestant: Contestant) -> set[str]:
     prefetched = getattr(contestant, "_prefetched_objects_cache", None)
     if prefetched is not None and "tags" in prefetched:
-        return {t.name.lower() for t in contestant.tags.all()}
+        cached = {t.name.lower() for t in contestant.tags.all()}
+        if cached:
+            return cached
+        # Empty prefetch can be stale; confirm from the database.
+        del prefetched["tags"]
     return {n.lower() for n in contestant.tags.values_list("name", flat=True)}
 
 
@@ -120,7 +125,7 @@ def nation_flag_url(contestant: Contestant | None) -> str | None:
     code = NATION_FLAG_CODES.get((contestant.identifier or "").strip().lower())
     if not code:
         return None
-    return f"{FLAGCDN_BASE}/{code}.svg"
+    return f"{FLAGCDN_BASE}/{FLAGCDN_FLAG_WIDTH}/{code}.png"
 
 
 def _club_team_id(contestant: Contestant) -> str | None:

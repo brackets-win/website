@@ -30,7 +30,7 @@ class NationFlagFallbackTests(TestCase):
         )
 
         payload = contestant_public(bc)
-        self.assertEqual(payload["image_url"], "https://flagcdn.com/gb-eng.svg")
+        self.assertEqual(payload["image_url"], "https://flagcdn.com/w40/gb-eng.png")
 
     def test_nation_flag_overrides_uploaded_photo(self):
         bracket = create_bracket_with_structure(
@@ -60,7 +60,7 @@ class NationFlagFallbackTests(TestCase):
         )
 
         payload = contestant_public(bc)
-        self.assertEqual(payload["image_url"], "https://flagcdn.com/gb-eng.svg")
+        self.assertEqual(payload["image_url"], "https://flagcdn.com/w40/gb-eng.png")
 
     def test_contestant_public_does_not_fallback_without_nation_tag(self):
         bracket = create_bracket_with_structure(
@@ -77,6 +77,24 @@ class NationFlagFallbackTests(TestCase):
 
         payload = contestant_public(bc)
         self.assertIsNone(payload["image_url"])
+
+    def test_nation_flag_ignores_stale_empty_tag_prefetch(self):
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "flag-prefetch", "Flag Prefetch", 4, self.user
+        )
+        england = Contestant.objects.create(
+            identifier="england",
+            name="England",
+            created_by=self.user,
+        )
+        england.tags.add(self.nation)
+        bc = BracketContestant.objects.create(
+            bracket=bracket, contestant=england, seed=1
+        )
+        bc.contestant._prefetched_objects_cache = {"tags": []}
+
+        payload = contestant_public(bc)
+        self.assertEqual(payload["image_url"], "https://flagcdn.com/w40/gb-eng.png")
 
     def test_top_four_serialization_uses_nation_flag_fallback(self):
         bracket = create_bracket_with_structure(
@@ -117,5 +135,5 @@ class NationFlagFallbackTests(TestCase):
         fm.save()
 
         top4 = serialize_top_four_picks(ub)
-        self.assertEqual(top4[0]["image_url"], "https://flagcdn.com/gb-eng.svg")
-        self.assertEqual(top4[1]["image_url"], "https://flagcdn.com/gb-wls.svg")
+        self.assertEqual(top4[0]["image_url"], "https://flagcdn.com/w40/gb-eng.png")
+        self.assertEqual(top4[1]["image_url"], "https://flagcdn.com/w40/gb-wls.png")

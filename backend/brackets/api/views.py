@@ -1144,6 +1144,10 @@ def challenge_leaderboard(
         "contestant1__contestant",
         "contestant2__contestant",
         "stage",
+    ).prefetch_related(
+        "winner__contestant__tags",
+        "contestant1__contestant__tags",
+        "contestant2__contestant__tags",
     )
     entries = []
     for ub in (

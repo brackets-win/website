@@ -11,6 +11,8 @@ import {
   type UserBracketDetail,
 } from '../../utils/api';
 
+import { ContestantAvatar } from './ContestantAvatar';
+
 const GROUP_SAVE_DEBOUNCE_MS = 0;
 import { thirdPlaceAdvanceCount } from '../../utils/groupStageConfig';
 
@@ -359,13 +361,12 @@ function ContestantChip({
             ✓
           </span>
         ) : null}
-        {contestant.image_url ? (
-          <img className="bf-g-chip-img" src={contestant.image_url} alt="" />
-        ) : (
-          <span className="bf-g-chip-img bf-g-chip-img--ph" aria-hidden>
-            {contestant.display_name.charAt(0)}
-          </span>
-        )}
+        <ContestantAvatar
+          displayName={contestant.display_name}
+          imageUrl={contestant.image_url}
+          className="bf-g-chip-img"
+          placeholderClassName="bf-g-chip-img bf-g-chip-img--ph"
+        />
         <span className="bf-g-chip-name">{contestant.display_name}</span>
       </button>
       {onClear && !readOnly ? (

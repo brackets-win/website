@@ -31,6 +31,7 @@ import {
   invalidateHome,
   invalidateHomeForUserBracket,
 } from '../../utils/homeCache';
+import { ContestantAvatar } from './ContestantAvatar';
 import { GroupStagePanel } from './GroupStagePanel';
 import {
   buildMirrorBracketLayout,
@@ -155,13 +156,12 @@ function MatchupContestantFace({
 }) {
   return (
     <>
-      {contestant.image_url ? (
-        <img className="bf-ko-img" src={contestant.image_url} alt="" />
-      ) : (
-        <span className="bf-ko-img bf-ko-img--ph" aria-hidden>
-          {contestant.display_name.charAt(0)}
-        </span>
-      )}
+      <ContestantAvatar
+        displayName={contestant.display_name}
+        imageUrl={contestant.image_url}
+        className="bf-ko-img"
+        placeholderClassName="bf-ko-img bf-ko-img--ph"
+      />
       <span className="bf-ko-name">{contestant.display_name}</span>
       {showSeed && contestant.seed != null ? (
         <span className="bf-ko-seed">#{contestant.seed}</span>
