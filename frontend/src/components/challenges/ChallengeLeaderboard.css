@@ -119,6 +119,7 @@
 }
 
 .streak-leaderboard__name-emoji {
+  margin-left: 0.15rem;
   font-size: 0.95em;
   line-height: 1;
 }
