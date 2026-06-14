@@ -33,6 +33,11 @@ const AWARD_CARDS: AwardCard[] = [
     title: 'Active Streak',
     valueLabel: (w) => String(w.current_display ?? '—'),
   },
+  {
+    key: 'losing_streak',
+    title: 'Losing Streak',
+    valueLabel: (w) => String(w.long_loss_display ?? '—'),
+  },
 ];
 
 export function StreakAwards({ awards }: Props) {

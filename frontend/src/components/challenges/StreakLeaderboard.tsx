@@ -5,6 +5,7 @@ import {
   computeCompetitionRanks,
   leaderboardRowClassName,
 } from '../../utils/leaderboardRows';
+import { activeLongWinStreakEmoji } from '../../utils/challengeTypes';
 
 import './ChallengeLeaderboard.css';
 
@@ -147,11 +148,11 @@ const SORT_OPTIONS: {
 }[] = [
   { key: 'rank', label: '#', mobileLabel: 'Rank' },
   { key: 'player', label: 'Player' },
-  { key: 'current', label: 'Current' },
   { key: 'long_w', label: 'Long W' },
-  { key: 'long_l', label: 'Long L' },
+  { key: 'current', label: 'Current' },
   { key: 'record', label: 'Record' },
   { key: 'win_pct', label: 'Win %' },
+  { key: 'long_l', label: 'Long L' },
 ];
 
 export function StreakLeaderboard({
@@ -225,6 +226,10 @@ export function StreakLeaderboard({
           {sortedEntries.map((e) => {
             const rank = ranks.get(e.user_id)!;
             const isViewer = e.user_id === viewerUserId;
+            const longWinEmoji = activeLongWinStreakEmoji(
+              e.streak_signed,
+              e.best_win_streak,
+            );
             return (
               <li
                 key={e.user_id}
@@ -239,23 +244,33 @@ export function StreakLeaderboard({
                   >
                     {playerLabel(e)}
                   </button>
-                  <div>
-                    <span className="leaderboard-card__total-label">Current</span>
-                    <span className="leaderboard-card__total">{e.current_display}</span>
+                  <div className="leaderboard-card__hero">
+                    {longWinEmoji ? (
+                      <span
+                        className="leaderboard-card__hero-emoji"
+                        aria-hidden
+                      >
+                        {longWinEmoji}
+                      </span>
+                    ) : null}
+                    <span className="leaderboard-card__total-label">Long</span>
+                    <span className="leaderboard-card__total">
+                      {e.long_win_display}
+                    </span>
                   </div>
                 </div>
                 <dl className="leaderboard-card__stats leaderboard-card__stats--column-major">
                   <div className="leaderboard-card__stat">
-                    <dt>Long W</dt>
-                    <dd>{e.long_win_display}</dd>
-                  </div>
-                  <div className="leaderboard-card__stat">
-                    <dt>Long L</dt>
-                    <dd>{e.long_loss_display}</dd>
+                    <dt>Current</dt>
+                    <dd>{e.current_display}</dd>
                   </div>
                   <div className="leaderboard-card__stat">
                     <dt>Record</dt>
                     <dd>{e.record}</dd>
+                  </div>
+                  <div className="leaderboard-card__stat">
+                    <dt>Long L</dt>
+                    <dd>{e.long_loss_display}</dd>
                   </div>
                   <div className="leaderboard-card__stat">
                     <dt>Win %</dt>
@@ -298,20 +313,14 @@ export function StreakLeaderboard({
                 </button>
               </th>
               <SortableHeader
-                label="Current"
-                sortKey="current"
-                sort={sort}
-                onSort={onSort}
-              />
-              <SortableHeader
                 label="Long W"
                 sortKey="long_w"
                 sort={sort}
                 onSort={onSort}
               />
               <SortableHeader
-                label="Long L"
-                sortKey="long_l"
+                label="Current"
+                sortKey="current"
                 sort={sort}
                 onSort={onSort}
               />
@@ -324,6 +333,12 @@ export function StreakLeaderboard({
               <SortableHeader
                 label="WIN %"
                 sortKey="win_pct"
+                sort={sort}
+                onSort={onSort}
+              />
+              <SortableHeader
+                label="Long L"
+                sortKey="long_l"
                 sort={sort}
                 onSort={onSort}
               />
@@ -348,11 +363,11 @@ export function StreakLeaderboard({
                       {playerLabel(e)}
                     </button>
                   </td>
-                  <td className="is-num">{e.current_display}</td>
                   <td className="is-num">{e.long_win_display}</td>
-                  <td className="is-num">{e.long_loss_display}</td>
+                  <td className="is-num">{e.current_display}</td>
                   <td className="is-num">{e.record}</td>
                   <td className="is-num">{e.win_pct}%</td>
+                  <td className="is-num">{e.long_loss_display}</td>
                 </tr>
               );
             })}

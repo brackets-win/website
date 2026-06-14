@@ -17,6 +17,12 @@ def _long_win_display(value: int) -> str:
     return serializers.streak_display(value)
 
 
+def _long_loss_display(value: int) -> str:
+    if value <= 0:
+        return "—"
+    return f"{value}L"
+
+
 def _award_person(p: StreakParticipant) -> dict:
     return {
         "user_id": p.user_id,
@@ -31,6 +37,7 @@ def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
         "best_picker": {"winners": []},
         "most_wins": {"winners": []},
         "active_streak": {"winners": []},
+        "losing_streak": {"winners": []},
     }
     if not participants:
         return empty
@@ -53,6 +60,13 @@ def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
         active = [p for p in active_positive if p.streak_signed == max_active]
     else:
         active = []
+
+    with_loss_streak = [p for p in participants if p.best_loss_streak > 0]
+    if with_loss_streak:
+        max_loss = max(p.best_loss_streak for p in with_loss_streak)
+        losing = [p for p in with_loss_streak if p.best_loss_streak == max_loss]
+    else:
+        losing = []
 
     return {
         "streak_champion": {
@@ -87,6 +101,16 @@ def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
                     "streak_signed": p.streak_signed,
                 }
                 for p in active
+            ],
+        },
+        "losing_streak": {
+            "winners": [
+                {
+                    **_award_person(p),
+                    "long_loss_display": _long_loss_display(p.best_loss_streak),
+                    "best_loss_streak": p.best_loss_streak,
+                }
+                for p in losing
             ],
         },
     }

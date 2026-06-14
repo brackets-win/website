@@ -50,3 +50,17 @@ export function formatStreakDisplay(streakSigned: number): string {
   if (streakSigned < 0) return `${-streakSigned}L`;
   return '—';
 }
+
+/** Emoji when an active win streak equals the player's best win streak. */
+export function activeLongWinStreakEmoji(
+  streakSigned: number,
+  bestWinStreak: number,
+): string | null {
+  if (streakSigned <= 0 || bestWinStreak <= 0) return null;
+  if (streakSigned !== bestWinStreak) return null;
+  if (streakSigned >= 10) return '🐦‍🔥';
+  if (streakSigned >= 7) return '🚒';
+  if (streakSigned >= 5) return '🧯';
+  if (streakSigned >= 3) return '🔥';
+  return null;
+}

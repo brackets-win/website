@@ -109,6 +109,42 @@ class StreakAwardsTests(TestCase):
         names = {row["display_name"] for row in pickers}
         self.assertEqual(names, {"Alice", "Bob"})
 
+    def test_losing_streak_award(self):
+        self.competition.ended_at = timezone.now()
+        self.competition.save(update_fields=["ended_at"])
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/awards"
+        )
+        losers = res.json()["losing_streak"]["winners"]
+        self.assertEqual(len(losers), 1)
+        self.assertEqual(losers[0]["display_name"], "Alice")
+        self.assertEqual(losers[0]["best_loss_streak"], 2)
+        self.assertEqual(losers[0]["long_loss_display"], "2L")
+
+    def test_losing_streak_allows_ties(self):
+        charlie = User.objects.create_user(username="charlie", password="x")
+        StreakParticipant.objects.create(
+            streak_challenge=self.challenge,
+            user=charlie,
+            display_name="Charlie",
+            wins=3,
+            losses=5,
+            streak_signed=-1,
+            best_win_streak=2,
+            best_loss_streak=2,
+        )
+        self.competition.ended_at = timezone.now()
+        self.competition.save(update_fields=["ended_at"])
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/awards"
+        )
+        losers = res.json()["losing_streak"]["winners"]
+        self.assertEqual(len(losers), 2)
+        names = {row["display_name"] for row in losers}
+        self.assertEqual(names, {"Alice", "Charlie"})
+
     def test_admin_can_end_competition(self):
         self.host.is_staff = True
         self.host.save(update_fields=["is_staff"])

@@ -185,6 +185,8 @@ export type StreakAwardWinner = {
   display_name: string;
   long_win_display?: string;
   best_win_streak?: number;
+  long_loss_display?: string;
+  best_loss_streak?: number;
   win_pct?: number;
   wins?: number;
   current_display?: string;
@@ -200,6 +202,7 @@ export type StreakAwardsPayload = {
   best_picker: StreakAwardCategory;
   most_wins: StreakAwardCategory;
   active_streak: StreakAwardCategory;
+  losing_streak: StreakAwardCategory;
 };
 
 export type StreakParticipantPickRow = {

@@ -114,6 +114,17 @@
   text-align: right;
 }
 
+.leaderboard-card__hero {
+  text-align: right;
+}
+
+.leaderboard-card__hero-emoji {
+  display: block;
+  font-size: 1rem;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+
 .leaderboard-card__stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -558,7 +558,10 @@ export function StreakChallengeView({
             </li>
             <li>
               You can make as many picks or as few picks as you want. The goal is to
-              create the longest winning streak with your picks.
+              create the longest winning streak with correct picks.
+            </li>
+            <li>
+              Tiebreakers: Long Streak, then Current Streak, then Wins, then Win %
             </li>
           </ul>
         </section>
