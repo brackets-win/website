@@ -572,9 +572,21 @@ export function BracketFill({
     setMaterializeBusy(true);
     setError(null);
     try {
-      const res = await materializeBracketScores(bracketDef.id);
-      setLeaderboardPending(res.leaderboard_scores_pending);
-      invalidateHome('challenges');
+      const maxBatches = 500;
+      for (let batch = 0; batch < maxBatches; batch += 1) {
+        const res = await materializeBracketScores(bracketDef.id);
+        setLeaderboardPending(res.leaderboard_scores_pending);
+        if (!res.leaderboard_scores_pending) {
+          const ub = await load();
+          if (ub) invalidateHomeForUserBracket(ub);
+          else invalidateHome('challenges');
+          return;
+        }
+      }
+      throw new ApiError(
+        'Score update is taking longer than expected. Try Apply again.',
+        0,
+      );
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -584,7 +596,7 @@ export function BracketFill({
     } finally {
       setMaterializeBusy(false);
     }
-  }, [bracketDef, materializeBusy, leaderboardPending]);
+  }, [bracketDef, materializeBusy, leaderboardPending, load]);
 
   async function handleSubmit() {
     if (locked || !detail) return;

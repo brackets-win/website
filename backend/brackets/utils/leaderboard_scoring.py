@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 
 from brackets.models import (
     Bracket,
@@ -15,9 +16,12 @@ from brackets.models import (
     UserBracket,
 )
 
+logger = logging.getLogger(__name__)
+
 LEADERBOARD_SCORES_KEY = "leaderboard_scores"
 MASTER_SCORING_REVISION_KEY = "master_scoring_revision"
 MASTER_SCORING_PENDING_KEY = "master_scoring_pending"
+MATERIALIZE_BATCH_SIZE = 75
 
 
 @dataclass
@@ -91,9 +95,91 @@ def mark_master_scoring_pending(bracket: Bracket) -> int:
 
 def materialize_leaderboard_scores_for_bracket(bracket: Bracket) -> int:
     """Recompute all submitted user bracket scores for the current revision."""
-    count = refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
-    _clear_master_scoring_pending(bracket)
-    return count
+    total = 0
+    while True:
+        result = materialize_leaderboard_scores_batch(bracket, limit=MATERIALIZE_BATCH_SIZE)
+        total += result["updated_count"]
+        if result["remaining_count"] == 0:
+            return total
+
+
+def _stale_submitted_user_brackets_qs(bracket: Bracket, revision: int):
+    return UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
+    ).filter(
+        Q(leaderboard_scores_revision__isnull=True)
+        | ~Q(leaderboard_scores_revision=revision)
+    )
+
+
+def count_stale_submitted_leaderboard_scores(bracket: Bracket) -> int:
+    revision = get_master_scoring_revision(bracket)
+    return _stale_submitted_user_brackets_qs(bracket, revision).count()
+
+
+def materialize_leaderboard_scores_batch(
+    bracket: Bracket,
+    *,
+    limit: int = MATERIALIZE_BATCH_SIZE,
+) -> dict[str, int | bool]:
+    """
+    Recompute scores for up to ``limit`` submitted entries still on an old revision.
+
+    Safe to call repeatedly from the client until ``remaining_count`` is zero.
+    """
+    bracket.refresh_from_db(fields=["metadata"])
+    revision = get_master_scoring_revision(bracket)
+    stale_qs = _stale_submitted_user_brackets_qs(bracket, revision).order_by("id")
+    remaining_before = stale_qs.count()
+    if remaining_before == 0:
+        _clear_master_scoring_pending(bracket)
+        return {
+            "updated_count": 0,
+            "remaining_count": 0,
+            "leaderboard_scores_pending": False,
+        }
+
+    ctx = load_leaderboard_scoring_context(bracket)
+    if not ctx.master:
+        _clear_master_scoring_pending(bracket)
+        return {
+            "updated_count": 0,
+            "remaining_count": 0,
+            "leaderboard_scores_pending": False,
+        }
+
+    extras = _scoring_extras(ctx)
+    updated_count = 0
+    for ub in stale_qs.prefetch_related(_MATCHUP_PREFETCH)[:limit]:
+        try:
+            bundle = _compute_leaderboard_scores(
+                ub,
+                ctx,
+                main_ko_stages=extras.main_ko_stages,
+                groups_preview=extras.groups_preview,
+                knockout_by_id=ctx.knockout_by_id,
+            )
+            _write_stored_scores(ub, revision, bundle)
+            updated_count += 1
+        except Exception:
+            logger.exception(
+                "Leaderboard materialize failed for user_bracket %s", ub.pk
+            )
+
+    remaining_count = _stale_submitted_user_brackets_qs(
+        bracket, get_master_scoring_revision(bracket)
+    ).count()
+    pending = remaining_count > 0 or is_master_scoring_pending(bracket)
+    if remaining_count == 0:
+        _clear_master_scoring_pending(bracket)
+        pending = False
+    return {
+        "updated_count": updated_count,
+        "remaining_count": remaining_count,
+        "leaderboard_scores_pending": pending,
+    }
 
 
 def on_master_bracket_changed(bracket: Bracket, *, materialize: bool = True) -> int:

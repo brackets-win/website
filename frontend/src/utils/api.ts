@@ -540,7 +540,11 @@ export async function updateBracketGroupResultsMode(
 
 export async function materializeBracketScores(
   bracketId: number,
-): Promise<{ updated_count: number; leaderboard_scores_pending: boolean }> {
+): Promise<{
+  updated_count: number;
+  remaining_count: number;
+  leaderboard_scores_pending: boolean;
+}> {
   return apiFetch('POST', `brackets/${bracketId}/materialize-scores`);
 }
 

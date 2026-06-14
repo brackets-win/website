@@ -8,10 +8,12 @@ from brackets.models import BracketChallenge, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.leaderboard_scoring import (
     LEADERBOARD_SCORES_KEY,
+    count_stale_submitted_leaderboard_scores,
     get_master_scoring_revision,
     is_master_scoring_pending,
     load_leaderboard_scoring_context,
     mark_master_scoring_pending,
+    materialize_leaderboard_scores_batch,
     materialize_leaderboard_scores_for_bracket,
     on_master_bracket_changed,
     read_stored_leaderboard_scores,
@@ -110,3 +112,31 @@ class LeaderboardScoringCacheTests(TestCase):
         self.ub.refresh_from_db()
         self.assertTrue(is_master_scoring_pending(self.bracket))
         self.assertEqual(self.ub.leaderboard_scores_revision, stored_revision)
+
+    def test_materialize_batch_updates_stale_entries_only(self):
+        refresh_user_bracket_leaderboard_cache(self.ub)
+        player_b = User.objects.create_user(username="player_b", password="x")
+        ub_b = UserBracket.objects.create(
+            user=player_b,
+            bracket=self.bracket,
+            challenge=self.challenge,
+            submitted_at=timezone.now(),
+        )
+        refresh_user_bracket_leaderboard_cache(ub_b)
+        mark_master_scoring_pending(self.bracket)
+        self.assertEqual(count_stale_submitted_leaderboard_scores(self.bracket), 2)
+
+        result = materialize_leaderboard_scores_batch(self.bracket, limit=1)
+        self.assertEqual(result["updated_count"], 1)
+        self.assertEqual(result["remaining_count"], 1)
+        self.assertTrue(result["leaderboard_scores_pending"])
+
+        result = materialize_leaderboard_scores_batch(self.bracket, limit=1)
+        self.assertEqual(result["updated_count"], 1)
+        self.assertEqual(result["remaining_count"], 0)
+        self.assertFalse(result["leaderboard_scores_pending"])
+        revision = get_master_scoring_revision(self.bracket)
+        self.ub.refresh_from_db()
+        ub_b.refresh_from_db()
+        self.assertEqual(self.ub.leaderboard_scores_revision, revision)
+        self.assertEqual(ub_b.leaderboard_scores_revision, revision)

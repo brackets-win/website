@@ -7,6 +7,7 @@ from django.test import Client, TestCase
 from brackets.models import BracketChallenge, BracketContestant, User, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
+from brackets.utils.leaderboard_scoring import materialize_leaderboard_scores_for_bracket
 
 
 class MasterBracketViewApiTests(TestCase):
@@ -106,6 +107,7 @@ class MasterBracketViewApiTests(TestCase):
         self.assertEqual(res.status_code, 200)
         body = res.json()
         self.assertFalse(body["leaderboard_scores_pending"])
+        self.assertEqual(body["remaining_count"], 0)
 
         res = self.client.get(f"/brackets/api/user-brackets/{self.master.id}")
         self.assertFalse(res.json()["user_bracket"]["leaderboard_scores_pending"])
