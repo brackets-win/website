@@ -33,6 +33,25 @@ function playerLabel(entry: StreakLeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
 }
 
+function LongWinValue({
+  display,
+  emoji,
+}: {
+  display: string;
+  emoji: string | null;
+}) {
+  return (
+    <span className="streak-leaderboard__long-value">
+      {display}
+      {emoji ? (
+        <span className="streak-leaderboard__long-emoji" aria-hidden>
+          {emoji}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function defaultStreakStatsCompare(
   a: StreakLeaderboardEntry,
   b: StreakLeaderboardEntry,
@@ -245,17 +264,12 @@ export function StreakLeaderboard({
                     {playerLabel(e)}
                   </button>
                   <div className="leaderboard-card__hero">
-                    {longWinEmoji ? (
-                      <span
-                        className="leaderboard-card__hero-emoji"
-                        aria-hidden
-                      >
-                        {longWinEmoji}
-                      </span>
-                    ) : null}
                     <span className="leaderboard-card__total-label">Long</span>
                     <span className="leaderboard-card__total">
-                      {e.long_win_display}
+                      <LongWinValue
+                        display={e.long_win_display}
+                        emoji={longWinEmoji}
+                      />
                     </span>
                   </div>
                 </div>
@@ -348,6 +362,10 @@ export function StreakLeaderboard({
             {sortedEntries.map((e) => {
               const rank = ranks.get(e.user_id)!;
               const isViewer = e.user_id === viewerUserId;
+              const longWinEmoji = activeLongWinStreakEmoji(
+                e.streak_signed,
+                e.best_win_streak,
+              );
               return (
                 <tr
                   key={e.user_id}
@@ -363,7 +381,12 @@ export function StreakLeaderboard({
                       {playerLabel(e)}
                     </button>
                   </td>
-                  <td className="is-num">{e.long_win_display}</td>
+                  <td className="is-num">
+                    <LongWinValue
+                      display={e.long_win_display}
+                      emoji={longWinEmoji}
+                    />
+                  </td>
                   <td className="is-num">{e.current_display}</td>
                   <td className="is-num">{e.record}</td>
                   <td className="is-num">{e.win_pct}%</td>
