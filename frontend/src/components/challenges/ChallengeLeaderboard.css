@@ -118,14 +118,7 @@
   text-align: right;
 }
 
-.streak-leaderboard__long-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  justify-content: flex-end;
-}
-
-.streak-leaderboard__long-emoji {
+.streak-leaderboard__name-emoji {
   font-size: 0.95em;
   line-height: 1;
 }

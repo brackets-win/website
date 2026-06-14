@@ -114,8 +114,15 @@ def _streak_summary(
         "wins": participant.wins if participant else 0,
         "losses": participant.losses if participant else 0,
         "streak_signed": participant.streak_signed if participant else 0,
+        "best_win_streak": participant.best_win_streak if participant else 0,
         "streak_display": serializers.streak_display(
             participant.streak_signed if participant else 0
+        ),
+        "current_display": serializers.streak_display(
+            participant.streak_signed if participant else 0
+        ),
+        "long_win_display": _long_streak_display(
+            participant.best_win_streak if participant else 0, kind="win"
         ),
         "is_creator": c.created_by_id == user.id,
         "competition_is_over": competition.is_over if competition is not None else False,

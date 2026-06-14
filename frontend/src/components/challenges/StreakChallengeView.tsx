@@ -19,6 +19,7 @@ import {
   type StreakChallengeSummary,
 } from '../../utils/api';
 import { invalidateHome } from '../../utils/homeCache';
+import { activeLongWinStreakEmoji } from '../../utils/challengeTypes';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
 import {
@@ -388,6 +389,11 @@ export function StreakChallengeView({
     );
   }
 
+  const longWinEmoji = activeLongWinStreakEmoji(
+    summary.streak_signed,
+    summary.best_win_streak,
+  );
+
   return (
     <div className={`${streakThemeClass} streak-view`}>
       <Link to="/" className="btn btn--ghost challenge-view__back">
@@ -414,19 +420,32 @@ export function StreakChallengeView({
               <p className="challenge-view__meta">{summary.streak_competition_name}</p>
             ) : null}
             <p className="streak-view__stat">
-              {summary.streak_signed >= 5 ? (
-                <span className="streak-view__fire" aria-hidden>
-                  🔥
+              <span className="streak-view__stat-group">
+                <span className="streak-view__stat-label">LONG</span>
+                <span className="streak-view__stat-value">
+                  {summary.long_win_display}
                 </span>
-              ) : null}
-              <strong>{summary.streak_display}</strong>
-              <span className="streak-view__stat-sep" aria-hidden>
-                {' '}
-                |{' '}
               </span>
-              <span className="streak-view__record">
+              <span className="streak-view__stat-sep" aria-hidden>
+                |
+              </span>
+              <span className="streak-view__stat-group">
+                <span className="streak-view__stat-label">CURRENT</span>
+                <span className="streak-view__stat-value">
+                  {summary.current_display}
+                </span>
+              </span>
+              <span className="streak-view__stat-sep" aria-hidden>
+                |
+              </span>
+              <span className="streak-view__stat-value">
                 {summary.wins}-{summary.losses}
               </span>
+              {longWinEmoji ? (
+                <span className="streak-view__stat-emoji" aria-hidden>
+                  {longWinEmoji}
+                </span>
+              ) : null}
             </p>
           </div>
         </div>

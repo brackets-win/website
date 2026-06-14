@@ -134,7 +134,10 @@ export type StreakChallengeSummary = {
   wins: number;
   losses: number;
   streak_signed: number;
+  best_win_streak: number;
   streak_display: string;
+  current_display: string;
+  long_win_display: string;
   is_creator?: boolean;
   competition_is_over?: boolean;
   competition_ended_at?: string | null;

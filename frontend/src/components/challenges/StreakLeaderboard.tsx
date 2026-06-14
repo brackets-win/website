@@ -33,25 +33,6 @@ function playerLabel(entry: StreakLeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
 }
 
-function LongWinValue({
-  display,
-  emoji,
-}: {
-  display: string;
-  emoji: string | null;
-}) {
-  return (
-    <span className="streak-leaderboard__long-value">
-      {display}
-      {emoji ? (
-        <span className="streak-leaderboard__long-emoji" aria-hidden>
-          {emoji}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 function defaultStreakStatsCompare(
   a: StreakLeaderboardEntry,
   b: StreakLeaderboardEntry,
@@ -261,15 +242,19 @@ export function StreakLeaderboard({
                     className="streak-leaderboard__player leaderboard-card__name"
                     onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
                   >
-                    {playerLabel(e)}
+                    {playerLabel(e)}{longWinEmoji ? (
+                      <span
+                        className="streak-leaderboard__name-emoji"
+                        aria-hidden
+                      >
+                        {longWinEmoji}
+                      </span>
+                    ) : null}
                   </button>
                   <div className="leaderboard-card__hero">
                     <span className="leaderboard-card__total-label">Long</span>
                     <span className="leaderboard-card__total">
-                      <LongWinValue
-                        display={e.long_win_display}
-                        emoji={longWinEmoji}
-                      />
+                      {e.long_win_display}
                     </span>
                   </div>
                 </div>
@@ -378,15 +363,17 @@ export function StreakLeaderboard({
                       className="streak-leaderboard__player"
                       onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
                     >
-                      {playerLabel(e)}
+                      {playerLabel(e)}{longWinEmoji ? (
+                        <span
+                          className="streak-leaderboard__name-emoji"
+                          aria-hidden
+                        >
+                          {longWinEmoji}
+                        </span>
+                      ) : null}
                     </button>
                   </td>
-                  <td className="is-num">
-                    <LongWinValue
-                      display={e.long_win_display}
-                      emoji={longWinEmoji}
-                    />
-                  </td>
+                  <td className="is-num">{e.long_win_display}</td>
                   <td className="is-num">{e.current_display}</td>
                   <td className="is-num">{e.record}</td>
                   <td className="is-num">{e.win_pct}%</td>
