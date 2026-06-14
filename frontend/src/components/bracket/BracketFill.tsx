@@ -312,7 +312,9 @@ export function BracketFill({
   const [busy, setBusy] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [materializeBusy, setMaterializeBusy] = useState(false);
-  const [leaderboardPending, setLeaderboardPending] = useState(false);
+  const [materializeRemaining, setMaterializeRemaining] = useState<number | null>(
+    null,
+  );
   const [groupResultsMode, setGroupResultsMode] =
     useState<GroupResultsMode>('confirmed');
   const [groupResultsModeBusy, setGroupResultsModeBusy] = useState(false);
@@ -348,9 +350,6 @@ export function BracketFill({
     (ub?: UserBracketDetail) => {
       if (ub) {
         setDetail(ub);
-        if (ub.leaderboard_scores_pending) {
-          setLeaderboardPending(true);
-        }
         invalidateHomeForUserBracket(ub);
         return;
       }
@@ -364,12 +363,6 @@ export function BracketFill({
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (detail?.leaderboard_scores_pending != null) {
-      setLeaderboardPending(detail.leaderboard_scores_pending);
-    }
-  }, [detail?.leaderboard_scores_pending]);
 
   useEffect(() => {
     if (bracketDef) {
@@ -426,14 +419,9 @@ export function BracketFill({
         );
         setBracketDef(bracket);
         setGroupResultsMode(getGroupResultsMode(bracket.metadata));
-        if (detail?.is_master) {
-          setLeaderboardPending(true);
-        }
-        if (detail) {
-          invalidateHomeForUserBracket(detail);
-        } else {
-          invalidateHome('challenges');
-        }
+        const ub = await load();
+        if (ub) invalidateHomeForUserBracket(ub);
+        else invalidateHome('challenges');
       } catch (e) {
         setError(
           e instanceof ApiError
@@ -444,7 +432,7 @@ export function BracketFill({
         setGroupResultsModeBusy(false);
       }
     },
-    [bracketDef, detail, groupResultsMode, groupResultsModeBusy],
+    [bracketDef, groupResultsMode, groupResultsModeBusy, load],
   );
 
   useEffect(() => {
@@ -523,7 +511,6 @@ export function BracketFill({
       try {
         await patchMatchupWinner(feederMatchupId, contestantId);
         if (deferLeaderboardScoring) {
-          setLeaderboardPending(true);
           void load().then((ub) => {
             if (ub) invalidateHomeForUserBracket(ub);
           });
@@ -548,7 +535,6 @@ export function BracketFill({
       try {
         await patchMatchupWinner(matchupId, null);
         if (deferLeaderboardScoring) {
-          setLeaderboardPending(true);
           void load().then((ub) => {
             if (ub) invalidateHomeForUserBracket(ub);
           });
@@ -568,20 +554,34 @@ export function BracketFill({
   const onClearWinner = locked ? undefined : clearWinner;
 
   const handleMaterializeScores = useCallback(async () => {
-    if (!bracketDef || materializeBusy || !leaderboardPending) return;
+    if (!bracketDef || materializeBusy || !detail?.leaderboard_scores_pending) {
+      return;
+    }
     setMaterializeBusy(true);
+    setMaterializeRemaining(null);
     setError(null);
     try {
       const maxBatches = 500;
       for (let batch = 0; batch < maxBatches; batch += 1) {
         const res = await materializeBracketScores(bracketDef.id);
-        setLeaderboardPending(res.leaderboard_scores_pending);
+        setMaterializeRemaining(
+          res.remaining_count > 0 ? res.remaining_count : null,
+        );
+        setDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                leaderboard_scores_pending: res.leaderboard_scores_pending,
+              }
+            : prev,
+        );
         if (!res.leaderboard_scores_pending) {
           const ub = await load();
           if (ub) invalidateHomeForUserBracket(ub);
           else invalidateHome('challenges');
           return;
         }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new ApiError(
         'Score update is taking longer than expected. Try Apply again.',
@@ -595,8 +595,12 @@ export function BracketFill({
       );
     } finally {
       setMaterializeBusy(false);
+      setMaterializeRemaining(null);
     }
-  }, [bracketDef, materializeBusy, leaderboardPending, load]);
+  }, [bracketDef, materializeBusy, detail?.leaderboard_scores_pending, load]);
+
+  const showApplyScores =
+    deferLeaderboardScoring && detail?.leaderboard_scores_pending === true;
 
   async function handleSubmit() {
     if (locked || !detail) return;
@@ -822,7 +826,7 @@ export function BracketFill({
       <h2>{detail.bracket.name}</h2>
       {error ? <p className="bf-error">{error}</p> : null}
 
-      {deferLeaderboardScoring && leaderboardPending ? (
+      {showApplyScores ? (
         <div className="bf-scores-pending" role="status">
           <p className="bf-scores-pending__text">
             Results are saved. Challenge leaderboard scores are not updated yet.
@@ -833,7 +837,11 @@ export function BracketFill({
             disabled={materializeBusy}
             onClick={() => void handleMaterializeScores()}
           >
-            {materializeBusy ? 'Applying…' : 'Apply'}
+            {materializeBusy
+              ? materializeRemaining != null
+                ? `Applying… (${materializeRemaining} left)`
+                : 'Applying…'
+              : 'Apply'}
           </button>
         </div>
       ) : null}

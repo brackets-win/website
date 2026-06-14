@@ -462,11 +462,23 @@ async function apiFetch<T>(
   };
 
   const res = await fetch(joinUrl(path), init);
-  const parsed = (await res.json().catch(() => ({}))) as unknown;
+  let parsed: unknown = {};
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = {};
+  }
 
   if (!res.ok) {
     if (import.meta.env.DEV && (res.status === 502 || res.status === 503)) {
       throw new ApiError('Unable to connect.', res.status, parsed);
+    }
+    if (res.status === 504) {
+      throw new ApiError(
+        'The request timed out. Try Apply again.',
+        res.status,
+        parsed,
+      );
     }
     const msg =
       typeof parsed === 'object' &&
@@ -476,7 +488,11 @@ async function apiFetch<T>(
         'string'
         ? (parsed as { error: { message: string } }).error.message
         : res.statusText;
-    throw new ApiError(msg || 'Request failed', res.status, parsed);
+    throw new ApiError(
+      msg || `Request failed (${res.status})`,
+      res.status,
+      parsed,
+    );
   }
 
   return parsed as T;

@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 LEADERBOARD_SCORES_KEY = "leaderboard_scores"
 MASTER_SCORING_REVISION_KEY = "master_scoring_revision"
 MASTER_SCORING_PENDING_KEY = "master_scoring_pending"
-MATERIALIZE_BATCH_SIZE = 75
+# Keep small: WC-sized brackets can take ~1s per entry to score.
+MATERIALIZE_BATCH_SIZE = 10
 
 
 @dataclass
@@ -167,6 +168,11 @@ def materialize_leaderboard_scores_batch(
             logger.exception(
                 "Leaderboard materialize failed for user_bracket %s", ub.pk
             )
+
+    if updated_count == 0 and remaining_before > 0:
+        raise RuntimeError(
+            "Could not update any leaderboard scores in this batch."
+        )
 
     remaining_count = _stale_submitted_user_brackets_qs(
         bracket, get_master_scoring_revision(bracket)

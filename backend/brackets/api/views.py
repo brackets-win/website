@@ -551,7 +551,10 @@ def bracket_materialize_scores(
             }
         )
 
-    result = materialize_leaderboard_scores_batch(bracket)
+    try:
+        result = materialize_leaderboard_scores_batch(bracket)
+    except RuntimeError as e:
+        return _json_error(str(e), 500)
     if result["remaining_count"] == 0:
         bump_challenge_stats_for_bracket(bracket)
     return JsonResponse(result)
