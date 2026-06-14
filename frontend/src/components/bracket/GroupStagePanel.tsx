@@ -245,6 +245,9 @@ type Props = {
   onSaved: (userBracket?: UserBracketDetail) => void | Promise<void>;
   onError: (msg: string) => void;
   setBusy: (b: boolean) => void;
+  saveDebounceMs?: number;
+  /** Skip global busy lock while saves run (master bracket batch editing). */
+  lightweightSave?: boolean;
 };
 
 type DragPreview = {
@@ -400,6 +403,8 @@ export function GroupStagePanel({
   onSaved,
   onError,
   setBusy,
+  saveDebounceMs = GROUP_SAVE_DEBOUNCE_MS,
+  lightweightSave = false,
 }: Props) {
   const thirdAdvanceCount = thirdPlaceAdvanceCount(groupStage, {
     firstKnockoutContestants,
@@ -505,7 +510,7 @@ export function GroupStagePanel({
 
     const { gp: filledGp, tp: safeTp } = pending;
     saveQueueRef.current = saveQueueRef.current.then(async () => {
-      setBusy(true);
+      if (!lightweightSave) setBusy(true);
       onError('');
       try {
         const { user_bracket: ub } = await patchUserBracketMetadata(
@@ -524,7 +529,7 @@ export function GroupStagePanel({
         );
         await onSaved();
       } finally {
-        setBusy(false);
+        if (!lightweightSave) setBusy(false);
       }
     });
     return saveQueueRef.current;
@@ -535,6 +540,7 @@ export function GroupStagePanel({
     onError,
     setBusy,
     readOnly,
+    lightweightSave,
   ]);
 
   const persist = useCallback(
@@ -564,11 +570,11 @@ export function GroupStagePanel({
       saveDebounceRef.current = setTimeout(() => {
         saveDebounceRef.current = null;
         void flushSave();
-      }, GROUP_SAVE_DEBOUNCE_MS);
+      }, saveDebounceMs);
 
       return saveQueueRef.current;
     },
-    [hasThirdPlaceRail, thirdAdvanceCount, readOnly, finalizePicks, flushSave],
+    [hasThirdPlaceRail, thirdAdvanceCount, readOnly, finalizePicks, flushSave, saveDebounceMs],
   );
 
   const clearDrag = useCallback(() => {

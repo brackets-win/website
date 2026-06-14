@@ -332,6 +332,8 @@ export type UserBracketSummary = {
   submitted_at: string | null;
   is_complete: boolean;
   can_edit: boolean;
+  /** Master bracket only: submitted scores are stale until materialized. */
+  leaderboard_scores_pending?: boolean;
 };
 
 export type BracketStageInfo = {
@@ -534,6 +536,12 @@ export async function updateBracketGroupResultsMode(
   return apiFetch('PATCH', `brackets/${bracketId}/group-results-mode`, {
     group_results_mode,
   });
+}
+
+export async function materializeBracketScores(
+  bracketId: number,
+): Promise<{ updated_count: number; leaderboard_scores_pending: boolean }> {
+  return apiFetch('POST', `brackets/${bracketId}/materialize-scores`);
 }
 
 export async function listMyChallenges(): Promise<{

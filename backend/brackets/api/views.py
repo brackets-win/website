@@ -263,6 +263,16 @@ def _user_can_edit_master_bracket(user, ub: UserBracket) -> bool:
     ).exists()
 
 
+def _user_can_materialize_bracket_scores(user, bracket: Bracket) -> bool:
+    if user.is_staff:
+        return True
+    return BracketChallenge.objects.filter(
+        bracket_id=bracket.id,
+        instance_type=TOURNAMENT,
+        created_by=user,
+    ).exists()
+
+
 def _challenge_summary_for_user(
     challenge: BracketChallenge, user, request: HttpRequest | None = None
 ) -> dict[str, Any]:
@@ -503,11 +513,42 @@ def bracket_group_results_mode(
         from brackets.utils.leaderboard_scoring import on_master_bracket_changed
         from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
 
-        on_master_bracket_changed(bracket)
+        on_master_bracket_changed(bracket, materialize=False)
         bump_challenge_stats_for_bracket(bracket)
 
     return JsonResponse(
         {"bracket": serializers.bracket_detail(bracket, request=request)}
+    )
+
+
+@require_http_methods(["POST"])
+def bracket_materialize_scores(
+    request: HttpRequest, bracket_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    bracket = get_object_or_404(Bracket, pk=bracket_id)
+    if not _user_can_materialize_bracket_scores(user, bracket):
+        return _json_error("Forbidden", 403)
+
+    from brackets.utils.leaderboard_scoring import (
+        is_master_scoring_pending,
+        materialize_leaderboard_scores_for_bracket,
+    )
+    from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
+
+    if not is_master_scoring_pending(bracket):
+        return JsonResponse({"updated_count": 0, "leaderboard_scores_pending": False})
+
+    updated_count = materialize_leaderboard_scores_for_bracket(bracket)
+    bump_challenge_stats_for_bracket(bracket)
+    return JsonResponse(
+        {
+            "updated_count": updated_count,
+            "leaderboard_scores_pending": False,
+        }
     )
 
 
@@ -634,7 +675,7 @@ def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonRespo
         )
 
         if ub.is_master:
-            on_master_bracket_changed(ub.bracket)
+            on_master_bracket_changed(ub.bracket, materialize=False)
         elif ub.submitted_at is not None:
             refresh_user_bracket_leaderboard_cache(ub)
         if ub.is_master or ub.submitted_at is not None:
@@ -1283,7 +1324,7 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         )
 
         if ub.is_master:
-            on_master_bracket_changed(ub.bracket)
+            on_master_bracket_changed(ub.bracket, materialize=False)
         elif ub.submitted_at is not None:
             refresh_user_bracket_leaderboard_cache(ub)
         if ub.is_master or ub.submitted_at is not None:
@@ -1308,7 +1349,7 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
     from brackets.utils.challenge_stats import invalidate_challenge_stats_for_user_bracket
 
     if ub.is_master:
-        on_master_bracket_changed(ub.bracket)
+        on_master_bracket_changed(ub.bracket, materialize=False)
     elif ub.submitted_at is not None:
         refresh_user_bracket_leaderboard_cache(ub)
     if ub.is_master or ub.submitted_at is not None:

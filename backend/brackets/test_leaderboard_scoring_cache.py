@@ -9,7 +9,10 @@ from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.leaderboard_scoring import (
     LEADERBOARD_SCORES_KEY,
     get_master_scoring_revision,
+    is_master_scoring_pending,
     load_leaderboard_scoring_context,
+    mark_master_scoring_pending,
+    materialize_leaderboard_scores_for_bracket,
     on_master_bracket_changed,
     read_stored_leaderboard_scores,
     refresh_all_submitted_leaderboard_scores_for_bracket,
@@ -84,3 +87,26 @@ class LeaderboardScoringCacheTests(TestCase):
         refresh_user_bracket_leaderboard_cache(self.ub)
         bundle = read_stored_leaderboard_scores(self.ub)
         self.assertIsNotNone(bundle.score)
+
+    def test_deferred_master_change_leaves_scores_stale_until_materialized(self):
+        refresh_user_bracket_leaderboard_cache(self.ub)
+        old_revision = self.ub.leaderboard_scores_revision
+        mark_master_scoring_pending(self.bracket)
+        self.ub.refresh_from_db()
+        self.assertTrue(is_master_scoring_pending(self.bracket))
+        self.assertEqual(self.ub.leaderboard_scores_revision, old_revision)
+        materialize_leaderboard_scores_for_bracket(self.bracket)
+        self.ub.refresh_from_db()
+        self.assertFalse(is_master_scoring_pending(self.bracket))
+        self.assertEqual(
+            self.ub.leaderboard_scores_revision,
+            get_master_scoring_revision(self.bracket),
+        )
+
+    def test_on_master_changed_without_materialize_defers_recompute(self):
+        refresh_user_bracket_leaderboard_cache(self.ub)
+        stored_revision = self.ub.leaderboard_scores_revision
+        on_master_bracket_changed(self.bracket, materialize=False)
+        self.ub.refresh_from_db()
+        self.assertTrue(is_master_scoring_pending(self.bracket))
+        self.assertEqual(self.ub.leaderboard_scores_revision, stored_revision)

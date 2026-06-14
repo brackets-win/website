@@ -18,6 +18,7 @@ import {
   type UserBracketDetail,
   getBracket,
   getUserBracket,
+  materializeBracketScores,
   patchMatchupWinner,
   submitUserBracket,
   updateBracketGroupResultsMode,
@@ -310,6 +311,8 @@ export function BracketFill({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
+  const [materializeBusy, setMaterializeBusy] = useState(false);
+  const [leaderboardPending, setLeaderboardPending] = useState(false);
   const [groupResultsMode, setGroupResultsMode] =
     useState<GroupResultsMode>('confirmed');
   const [groupResultsModeBusy, setGroupResultsModeBusy] = useState(false);
@@ -345,6 +348,9 @@ export function BracketFill({
     (ub?: UserBracketDetail) => {
       if (ub) {
         setDetail(ub);
+        if (ub.leaderboard_scores_pending) {
+          setLeaderboardPending(true);
+        }
         invalidateHomeForUserBracket(ub);
         return;
       }
@@ -358,6 +364,12 @@ export function BracketFill({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (detail?.leaderboard_scores_pending != null) {
+      setLeaderboardPending(detail.leaderboard_scores_pending);
+    }
+  }, [detail?.leaderboard_scores_pending]);
 
   useEffect(() => {
     if (bracketDef) {
@@ -414,6 +426,9 @@ export function BracketFill({
         );
         setBracketDef(bracket);
         setGroupResultsMode(getGroupResultsMode(bracket.metadata));
+        if (detail?.is_master) {
+          setLeaderboardPending(true);
+        }
         if (detail) {
           invalidateHomeForUserBracket(detail);
         } else {
@@ -490,6 +505,11 @@ export function BracketFill({
       !detail.can_edit &&
       !(allowMasterEdit && detail.is_master));
 
+  const deferLeaderboardScoring =
+    allowMasterEdit && detail?.is_master === true;
+
+  const uiBusy = deferLeaderboardScoring ? locked : busy || locked;
+
   const scoringLookup = useMemo(() => {
     if (!showScoringHighlights || !detail) return null;
     return buildScoringLookup(detail.scoring_highlights);
@@ -498,40 +518,73 @@ export function BracketFill({
   const applyWinner = useCallback(
     async (feederMatchupId: number, contestantId: number) => {
       if (locked) return;
-      setBusy(true);
+      if (!deferLeaderboardScoring) setBusy(true);
       setError(null);
       try {
         await patchMatchupWinner(feederMatchupId, contestantId);
-        const ub = await load();
-        if (ub) invalidateHomeForUserBracket(ub);
+        if (deferLeaderboardScoring) {
+          setLeaderboardPending(true);
+          void load().then((ub) => {
+            if (ub) invalidateHomeForUserBracket(ub);
+          });
+        } else {
+          const ub = await load();
+          if (ub) invalidateHomeForUserBracket(ub);
+        }
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save pick.');
       } finally {
-        setBusy(false);
+        if (!deferLeaderboardScoring) setBusy(false);
       }
     },
-    [load, locked],
+    [load, locked, deferLeaderboardScoring],
   );
 
   const clearWinner = useCallback(
     async (matchupId: number) => {
       if (locked) return;
-      setBusy(true);
+      if (!deferLeaderboardScoring) setBusy(true);
       setError(null);
       try {
         await patchMatchupWinner(matchupId, null);
-        const ub = await load();
-        if (ub) invalidateHomeForUserBracket(ub);
+        if (deferLeaderboardScoring) {
+          setLeaderboardPending(true);
+          void load().then((ub) => {
+            if (ub) invalidateHomeForUserBracket(ub);
+          });
+        } else {
+          const ub = await load();
+          if (ub) invalidateHomeForUserBracket(ub);
+        }
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not clear pick.');
       } finally {
-        setBusy(false);
+        if (!deferLeaderboardScoring) setBusy(false);
       }
     },
-    [load, locked],
+    [load, locked, deferLeaderboardScoring],
   );
 
   const onClearWinner = locked ? undefined : clearWinner;
+
+  const handleMaterializeScores = useCallback(async () => {
+    if (!bracketDef || materializeBusy || !leaderboardPending) return;
+    setMaterializeBusy(true);
+    setError(null);
+    try {
+      const res = await materializeBracketScores(bracketDef.id);
+      setLeaderboardPending(res.leaderboard_scores_pending);
+      invalidateHome('challenges');
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not update leaderboard scores.',
+      );
+    } finally {
+      setMaterializeBusy(false);
+    }
+  }, [bracketDef, materializeBusy, leaderboardPending]);
 
   async function handleSubmit() {
     if (locked || !detail) return;
@@ -613,7 +666,7 @@ export function BracketFill({
             allKnockoutStages={stages}
             showSeeds={showSeeds}
             applyWinner={applyWinner}
-            busy={busy || locked}
+            busy={uiBusy}
             onClearWinner={onClearWinner}
           />
         </div>
@@ -627,7 +680,7 @@ export function BracketFill({
               stages={knockoutStagesMain}
               showSeeds={showSeeds}
               applyWinner={applyWinner}
-              busy={busy || locked}
+              busy={uiBusy}
               onClearWinner={onClearWinner}
             />
             {mirrorLayout.center && finalMatchup ? (
@@ -662,7 +715,7 @@ export function BracketFill({
                       allKnockoutStages={stages}
                       showSeeds={showSeeds}
                       applyWinner={applyWinner}
-                      busy={busy || locked}
+                      busy={uiBusy}
                       onClearWinner={onClearWinner}
                     />
                     <SpineConnector
@@ -682,7 +735,7 @@ export function BracketFill({
               stages={knockoutStagesMain}
               showSeeds={showSeeds}
               applyWinner={applyWinner}
-              busy={busy || locked}
+              busy={uiBusy}
               onClearWinner={onClearWinner}
               reverse
             />
@@ -699,7 +752,7 @@ export function BracketFill({
                   stages={knockoutStagesMain}
                   showSeeds={showSeeds}
                   applyWinner={applyWinner}
-                  busy={busy || locked}
+                  busy={uiBusy}
                   onClearWinner={onClearWinner}
                 />
                 {stageIdx < knockoutStagesMain.length - 1 ? (
@@ -728,7 +781,7 @@ export function BracketFill({
                 allKnockoutStages={stages}
                 showSeeds={showSeeds}
                 applyWinner={applyWinner}
-                busy={busy || locked}
+                busy={uiBusy}
                 onClearWinner={onClearWinner}
               />
             ) : null}
@@ -747,7 +800,7 @@ export function BracketFill({
     <ScoringHighlightContext.Provider value={scoringLookup}>
     <section
       className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
-      aria-busy={busy}
+      aria-busy={!deferLeaderboardScoring && busy}
       style={
         {
           '--bf-board-h': `${boardHeightPx}px`,
@@ -756,6 +809,22 @@ export function BracketFill({
     >
       <h2>{detail.bracket.name}</h2>
       {error ? <p className="bf-error">{error}</p> : null}
+
+      {deferLeaderboardScoring && leaderboardPending ? (
+        <div className="bf-scores-pending" role="status">
+          <p className="bf-scores-pending__text">
+            Results are saved. Challenge leaderboard scores are not updated yet.
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary bf-scores-pending__btn"
+            disabled={materializeBusy}
+            onClick={() => void handleMaterializeScores()}
+          >
+            {materializeBusy ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      ) : null}
 
       {(() => {
         const showPointsBadge =
@@ -818,7 +887,7 @@ export function BracketFill({
                         ? 'bf-group-mode__btn bf-group-mode__btn--active'
                         : 'bf-group-mode__btn'
                     }
-                    disabled={groupResultsModeBusy || busy}
+                    disabled={groupResultsModeBusy || (!deferLeaderboardScoring && busy)}
                     onClick={() => void onGroupResultsModeChange('live')}
                   >
                     Live
@@ -832,7 +901,7 @@ export function BracketFill({
                         ? 'bf-group-mode__btn bf-group-mode__btn--active'
                         : 'bf-group-mode__btn'
                     }
-                    disabled={groupResultsModeBusy || busy}
+                    disabled={groupResultsModeBusy || (!deferLeaderboardScoring && busy)}
                     onClick={() => void onGroupResultsModeChange('confirmed')}
                   >
                     Confirmed
@@ -898,11 +967,13 @@ export function BracketFill({
                 scoringHighlights={
                   showScoringHighlights ? detail.scoring_highlights : undefined
                 }
-                busy={busy}
+                busy={uiBusy}
                 readOnly={locked}
                 onSaved={handleGroupSaved}
                 onError={(msg) => setError(msg || null)}
                 setBusy={setBusy}
+                saveDebounceMs={deferLeaderboardScoring ? 600 : 0}
+                lightweightSave={deferLeaderboardScoring}
               />
             </div>
             <div

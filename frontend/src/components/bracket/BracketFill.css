@@ -402,6 +402,30 @@
   margin-bottom: 1rem;
 }
 
+.bf-scores-pending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--bf-accent, #2563eb) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bf-accent, #2563eb) 8%, transparent);
+}
+
+.bf-scores-pending__text {
+  margin: 0;
+  flex: 1 1 12rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--bf-text, inherit);
+}
+
+.bf-scores-pending__btn {
+  flex-shrink: 0;
+}
+
 .bf-toolbar {
   display: flex;
   flex-wrap: wrap;

@@ -14,6 +14,10 @@ urlpatterns = [
         "brackets/<int:bracket_id>/group-results-mode",
         views.bracket_group_results_mode,
     ),
+    path(
+        "brackets/<int:bracket_id>/materialize-scores",
+        views.bracket_materialize_scores,
+    ),
     path("user-brackets", views.user_brackets_list_create),
     path("user-brackets/<int:user_bracket_id>", views.user_bracket_detail),
     path(

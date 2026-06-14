@@ -6,6 +6,7 @@ from django.test import Client, TestCase
 
 from brackets.models import BracketChallenge, BracketContestant, User, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
+from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 
 
 class MasterBracketViewApiTests(TestCase):
@@ -14,6 +15,9 @@ class MasterBracketViewApiTests(TestCase):
         self.host = User.objects.create_user(username="host", password="secret")
         self.player = User.objects.create_user(username="player", password="secret")
         self.outsider = User.objects.create_user(username="outsider", password="secret")
+        self.staff = User.objects.create_superuser(
+            username="staff", email="s@example.com", password="secret"
+        )
         self.bracket = create_bracket_with_structure(
             "SINGLE_ELIM",
             "view-master",
@@ -70,3 +74,38 @@ class MasterBracketViewApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_staff_master_pick_sets_pending_until_materialized(self):
+        teams = list(
+            BracketContestant.objects.filter(bracket=self.bracket).order_by(
+                "seed", "id"
+            )
+        )
+        ensure_knockout_structure_for_user_bracket(self.master)
+        matchup = self.master.matchup_set.order_by("stage__order", "position").first()
+        self.assertIsNotNone(matchup)
+        matchup.contestant1 = teams[0]
+        matchup.contestant2 = teams[1]
+        matchup.save(update_fields=["contestant1", "contestant2"])
+        winner_id = teams[0].id
+
+        self.client.force_login(self.staff)
+        res = self.client.patch(
+            f"/brackets/api/matchups/{matchup.id}",
+            data=json.dumps({"winner_id": winner_id}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        res = self.client.get(f"/brackets/api/user-brackets/{self.master.id}")
+        self.assertTrue(res.json()["user_bracket"]["leaderboard_scores_pending"])
+
+        res = self.client.post(
+            f"/brackets/api/brackets/{self.bracket.id}/materialize-scores"
+        )
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertFalse(body["leaderboard_scores_pending"])
+
+        res = self.client.get(f"/brackets/api/user-brackets/{self.master.id}")
+        self.assertFalse(res.json()["user_bracket"]["leaderboard_scores_pending"])

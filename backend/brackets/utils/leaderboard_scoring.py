@@ -17,6 +17,7 @@ from brackets.models import (
 
 LEADERBOARD_SCORES_KEY = "leaderboard_scores"
 MASTER_SCORING_REVISION_KEY = "master_scoring_revision"
+MASTER_SCORING_PENDING_KEY = "master_scoring_pending"
 
 
 @dataclass
@@ -65,10 +66,44 @@ def bump_master_scoring_revision(bracket: Bracket) -> int:
     return revision
 
 
-def on_master_bracket_changed(bracket: Bracket) -> int:
-    """Invalidate master revision and recompute all submitted user brackets."""
-    bump_master_scoring_revision(bracket)
-    return refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+def is_master_scoring_pending(bracket: Bracket) -> bool:
+    meta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    return bool(meta.get(MASTER_SCORING_PENDING_KEY))
+
+
+def _clear_master_scoring_pending(bracket: Bracket) -> None:
+    meta = dict(bracket.metadata) if isinstance(bracket.metadata, dict) else {}
+    if not meta.pop(MASTER_SCORING_PENDING_KEY, None):
+        return
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
+
+
+def mark_master_scoring_pending(bracket: Bracket) -> int:
+    """Bump revision and flag scores stale without recomputing every entry."""
+    revision = bump_master_scoring_revision(bracket)
+    meta = dict(bracket.metadata) if isinstance(bracket.metadata, dict) else {}
+    meta[MASTER_SCORING_PENDING_KEY] = True
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
+    return revision
+
+
+def materialize_leaderboard_scores_for_bracket(bracket: Bracket) -> int:
+    """Recompute all submitted user bracket scores for the current revision."""
+    count = refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+    _clear_master_scoring_pending(bracket)
+    return count
+
+
+def on_master_bracket_changed(bracket: Bracket, *, materialize: bool = True) -> int:
+    """Invalidate master revision; optionally recompute all submitted brackets."""
+    if materialize:
+        bump_master_scoring_revision(bracket)
+        count = refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+        _clear_master_scoring_pending(bracket)
+        return count
+    return mark_master_scoring_pending(bracket)
 
 
 def _read_metadata_scores(
