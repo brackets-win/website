@@ -420,6 +420,10 @@ export function ChallengeView({
       : 'My Bracket';
 
   const showLeaderboard = challenge.uses_prediction_leaderboard !== false;
+  const leaderboardColumns = useMemo(() => {
+    if (!challenge.show_live_group_results_note) return columns;
+    return columns.filter((col) => col.key !== 'potential');
+  }, [columns, challenge.show_live_group_results_note]);
   const canViewPeerBrackets = challenge.can_view_peer_brackets === true;
   const showOfficial =
     isBracketChallenge && masterId != null && !isTournament;
@@ -710,7 +714,7 @@ export function ChallengeView({
             </p>
           ) : null}
           <ChallengeLeaderboard
-            columns={columns}
+            columns={leaderboardColumns}
             entries={entries}
             loading={boardLoading}
             error={boardErr}

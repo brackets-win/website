@@ -277,28 +277,34 @@ def _write_stored_scores(
     revision: int,
     bundle: LeaderboardScoreBundle,
 ) -> None:
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
+    omit_potential = omit_leaderboard_potential_for_bracket(ub.bracket)
     ub.leaderboard_score = bundle.score
-    ub.leaderboard_potential = bundle.potential
+    if not omit_potential:
+        ub.leaderboard_potential = bundle.potential
     ub.leaderboard_stage_scores = bundle.stage_scores
     ub.leaderboard_scores_revision = revision
 
     meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
-    meta[LEADERBOARD_SCORES_KEY] = {
+    cache: dict[str, object] = {
         "revision": revision,
         "score": bundle.score,
-        "potential": bundle.potential,
         "stage_scores": bundle.stage_scores,
     }
+    if not omit_potential:
+        cache["potential"] = bundle.potential
+    meta[LEADERBOARD_SCORES_KEY] = cache
     ub.metadata = meta
-    ub.save(
-        update_fields=[
-            "leaderboard_score",
-            "leaderboard_potential",
-            "leaderboard_stage_scores",
-            "leaderboard_scores_revision",
-            "metadata",
-        ]
-    )
+    update_fields = [
+        "leaderboard_score",
+        "leaderboard_stage_scores",
+        "leaderboard_scores_revision",
+        "metadata",
+    ]
+    if not omit_potential:
+        update_fields.insert(1, "leaderboard_potential")
+    ub.save(update_fields=update_fields)
 
 
 def _compute_leaderboard_scores(
@@ -312,14 +318,18 @@ def _compute_leaderboard_scores(
     if not ctx.master:
         return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
 
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
     stage_scores = stage_scores_for_user_bracket(ub, ctx)
     score = sum(v for v in stage_scores.values() if v is not None)
-    potential = ub.calculate_potential_score(
-        master=ctx.master,
-        main_ko_stages=main_ko_stages,
-        groups_preview=groups_preview,
-        knockout_by_id=knockout_by_id or ctx.knockout_by_id,
-    )
+    potential = None
+    if not omit_leaderboard_potential_for_bracket(ub.bracket):
+        potential = ub.calculate_potential_score(
+            master=ctx.master,
+            main_ko_stages=main_ko_stages,
+            groups_preview=groups_preview,
+            knockout_by_id=knockout_by_id or ctx.knockout_by_id,
+        )
     return LeaderboardScoreBundle(
         score=score,
         potential=potential,

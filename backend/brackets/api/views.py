@@ -1132,10 +1132,17 @@ def challenge_leaderboard(
     stages = list(ctx.stages)
     scoring_revision = get_master_scoring_revision(bracket)
     top_four_ctx = build_top_four_context(bracket)
-    columns = [
-        serializers.leaderboard_column(key="potential", name="Potential"),
-        serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS"),
-    ]
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
+    omit_potential = omit_leaderboard_potential_for_bracket(bracket)
+    columns = []
+    if not omit_potential:
+        columns.append(
+            serializers.leaderboard_column(key="potential", name="Potential")
+        )
+    columns.append(
+        serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS")
+    )
     columns.extend(
         serializers.leaderboard_column(
             key=f"stage:{stage.id}",
@@ -1177,7 +1184,7 @@ def challenge_leaderboard(
             )
             stage_scores = scores.stage_scores
             score = scores.score
-            potential = scores.potential
+            potential = None if omit_potential else scores.potential
         else:
             stage_scores = {col["key"]: None for col in columns}
             score = None

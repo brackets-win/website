@@ -43,3 +43,8 @@ def show_live_group_results_note_for_bracket(bracket) -> bool:
     if not bracket_groups_preview(bracket):
         return False
     return group_results_mode_from_metadata(bracket.metadata) == "live"
+
+
+def omit_leaderboard_potential_for_bracket(bracket) -> bool:
+    """Live group results: leaderboard shows scored points only, not projections."""
+    return show_live_group_results_note_for_bracket(bracket)
