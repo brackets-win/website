@@ -299,6 +299,61 @@ class StreakCompetitionAdminApiTests(TestCase):
         self.assertEqual(question.correct_choice_id, yes.id)
         self.assertIsNotNone(question.resolved_at)
 
+    def test_admin_question_detail_includes_pick_count(self):
+        creator = User.objects.create_user(username="host", password="x")
+        player = User.objects.create_user(username="player", password="x")
+        challenge_a = StreakChallenge.objects.create(
+            name="Pool A",
+            streak_competition=self.competition,
+            created_by=creator,
+            is_public=True,
+        )
+        challenge_b = StreakChallenge.objects.create(
+            name="Pool B",
+            streak_competition=self.competition,
+            created_by=creator,
+            is_public=True,
+        )
+        picked = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Picked",
+            closes_at=timezone.now() + timezone.timedelta(days=1),
+            order=1,
+        )
+        unpicked = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Unpicked",
+            closes_at=timezone.now() + timezone.timedelta(days=2),
+            order=2,
+        )
+        choice_a = StreakQuestionChoice.objects.create(
+            question=picked, label="A", order=1
+        )
+        StreakQuestionChoice.objects.create(question=picked, label="B", order=2)
+        StreakQuestionChoice.objects.create(question=unpicked, label="A", order=1)
+        StreakQuestionChoice.objects.create(question=unpicked, label="B", order=2)
+        StreakPick.objects.create(
+            streak_challenge=challenge_a,
+            question=picked,
+            user=player,
+            choice=choice_a,
+        )
+        StreakPick.objects.create(
+            streak_challenge=challenge_b,
+            question=picked,
+            user=creator,
+            choice=choice_a,
+        )
+
+        self.client.force_login(self.staff)
+        res = self.client.get(
+            f"/brackets/api/streak-competitions/{self.competition.id}"
+        )
+        self.assertEqual(res.status_code, 200)
+        by_text = {q["text"]: q for q in res.json()["questions"]}
+        self.assertEqual(by_text["Picked"]["pick_count"], 2)
+        self.assertEqual(by_text["Unpicked"]["pick_count"], 0)
+
 
 class StreakQuestionPickPctTests(TestCase):
     def setUp(self):

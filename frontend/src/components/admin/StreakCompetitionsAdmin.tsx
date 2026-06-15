@@ -80,7 +80,18 @@ function QuestionTile({
       className={`streak-question-tile${past && !resolved ? ' streak-question-tile--past' : ''}${resolved ? ' streak-question-tile--resolved' : ''}`}
     >
       <div className="streak-question-tile__header">
-        <span className="streak-question-tile__badge">{badge}</span>
+        <div className="streak-question-tile__status">
+          <span className="streak-question-tile__badge">{badge}</span>
+          <span
+            className={
+              q.pick_count > 0
+                ? 'streak-question-tile__pick-count streak-question-tile__pick-count--has-picks'
+                : 'streak-question-tile__pick-count'
+            }
+          >
+            {q.pick_count} pick{q.pick_count === 1 ? '' : 's'}
+          </span>
+        </div>
         <div className="streak-question-tile__toolbar">
           <button
             type="button"

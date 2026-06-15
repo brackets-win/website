@@ -317,8 +317,24 @@ def streak_competitions_list_create(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"streak_competitions": rows})
 
 
-def _question_admin(q: StreakQuestion) -> dict[str, Any]:
+def _pick_counts_by_question(question_ids: list[int]) -> dict[int, int]:
+    """Total picks per question across all linked streak challenges."""
+    if not question_ids:
+        return {}
+    rows = (
+        StreakPick.objects.filter(question_id__in=question_ids)
+        .values("question_id")
+        .annotate(count=Count("id"))
+    )
+    return {row["question_id"]: row["count"] for row in rows}
+
+
+def _question_admin(
+    q: StreakQuestion, *, pick_count: int | None = None
+) -> dict[str, Any]:
     correct_label = q.correct_choice.label if q.correct_choice_id else None
+    if pick_count is None:
+        pick_count = StreakPick.objects.filter(question_id=q.id).count()
     return {
         "id": q.id,
         "text": q.text,
@@ -329,6 +345,7 @@ def _question_admin(q: StreakQuestion) -> dict[str, Any]:
         "correct_answer": correct_label,
         "order": q.order,
         "is_open": q.resolved_at is None,
+        "pick_count": pick_count,
     }
 
 
@@ -492,9 +509,13 @@ def streak_competition_detail(
         )
 
     try:
+        question_rows = list(
+            _questions_queryset().filter(streak_competition=competition)
+        )
+        pick_counts = _pick_counts_by_question([q.id for q in question_rows])
         questions = [
-            _question_admin(q)
-            for q in _questions_queryset().filter(streak_competition=competition)
+            _question_admin(q, pick_count=pick_counts.get(q.id, 0))
+            for q in question_rows
         ]
     except DatabaseError as exc:
         schema_err = _schema_out_of_date_error(exc)

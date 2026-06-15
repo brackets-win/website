@@ -118,6 +118,7 @@ export type StreakCompetitionQuestionAdmin = {
   correct_answer: string | null;
   order: number;
   is_open: boolean;
+  pick_count: number;
 };
 
 export type StreakChallengeSummary = {
