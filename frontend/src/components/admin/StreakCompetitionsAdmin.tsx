@@ -715,23 +715,6 @@ export function StreakCompetitionsAdmin() {
             </div>
 
             <ul className="streak-question-grid">
-              {sortedQuestions.map((q) => (
-                <QuestionTile
-                  key={q.id}
-                  q={q}
-                  busy={questionsBusy || editQuestionBusy || deleteQuestionBusy}
-                  onEdit={openEditQuestion}
-                  onDelete={(question) =>
-                    startDeleteTarget(
-                      'streak-question',
-                      question.id,
-                      question.text.slice(0, 80),
-                      setDeleteQuestionTarget,
-                    )
-                  }
-                  onResolve={(id, choiceId) => void handleResolve(id, choiceId)}
-                />
-              ))}
               <li>
                 <button
                   type="button"
@@ -749,6 +732,23 @@ export function StreakCompetitionsAdmin() {
                   </span>
                 </button>
               </li>
+              {sortedQuestions.map((q) => (
+                <QuestionTile
+                  key={q.id}
+                  q={q}
+                  busy={questionsBusy || editQuestionBusy || deleteQuestionBusy}
+                  onEdit={openEditQuestion}
+                  onDelete={(question) =>
+                    startDeleteTarget(
+                      'streak-question',
+                      question.id,
+                      question.text.slice(0, 80),
+                      setDeleteQuestionTarget,
+                    )
+                  }
+                  onResolve={(id, choiceId) => void handleResolve(id, choiceId)}
+                />
+              ))}
             </ul>
           </div>
         </section>
