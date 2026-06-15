@@ -37,8 +37,17 @@ function isPastDeadline(closesAt: string): boolean {
   return new Date(closesAt).getTime() <= Date.now();
 }
 
+function isUnresolvedPast(q: StreakCompetitionQuestionAdmin): boolean {
+  return q.resolved_at == null && isPastDeadline(q.closes_at);
+}
+
 function sortQuestions(items: StreakCompetitionQuestionAdmin[]) {
   return [...items].sort((a, b) => {
+    const aNeedsResolve = isUnresolvedPast(a);
+    const bNeedsResolve = isUnresolvedPast(b);
+    if (aNeedsResolve !== bNeedsResolve) {
+      return aNeedsResolve ? -1 : 1;
+    }
     const byClose =
       new Date(b.closes_at).getTime() - new Date(a.closes_at).getTime();
     if (byClose !== 0) return byClose;
