@@ -19,7 +19,7 @@ import {
   type StreakChallengeSummary,
 } from '../../utils/api';
 import { invalidateHome } from '../../utils/homeCache';
-import { activeLongWinStreakEmoji } from '../../utils/challengeTypes';
+import { streakEmoji } from '../../utils/challengeTypes';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { formatDeadlineEst } from '../../utils/est';
 import {
@@ -389,9 +389,10 @@ export function StreakChallengeView({
     );
   }
 
-  const longWinEmoji = activeLongWinStreakEmoji(
+  const activeStreakEmoji = streakEmoji(
     summary.streak_signed,
     summary.best_win_streak,
+    summary.broken_win_streak ?? 0,
   );
 
   return (
@@ -441,9 +442,9 @@ export function StreakChallengeView({
               <span className="streak-view__stat-value">
                 {summary.wins}-{summary.losses}
               </span>
-              {longWinEmoji ? (
+              {activeStreakEmoji ? (
                 <span className="streak-view__stat-emoji" aria-hidden>
-                  {longWinEmoji}
+                  {activeStreakEmoji}
                 </span>
               ) : null}
             </p>

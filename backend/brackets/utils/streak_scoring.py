@@ -105,6 +105,57 @@ def recalculate_participant_stats(participant: StreakParticipant) -> None:
     )
 
 
+def current_broken_win_streak(participant: StreakParticipant) -> int:
+    """
+    Length of the win streak that was just broken, when the current streak is 1L.
+
+    Returns 0 for every other state.
+    """
+    if participant.streak_signed != -1:
+        return 0
+
+    competition_id = participant.streak_challenge.streak_competition_id
+    questions = list(
+        StreakQuestion.objects.filter(
+            streak_competition_id=competition_id,
+            resolved_at__isnull=False,
+            correct_choice_id__isnull=False,
+        ).order_by("closes_at", "order", "id")
+    )
+    picks_by_q = {
+        p.question_id: p
+        for p in StreakPick.objects.filter(
+            streak_challenge_id=participant.streak_challenge_id,
+            user_id=participant.user_id,
+            question_id__in=[q.id for q in questions],
+        ).select_related("choice")
+    }
+
+    # At most one scored pick per deadline; prefer lowest order when legacy dupes exist.
+    deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
+    for q in questions:
+        pick = picks_by_q.get(q.id)
+        if pick is None:
+            continue
+        key = closes_at_key(q.closes_at)
+        prev = deadline_pick.get(key)
+        if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
+            deadline_pick[key] = (q, pick)
+
+    streak_signed = 0
+    broken_streak = 0
+    for closes_at in sorted(deadline_pick.keys()):
+        q, pick = deadline_pick[closes_at]
+        previous_streak = streak_signed
+        if _is_correct(pick, q):
+            streak_signed = _apply_batch(streak_signed, 1, 0)
+        else:
+            streak_signed = _apply_batch(streak_signed, 0, 1)
+            broken_streak = previous_streak if previous_streak >= 3 else 0
+
+    return broken_streak if streak_signed == -1 else 0
+
+
 def recalculate_streak_challenge(streak_challenge_id: int) -> None:
     with transaction.atomic():
         for participant in StreakParticipant.objects.filter(

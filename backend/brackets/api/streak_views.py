@@ -46,6 +46,7 @@ from brackets.utils.streak_deadlines import (
 )
 from brackets.utils.streak_scoring import (
     clear_question_resolution,
+    current_broken_win_streak,
     recalculate_streak_competition,
     resolve_question,
 )
@@ -115,6 +116,9 @@ def _streak_summary(
         "losses": participant.losses if participant else 0,
         "streak_signed": participant.streak_signed if participant else 0,
         "best_win_streak": participant.best_win_streak if participant else 0,
+        "broken_win_streak": (
+            current_broken_win_streak(participant) if participant else 0
+        ),
         "streak_display": serializers.streak_display(
             participant.streak_signed if participant else 0
         ),
@@ -252,6 +256,7 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "win_pct": round(rate * 100),
         "best_win_streak": p.best_win_streak,
         "best_loss_streak": p.best_loss_streak,
+        "broken_win_streak": current_broken_win_streak(p),
         "streak_display": serializers.streak_display(p.streak_signed),
         "win_rate": round(rate, 4),
     }

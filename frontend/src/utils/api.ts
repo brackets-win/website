@@ -136,6 +136,7 @@ export type StreakChallengeSummary = {
   losses: number;
   streak_signed: number;
   best_win_streak: number;
+  broken_win_streak?: number;
   streak_display: string;
   current_display: string;
   long_win_display: string;
@@ -176,6 +177,7 @@ export type StreakLeaderboardEntry = {
   win_pct: number;
   best_win_streak: number;
   best_loss_streak: number;
+  broken_win_streak?: number;
   /** @deprecated use current_display */
   streak_display?: string;
   /** @deprecated use win_pct */

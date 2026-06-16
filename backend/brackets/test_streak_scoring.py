@@ -14,8 +14,9 @@ from brackets.models import (
 )
 from brackets.utils.streak_scoring import (
     _apply_batch,
-    recalculate_participant_stats,
     clear_question_resolution,
+    current_broken_win_streak,
+    recalculate_participant_stats,
     resolve_question,
 )
 
@@ -144,3 +145,27 @@ class StreakScoringTests(TestCase):
         other_participant.refresh_from_db()
         self.assertEqual(self.participant.streak_signed, 1)
         self.assertEqual(other_participant.streak_signed, 1)
+
+    def test_current_broken_win_streak_detects_one_loss_after_long_win_streak(self):
+        for idx in range(4):
+            q, choices = _make_question(
+                self.competition,
+                f"Q{idx + 1}",
+                ["Yes", "No"],
+                closes_at=self.closes + timezone.timedelta(hours=idx),
+                order=idx + 1,
+            )
+            q.correct_choice = choices[0]
+            q.resolved_at = timezone.now()
+            q.save(update_fields=["correct_choice", "resolved_at"])
+            StreakPick.objects.create(
+                streak_challenge=self.challenge,
+                question=q,
+                user=self.user,
+                choice=choices[1] if idx == 3 else choices[0],
+            )
+
+        recalculate_participant_stats(self.participant)
+        self.participant.refresh_from_db()
+        self.assertEqual(self.participant.streak_signed, -1)
+        self.assertEqual(current_broken_win_streak(self.participant), 3)

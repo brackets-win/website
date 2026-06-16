@@ -5,7 +5,7 @@ import {
   computeCompetitionRanks,
   leaderboardRowClassName,
 } from '../../utils/leaderboardRows';
-import { activeLongWinStreakEmoji } from '../../utils/challengeTypes';
+import { streakEmoji } from '../../utils/challengeTypes';
 
 import './ChallengeLeaderboard.css';
 
@@ -226,9 +226,10 @@ export function StreakLeaderboard({
           {sortedEntries.map((e) => {
             const rank = ranks.get(e.user_id)!;
             const isViewer = e.user_id === viewerUserId;
-            const longWinEmoji = activeLongWinStreakEmoji(
+            const activeStreakEmoji = streakEmoji(
               e.streak_signed,
               e.best_win_streak,
+              e.broken_win_streak ?? 0,
             );
             return (
               <li
@@ -242,12 +243,12 @@ export function StreakLeaderboard({
                     className="streak-leaderboard__player leaderboard-card__name"
                     onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
                   >
-                    {playerLabel(e)}{longWinEmoji ? (
+                    {playerLabel(e)}{activeStreakEmoji ? (
                       <span
                         className="streak-leaderboard__name-emoji"
                         aria-hidden
                       >
-                        {longWinEmoji}
+                        {activeStreakEmoji}
                       </span>
                     ) : null}
                   </button>
@@ -347,9 +348,10 @@ export function StreakLeaderboard({
             {sortedEntries.map((e) => {
               const rank = ranks.get(e.user_id)!;
               const isViewer = e.user_id === viewerUserId;
-              const longWinEmoji = activeLongWinStreakEmoji(
+              const activeStreakEmoji = streakEmoji(
                 e.streak_signed,
                 e.best_win_streak,
+                e.broken_win_streak ?? 0,
               );
               return (
                 <tr
@@ -363,12 +365,12 @@ export function StreakLeaderboard({
                       className="streak-leaderboard__player"
                       onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
                     >
-                      {playerLabel(e)}{longWinEmoji ? (
+                      {playerLabel(e)}{activeStreakEmoji ? (
                         <span
                           className="streak-leaderboard__name-emoji"
                           aria-hidden
                         >
-                          {longWinEmoji}
+                          {activeStreakEmoji}
                         </span>
                       ) : null}
                     </button>
