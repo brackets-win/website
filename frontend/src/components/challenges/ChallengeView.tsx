@@ -6,12 +6,15 @@ import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
 import {
   ApiError,
   deleteChallenge,
+  getBracket,
   getChallenge,
   updateChallenge,
   getChallengeLeaderboard,
   getChallengeStats,
   joinChallenge,
   type ApiUser,
+  type BracketDetail,
+  type BracketStageInfo,
   type ChallengeStats,
   type ChallengeSummary,
   type LeaderboardColumn,
@@ -51,6 +54,59 @@ type Props = {
   currentUser: ApiUser;
 };
 
+function pointLabel(points: number): string {
+  return `${points} ${points === 1 ? 'point' : 'points'}`;
+}
+
+function bracketScoringRules(bracket: BracketDetail | null): string[] {
+  if (!bracket) return [];
+
+  const stages = [...bracket.stages].sort((a, b) => a.order - b.order);
+  const rules: string[] = [];
+
+  stages.forEach((stage: BracketStageInfo) => {
+    if (stage.stage_type === 'GROUP') {
+      const exactPoints = stage.group?.points_per_exact_position ?? 0;
+      if (exactPoints > 0) {
+        rules.push(
+          `${pointLabel(exactPoints)} for each exact correct group placement`,
+        );
+      }
+
+      const advancerPoints = stage.group?.points_per_advancer ?? 0;
+      if (advancerPoints > 0) {
+        rules.push(
+          `${pointLabel(advancerPoints)} for each team correctly advancing from ${stage.name}`,
+        );
+      }
+      return;
+    }
+
+    if (stage.stage_type !== 'KNOCKOUT' || stage.knockout?.is_third_place) {
+      return;
+    }
+
+    const points = stage.points_per_correct_pick ?? 0;
+    if (points > 0) {
+      rules.push(
+        `${pointLabel(points)} for each team correctly placed in ${stage.name}`,
+      );
+    }
+  });
+
+  const thirdPlacePoints = bracket.points_third_place_winner ?? 0;
+  if (bracket.has_third_place_match && thirdPlacePoints > 0) {
+    rules.push(`${pointLabel(thirdPlacePoints)} for correct Third Place`);
+  }
+
+  const championPoints = bracket.points_champion ?? 0;
+  if (championPoints > 0) {
+    rules.push(`${pointLabel(championPoints)} for correct Champions`);
+  }
+
+  return rules;
+}
+
 export function ChallengeView({
   challengeId,
   tab,
@@ -61,6 +117,7 @@ export function ChallengeView({
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [challenge, setChallenge] = useState<ChallengeSummary | null>(null);
+  const [bracketDef, setBracketDef] = useState<BracketDetail | null>(null);
   const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
@@ -106,6 +163,12 @@ export function ChallengeView({
     try {
       const { challenge: c } = await getChallenge(challengeId);
       setChallenge(c);
+      if (c.instance_type === INSTANCE_BRACKET_CHALLENGE) {
+        const { bracket } = await getBracket(c.bracket_id);
+        setBracketDef(bracket);
+      } else {
+        setBracketDef(null);
+      }
       if (c.uses_prediction_leaderboard === false) {
         setColumns([]);
         setEntries([]);
@@ -428,6 +491,11 @@ export function ChallengeView({
   const canViewPeerBrackets = challenge.can_view_peer_brackets === true;
   const showOfficial =
     isBracketChallenge && masterId != null && !isTournament;
+  const scoringRules = isBracketChallenge
+    ? bracketScoringRules(bracketDef)
+    : [];
+  const hasGroupStage =
+    bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true;
 
   if (primaryBracketId == null && !isTournament) {
     return (
@@ -550,6 +618,19 @@ export function ChallengeView({
             onClick={() => goToTab('stats')}
           >
             Stats
+          </button>
+        ) : null}
+        {isBracketChallenge ? (
+          <button
+            type="button"
+            className={
+              tab === 'rules'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('rules')}
+          >
+            Rules
           </button>
         ) : null}
         <button
@@ -747,6 +828,42 @@ export function ChallengeView({
             </div>
           ) : stats ? (
             <ChallengeStatsPanel stats={stats} />
+          ) : null}
+        </section>
+      ) : null}
+
+      {!viewingPlayer && tab === 'rules' && isBracketChallenge ? (
+        <section className="card challenge-view__rules">
+          <p>
+            Win the challenge by predicting the most accurate bracket and earning
+            the most points.
+          </p>
+          <ul className="challenge-view__rules-list">
+            <li>Fill out and submit your bracket before the deadline.</li>
+            <li>
+              Follow the Leaderboard to see where you stand. Potential Points are
+              the maximum possible points that your bracket can still reach.
+              Potential Points will not show until any group phase points are
+              confirmed.
+            </li>
+            {hasGroupStage ? (
+              <li>
+                If a competition is in its group phase, points will only be
+                projections and not confirmed. They are the points that you would
+                have if the current group standings held. Therefore, your points
+                can go down during this period as actual group standings shuffle.
+              </li>
+            ) : null}
+          </ul>
+          {scoringRules.length > 0 ? (
+            <>
+              <h2 className="challenge-view__rules-heading">Bracket Scoring</h2>
+              <ul className="challenge-view__rules-list">
+                {scoringRules.map((rule) => (
+                  <li key={rule}>{rule}</li>
+                ))}
+              </ul>
+            </>
           ) : null}
         </section>
       ) : null}

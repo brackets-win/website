@@ -34,8 +34,32 @@
 }
 
 .challenge-view__settings,
-.challenge-view__stats {
+.challenge-view__stats,
+.challenge-view__rules {
   padding: 1.25rem 1.5rem;
+}
+
+.challenge-view__rules p {
+  margin: 0 0 1rem;
+  line-height: 1.6;
+  color: var(--app-text);
+}
+
+.challenge-view__rules-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  line-height: 1.6;
+  color: var(--app-text);
+}
+
+.challenge-view__rules-list li + li {
+  margin-top: 0.75rem;
+}
+
+.challenge-view__rules-heading {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .challenge-view__teams-form {
@@ -286,6 +310,7 @@
 
   .challenge-view__settings,
   .challenge-view__stats,
+  .challenge-view__rules,
   .challenge-view__board,
   .challenge-view__entries,
   .challenge-view__player-bracket {

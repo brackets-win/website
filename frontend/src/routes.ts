@@ -4,6 +4,7 @@ export const CHALLENGE_TABS = [
   'official',
   'leaderboard',
   'stats',
+  'rules',
   'settings',
 ] as const;
 
