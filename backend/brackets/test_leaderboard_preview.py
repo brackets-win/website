@@ -124,6 +124,38 @@ class LeaderboardPreviewTests(TestCase):
             sorted(names, key=str.casefold),
         )
 
+    def test_streak_preview_uses_better_worst_streak_as_final_tiebreaker(self):
+        host = User.objects.create_user(username="host", password="x")
+        u1 = User.objects.create_user(username="low_loss", password="x")
+        u2 = User.objects.create_user(username="high_loss", password="x")
+        competition = StreakCompetition.objects.create(name="Streak comp")
+        challenge = StreakChallenge.objects.create(
+            name="Streak",
+            streak_competition=competition,
+            created_by=host,
+            is_public=True,
+        )
+        for user, display_name, best_loss in (
+            (u1, "Low Loss", 1),
+            (u2, "High Loss", 4),
+        ):
+            StreakParticipant.objects.create(
+                streak_challenge=challenge,
+                user=user,
+                display_name=display_name,
+                wins=6,
+                losses=4,
+                streak_signed=2,
+                best_win_streak=3,
+                best_loss_streak=best_loss,
+            )
+
+        preview = streak_challenge_leaderboard_preview(challenge, host, limit=2)
+        self.assertEqual(preview["top"][0]["display_name"], "Low Loss")
+        self.assertEqual(preview["top"][0]["rank"], 1)
+        self.assertEqual(preview["top"][1]["display_name"], "High Loss")
+        self.assertEqual(preview["top"][1]["rank"], 2)
+
     def test_bracket_preview_without_master_does_not_crash(self):
         host = User.objects.create_user(username="host2", password="x")
         bracket = create_bracket_with_structure(

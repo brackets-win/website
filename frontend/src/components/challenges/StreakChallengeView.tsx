@@ -581,7 +581,8 @@ export function StreakChallengeView({
               create the longest winning streak with correct picks.
             </li>
             <li>
-              Tiebreakers: Best Streak, then Current Streak, then Wins, then Win %
+              Tiebreakers: Best Streak, then Current Streak, then Wins, then Win
+              %, then better Worst Streak
             </li>
           </ul>
         </section>

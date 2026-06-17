@@ -49,6 +49,9 @@ function defaultStreakStatsCompare(
   if (b.win_pct !== a.win_pct) {
     return b.win_pct - a.win_pct;
   }
+  if (a.best_loss_streak !== b.best_loss_streak) {
+    return a.best_loss_streak - b.best_loss_streak;
+  }
   return 0;
 }
 

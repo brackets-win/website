@@ -118,16 +118,25 @@ def streak_win_rate(p: StreakParticipant) -> float:
 
 
 def streak_participant_stats_key(p: StreakParticipant) -> tuple:
-    return (p.best_win_streak, p.streak_signed, p.wins, streak_win_rate(p))
+    return (
+        p.best_win_streak,
+        p.streak_signed,
+        p.wins,
+        streak_win_rate(p),
+        -p.best_loss_streak,
+    )
 
 
 def streak_participant_sort_key(p: StreakParticipant) -> tuple:
-    best_win, streak_signed, wins, rate = streak_participant_stats_key(p)
+    best_win, streak_signed, wins, rate, better_worst = (
+        streak_participant_stats_key(p)
+    )
     return (
         -best_win,
         -streak_signed,
         -wins,
         -rate,
+        -better_worst,
         streak_participant_label(p).casefold(),
     )
 
