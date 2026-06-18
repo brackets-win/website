@@ -53,14 +53,13 @@ export function formatStreakDisplay(streakSigned: number): string {
 
 export function streakEmoji(
   streakSigned: number,
-  bestWinStreak: number,
+  _bestWinStreak: number,
   brokenWinStreak = 0,
 ): string | null {
   if (streakSigned === -1 && brokenWinStreak >= 3) return '🧯';
   if (streakSigned <= -3) return '🧊';
 
-  if (streakSigned <= 0 || bestWinStreak <= 0) return null;
-  if (streakSigned !== bestWinStreak) return null;
+  if (streakSigned <= 0) return null;
   if (streakSigned >= 10) return '🐦‍🔥';
   if (streakSigned >= 7) return '☄️';
   if (streakSigned >= 5) return '🌋';
