@@ -310,7 +310,22 @@ def _viewer_sees_scoring_highlights(viewer, ub: UserBracket) -> bool:
 
 
 def auth_user(u) -> dict[str, Any]:
-    return {"id": u.id, "username": u.username, "is_staff": bool(u.is_staff)}
+    return {
+        "id": u.id,
+        "username": u.username,
+        "is_staff": bool(u.is_staff),
+        "must_change_password": bool(u.must_change_password),
+    }
+
+
+def admin_user(u) -> dict[str, Any]:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "is_staff": bool(u.is_staff),
+        "must_change_password": bool(u.must_change_password),
+        "date_joined": u.date_joined.isoformat() if u.date_joined else None,
+    }
 
 
 def contestant_tag_public(tag) -> dict[str, Any]:

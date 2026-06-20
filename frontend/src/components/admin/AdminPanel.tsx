@@ -1,10 +1,10 @@
 import { ContestantsAdmin } from './ContestantsAdmin';
 import { BracketsAdmin } from './BracketsAdmin';
 import { StreakCompetitionsAdmin } from './StreakCompetitionsAdmin';
+import { UsersAdmin } from './UsersAdmin';
+import type { AdminTab } from '../../routes';
 
 import './AdminPanel.css';
-
-export type AdminTab = 'contestants' | 'brackets' | 'streak';
 
 type Props = {
   tab: AdminTab;
@@ -41,6 +41,14 @@ export function AdminPanel({ tab, onTabChange }: Props) {
           >
             Streaks
           </button>
+          <button
+            type="button"
+            className="admin-hub__tab"
+            data-active={tab === 'users'}
+            onClick={() => onTabChange('users')}
+          >
+            Users
+          </button>
         </nav>
       </div>
 
@@ -48,8 +56,10 @@ export function AdminPanel({ tab, onTabChange }: Props) {
         <ContestantsAdmin />
       ) : tab === 'brackets' ? (
         <BracketsAdmin />
-      ) : (
+      ) : tab === 'streak' ? (
         <StreakCompetitionsAdmin />
+      ) : (
+        <UsersAdmin />
       )}
     </div>
   );

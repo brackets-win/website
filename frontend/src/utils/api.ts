@@ -8,6 +8,15 @@ export type ApiUser = {
   username: string;
   /** Staff users can access admin API routes. */
   is_staff?: boolean;
+  must_change_password?: boolean;
+};
+
+export type AdminUserRow = {
+  id: number;
+  username: string;
+  is_staff: boolean;
+  must_change_password: boolean;
+  date_joined: string | null;
 };
 
 export type ContestantTagInfo = {
@@ -538,6 +547,13 @@ export async function authLogout(): Promise<{ ok: boolean }> {
   return apiFetch('POST', 'auth/logout');
 }
 
+export async function authChangePassword(body: {
+  new_password: string;
+  current_password?: string;
+}): Promise<{ user: ApiUser }> {
+  return apiFetch('POST', 'auth/change-password', body);
+}
+
 export async function listBrackets(): Promise<{ brackets: BracketSummary[] }> {
   return apiFetch('GET', 'brackets');
 }
@@ -961,7 +977,8 @@ export type DeleteImpactResource =
   | 'bracket'
   | 'streak-competition'
   | 'contestant'
-  | 'streak-question';
+  | 'streak-question'
+  | 'user';
 
 export async function adminGetDeleteImpact(
   resource: DeleteImpactResource,
@@ -1078,4 +1095,18 @@ export async function adminCreateBracket(
       },
 ): Promise<{ bracket: BracketDetail }> {
   return apiFetch('POST', 'admin/brackets', body);
+}
+
+export async function adminListUsers(): Promise<{ users: AdminUserRow[] }> {
+  return apiFetch('GET', 'admin/users');
+}
+
+export async function adminDeleteUser(userId: number): Promise<{ ok: boolean }> {
+  return apiFetch('DELETE', `admin/users/${userId}`);
+}
+
+export async function adminResetUserPassword(
+  userId: number,
+): Promise<{ user: AdminUserRow; temp_password: string }> {
+  return apiFetch('POST', `admin/users/${userId}/reset-password`);
 }

@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom';
 
 import { AdminPanel } from './components/admin/AdminPanel';
+import { ChangePasswordPage } from './components/auth/ChangePasswordPage';
 import { LoginPage } from './components/auth/LoginPage';
 import { ChallengeView } from './components/challenges/ChallengeView';
 import { ChallengesPage } from './components/challenges/ChallengesPage';
@@ -27,6 +28,7 @@ import {
 } from './routes';
 import {
   ApiError,
+  authChangePassword,
   authLogin,
   authLogout,
   authMe,
@@ -171,6 +173,8 @@ export default function App() {
   );
   const [loginBusy, setLoginBusy] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [passwordChangeBusy, setPasswordChangeBusy] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
 
   const loadSession = useCallback(async () => {
     try {
@@ -229,6 +233,23 @@ export default function App() {
     }
     clearHomeCache();
     setSessionUser(null);
+    setPasswordChangeError('');
+  }
+
+  async function handleChangePassword(newPassword: string) {
+    setPasswordChangeBusy(true);
+    setPasswordChangeError('');
+    try {
+      const { user } = await authChangePassword({ new_password: newPassword });
+      clearHomeCache();
+      setSessionUser(user);
+    } catch (e) {
+      setPasswordChangeError(
+        e instanceof ApiError ? e.message : 'Could not update password.',
+      );
+    } finally {
+      setPasswordChangeBusy(false);
+    }
   }
 
   if (sessionUser === undefined) {
@@ -242,6 +263,19 @@ export default function App() {
         onSignup={handleSignup}
         error={authError}
         busy={loginBusy}
+      />
+    );
+  }
+
+  if (sessionUser.must_change_password) {
+    return (
+      <ChangePasswordPage
+        username={sessionUser.username}
+        forced
+        onSubmit={handleChangePassword}
+        onSignOut={() => void handleSignOut()}
+        error={passwordChangeError}
+        busy={passwordChangeBusy}
       />
     );
   }

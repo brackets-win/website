@@ -451,6 +451,52 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True})
 
 
+def _generate_temp_password(user: User) -> str:
+    alphabet = string.ascii_letters + string.digits
+    for _ in range(20):
+        pwd = "".join(secrets.choice(alphabet) for _ in range(14))
+        try:
+            validate_password(pwd, user)
+            return pwd
+        except ValidationError:
+            continue
+    return secrets.token_urlsafe(16)
+
+
+@require_http_methods(["POST"])
+def auth_change_password(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    new_password = body.get("new_password") or ""
+    if not new_password:
+        return _json_error("new_password required", 400)
+
+    if not user.must_change_password:
+        current_password = body.get("current_password") or ""
+        if not current_password:
+            return _json_error("current_password required", 400)
+        if not user.check_password(current_password):
+            return _json_error("Current password is incorrect", 401)
+
+    try:
+        validate_password(new_password, user)
+    except ValidationError as exc:
+        return _json_error(" ".join(exc.messages), 400)
+
+    user.set_password(new_password)
+    user.must_change_password = False
+    user.save(update_fields=["password", "must_change_password"])
+    login(request, user)
+    return JsonResponse({"user": serializers.auth_user(user)})
+
+
 @require_http_methods(["GET"])
 def brackets_list(request: HttpRequest) -> JsonResponse:
     rows = (
@@ -1680,6 +1726,7 @@ def admin_delete_impact(
         contestant_delete_impact,
         streak_competition_delete_impact,
         streak_question_delete_impact,
+        user_delete_impact,
     )
 
     handlers: dict[str, tuple[type, Any]] = {
@@ -1687,6 +1734,7 @@ def admin_delete_impact(
         "streak-competition": (StreakCompetition, streak_competition_delete_impact),
         "contestant": (Contestant, contestant_delete_impact),
         "streak-question": (StreakQuestion, streak_question_delete_impact),
+        "user": (User, user_delete_impact),
     }
     entry = handlers.get(resource)
     if entry is None:
@@ -1695,6 +1743,56 @@ def admin_delete_impact(
     model, impact_fn = entry
     obj = get_object_or_404(model, pk=object_id)
     return JsonResponse({"related": impact_fn(obj)})
+
+
+@require_http_methods(["GET"])
+def admin_users_list(request: HttpRequest) -> JsonResponse:
+    user, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    rows = User.objects.order_by("username")[:500]
+    return JsonResponse(
+        {"users": [serializers.admin_user(u) for u in rows]}
+    )
+
+
+@require_http_methods(["DELETE"])
+def admin_user_detail(request: HttpRequest, user_id: int) -> JsonResponse:
+    staff, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    target = get_object_or_404(User, pk=user_id)
+    if target.id == staff.id:
+        return _json_error("You cannot delete your own account", 400)
+
+    target.delete()
+    return JsonResponse({"ok": True})
+
+
+@require_http_methods(["POST"])
+def admin_user_reset_password(
+    request: HttpRequest, user_id: int
+) -> JsonResponse:
+    staff, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    target = get_object_or_404(User, pk=user_id)
+    if target.id == staff.id:
+        return _json_error("You cannot reset your own password here", 400)
+
+    temp_password = _generate_temp_password(target)
+    target.set_password(temp_password)
+    target.must_change_password = True
+    target.save(update_fields=["password", "must_change_password"])
+    return JsonResponse(
+        {
+            "user": serializers.admin_user(target),
+            "temp_password": temp_password,
+        }
+    )
 
 
 def _bracket_templates_json() -> JsonResponse:

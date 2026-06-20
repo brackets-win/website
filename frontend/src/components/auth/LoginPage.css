@@ -88,3 +88,25 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.login__help {
+  margin: 0.75rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--app-muted);
+}
+
+.users-admin__temp-password {
+  margin: 0.75rem 0 0;
+}
+
+.users-admin__temp-password code {
+  display: block;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.9375rem;
+  word-break: break-all;
+  border-radius: 8px;
+  background: var(--app-bg);
+  border: 1px solid var(--app-border);
+}

@@ -7,6 +7,7 @@ urlpatterns = [
     path("auth/login", views.auth_login),
     path("auth/register", views.auth_register),
     path("auth/logout", views.auth_logout),
+    path("auth/change-password", views.auth_change_password),
     path("brackets", views.brackets_list),
     path("bracket-templates", views.bracket_templates_list),
     path("brackets/<int:bracket_id>", views.bracket_detail),
@@ -104,5 +105,11 @@ urlpatterns = [
     path(
         "admin/brackets/<int:bracket_id>/stages",
         views.admin_bracket_stages_update,
+    ),
+    path("admin/users", views.admin_users_list),
+    path("admin/users/<int:user_id>", views.admin_user_detail),
+    path(
+        "admin/users/<int:user_id>/reset-password",
+        views.admin_user_reset_password,
     ),
 ]

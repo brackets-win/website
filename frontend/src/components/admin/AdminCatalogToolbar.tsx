@@ -6,8 +6,8 @@ type Props = {
   search: string;
   onSearchChange: (value: string) => void;
   searchLabel: string;
-  createLabel: string;
-  onCreate: () => void;
+  createLabel?: string;
+  onCreate?: () => void;
 };
 
 export function AdminCatalogToolbar({
@@ -27,9 +27,11 @@ export function AdminCatalogToolbar({
             <h2 className="catalog-card__title">{title}</h2>
             <p className="catalog-card__count">{countLabel}</p>
           </div>
-          <button type="button" className="btn btn--primary" onClick={onCreate}>
-            {createLabel}
-          </button>
+          {createLabel && onCreate ? (
+            <button type="button" className="btn btn--primary" onClick={onCreate}>
+              {createLabel}
+            </button>
+          ) : null}
         </div>
         <input
           type="search"

@@ -12,6 +12,10 @@ type Props = {
   loadingRelated?: boolean;
   busy?: boolean;
   intro?: string;
+  confirmWord?: string;
+  confirmLabel?: string;
+  busyLabel?: string;
+  confirmButtonClass?: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -24,6 +28,10 @@ export function DeleteConfirmDialog({
   loadingRelated = false,
   busy = false,
   intro,
+  confirmWord = 'delete',
+  confirmLabel = 'Delete',
+  busyLabel = 'Deleting…',
+  confirmButtonClass = 'btn--danger',
   onConfirm,
   onCancel,
 }: Props) {
@@ -35,7 +43,7 @@ export function DeleteConfirmDialog({
 
   if (!open) return null;
 
-  const canConfirm = typed === 'delete' && !busy && !loadingRelated;
+  const canConfirm = typed === confirmWord && !busy && !loadingRelated;
   const related = relatedRecords.filter((r) => r.count > 0);
   const lead =
     intro ?? `“${label}” will be permanently removed.`;
@@ -79,7 +87,7 @@ export function DeleteConfirmDialog({
         </div>
         <div className="field">
           <label htmlFor="delete-confirm-input">
-            Type <strong>delete</strong> to confirm
+            Type <strong>{confirmWord}</strong> to confirm
           </label>
           <input
             id="delete-confirm-input"
@@ -102,11 +110,11 @@ export function DeleteConfirmDialog({
           </button>
           <button
             type="button"
-            className="btn btn--danger"
+            className={`btn ${confirmButtonClass}`}
             onClick={onConfirm}
             disabled={!canConfirm}
           >
-            {busy ? 'Deleting…' : 'Delete'}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

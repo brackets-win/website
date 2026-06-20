@@ -5,17 +5,21 @@ from __future__ import annotations
 from typing import Any
 
 from brackets.models import (
+    ActivityLog,
     Bracket,
     BracketChallenge,
     BracketContestant,
     BracketStage,
+    BracketTemplate,
     ChallengeParticipant,
     Contestant,
+    StreakChallenge,
     StreakCompetition,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
     StreakQuestionChoice,
+    User,
     UserBracket,
 )
 
@@ -91,5 +95,37 @@ def streak_question_delete_impact(question: StreakQuestion) -> list[dict[str, An
         [
             ("answer choices", StreakQuestionChoice.objects.filter(question=question).count()),
             ("picks", StreakPick.objects.filter(question=question).count()),
+        ]
+    )
+
+
+def user_delete_impact(user: User) -> list[dict[str, Any]]:
+    return _items(
+        [
+            ("user brackets", UserBracket.objects.filter(user=user).count()),
+            (
+                "challenge entries",
+                ChallengeParticipant.objects.filter(user=user).count(),
+            ),
+            (
+                "streak participations",
+                StreakParticipant.objects.filter(user=user).count(),
+            ),
+            ("streak picks", StreakPick.objects.filter(user=user).count()),
+            ("activity log rows", ActivityLog.objects.filter(user=user).count()),
+            ("brackets created", Bracket.objects.filter(created_by=user).count()),
+            (
+                "bracket challenges created",
+                BracketChallenge.objects.filter(created_by=user).count(),
+            ),
+            (
+                "streak challenges created",
+                StreakChallenge.objects.filter(created_by=user).count(),
+            ),
+            ("contestants created", Contestant.objects.filter(created_by=user).count()),
+            (
+                "bracket templates created",
+                BracketTemplate.objects.filter(created_by=user).count(),
+            ),
         ]
     )

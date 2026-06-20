@@ -160,6 +160,12 @@ export function LoginPage({ onLogin, onSignup, error, busy }: Props) {
               </>
             )}
           </p>
+
+          {!signingUp ? (
+            <p className="login__help">
+              Contact admin to reset your password if you are locked out.
+            </p>
+          ) : null}
         </form>
       </div>
     </div>

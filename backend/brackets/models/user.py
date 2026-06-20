@@ -15,6 +15,7 @@ class User(AbstractUser):
     tier = models.ForeignKey(
         UserTier, on_delete=models.SET_NULL, null=True, blank=True)
     public_profile = models.BooleanField(default=True)
+    must_change_password = models.BooleanField(default=False)
 
     def __str__(self):
         return self.username
