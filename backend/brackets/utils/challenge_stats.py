@@ -19,8 +19,14 @@ from brackets.utils.sync_group_knockout import (
     contestants_in_stage_for_scoring,
 )
 
+# "entries" revision: bumped when a challenge entry changes (submit/edit/delete).
+# Controls the master-independent part of stats (Teams section + group avg place).
 CHALLENGE_STATS_REVISION_KEY = "challenge_stats_revision"
 CHALLENGE_STATS_CACHE_KEY = "challenge_stats_cache"
+# "master" revision: bumped when the master bracket / results change. Only the
+# group points block (max/avg points, difficulty) depends on the master.
+CHALLENGE_STATS_MASTER_REVISION_KEY = "challenge_stats_master_revision"
+CHALLENGE_STATS_POINTS_CACHE_KEY = "challenge_stats_points_cache"
 
 
 def get_challenge_stats_revision(challenge: BracketChallenge) -> int:
@@ -28,21 +34,50 @@ def get_challenge_stats_revision(challenge: BracketChallenge) -> int:
     return int(meta.get(CHALLENGE_STATS_REVISION_KEY) or 0)
 
 
+def get_challenge_stats_master_revision(challenge: BracketChallenge) -> int:
+    meta = challenge.metadata if isinstance(challenge.metadata, dict) else {}
+    return int(meta.get(CHALLENGE_STATS_MASTER_REVISION_KEY) or 0)
+
+
 def bump_challenge_stats_revision(challenge: BracketChallenge) -> int:
+    """Entry changed: invalidate the master-independent stats (and points)."""
     meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
     revision = int(meta.get(CHALLENGE_STATS_REVISION_KEY) or 0) + 1
     meta[CHALLENGE_STATS_REVISION_KEY] = revision
+    # The points block depends on entries too, so it is now stale as well.
     meta.pop(CHALLENGE_STATS_CACHE_KEY, None)
+    meta.pop(CHALLENGE_STATS_POINTS_CACHE_KEY, None)
+    challenge.metadata = meta
+    challenge.save(update_fields=["metadata"])
+    return revision
+
+
+def bump_challenge_stats_master_revision(challenge: BracketChallenge) -> int:
+    """Master changed: only the group points block needs recompute."""
+    meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
+    revision = int(meta.get(CHALLENGE_STATS_MASTER_REVISION_KEY) or 0) + 1
+    meta[CHALLENGE_STATS_MASTER_REVISION_KEY] = revision
+    meta.pop(CHALLENGE_STATS_POINTS_CACHE_KEY, None)
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
     return revision
 
 
 def bump_challenge_stats_for_bracket(bracket: Bracket) -> None:
+    """Master results change: only the group points block is affected."""
+    for challenge in BracketChallenge.objects.filter(bracket=bracket).only(
+        "id", "metadata"
+    ):
+        bump_challenge_stats_master_revision(challenge)
+
+
+def bump_challenge_stats_full_for_bracket(bracket: Bracket) -> None:
+    """Structural/scoring change: invalidate every cached part."""
     for challenge in BracketChallenge.objects.filter(bracket=bracket).only(
         "id", "metadata"
     ):
         bump_challenge_stats_revision(challenge)
+        bump_challenge_stats_master_revision(challenge)
 
 
 def invalidate_challenge_stats_for_user_bracket(ub: UserBracket) -> None:
@@ -56,9 +91,10 @@ def invalidate_challenge_stats_for_user_bracket(ub: UserBracket) -> None:
         bump_challenge_stats_for_bracket(ub.bracket)
 
 
-def _read_cached_stats(
+def _read_entries_cache(
     challenge: BracketChallenge, revision: int
 ) -> dict[str, Any] | None:
+    """Master-independent part: submitted count, group teams, knockout."""
     meta = challenge.metadata if isinstance(challenge.metadata, dict) else {}
     cache = meta.get(CHALLENGE_STATS_CACHE_KEY)
     if not isinstance(cache, dict):
@@ -66,51 +102,132 @@ def _read_cached_stats(
     if cache.get("revision") != revision:
         return None
     submitted_count = cache.get("submitted_count")
-    group_stage = cache.get("group_stage")
+    group_teams = cache.get("group_teams")
     knockout = cache.get("knockout")
     if (
         not isinstance(submitted_count, int)
-        or not isinstance(group_stage, list)
+        or not isinstance(group_teams, list)
         or not isinstance(knockout, dict)
     ):
         return None
-    # Older caches predate per-group points; force a recompute so the new
-    # fields (max_points, avg_points, entries) are present.
-    if group_stage and "entries" not in group_stage[0]:
+    # Older caches stored the whole blob under "group_stage"; force recompute.
+    knockout_rows = knockout.get("rows")
+    if (
+        isinstance(knockout_rows, list)
+        and knockout_rows
+        and "progression" not in knockout_rows[0]
+    ):
         return None
     return {
         "submitted_count": submitted_count,
-        "group_stage": group_stage,
+        "group_teams": group_teams,
         "knockout": knockout,
     }
 
 
-def _write_cached_stats(
+def _read_points_cache(
+    challenge: BracketChallenge,
+    entries_revision: int,
+    master_revision: int,
+) -> dict[str, Any] | None:
+    """Group points block, valid only for a given (entries, master) revision."""
+    meta = challenge.metadata if isinstance(challenge.metadata, dict) else {}
+    cache = meta.get(CHALLENGE_STATS_POINTS_CACHE_KEY)
+    if not isinstance(cache, dict):
+        return None
+    if cache.get("entries_revision") != entries_revision:
+        return None
+    if cache.get("master_revision") != master_revision:
+        return None
+    group_points = cache.get("group_points")
+    if not isinstance(group_points, list):
+        return None
+    return {"group_points": group_points}
+
+
+def _write_entries_cache(
     challenge: BracketChallenge,
     revision: int,
-    stats: dict[str, Any],
+    entries_part: dict[str, Any],
 ) -> None:
     meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
     meta[CHALLENGE_STATS_CACHE_KEY] = {
         "revision": revision,
-        "submitted_count": stats["submitted_count"],
-        "group_stage": stats["group_stage"],
-        "knockout": stats["knockout"],
+        "submitted_count": entries_part["submitted_count"],
+        "group_teams": entries_part["group_teams"],
+        "knockout": entries_part["knockout"],
     }
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
 
 
+def _write_points_cache(
+    challenge: BracketChallenge,
+    entries_revision: int,
+    master_revision: int,
+    points_part: dict[str, Any],
+) -> None:
+    meta = dict(challenge.metadata) if isinstance(challenge.metadata, dict) else {}
+    meta[CHALLENGE_STATS_POINTS_CACHE_KEY] = {
+        "entries_revision": entries_revision,
+        "master_revision": master_revision,
+        "group_points": points_part["group_points"],
+    }
+    challenge.metadata = meta
+    challenge.save(update_fields=["metadata"])
+
+
+def _merge_stats_parts(
+    entries_part: dict[str, Any],
+    points_part: dict[str, Any],
+) -> dict[str, Any]:
+    points_by_code = {p["code"]: p for p in points_part["group_points"]}
+    group_stage: list[dict[str, Any]] = []
+    for group in entries_part["group_teams"]:
+        code = group["code"]
+        points = points_by_code.get(code, {})
+        group_stage.append(
+            {
+                "code": code,
+                "teams": group["teams"],
+                "max_points": points.get("max_points", 0),
+                "avg_points": points.get("avg_points"),
+                "entries": points.get("entries", []),
+            }
+        )
+    return {
+        "submitted_count": entries_part["submitted_count"],
+        "group_stage": group_stage,
+        "knockout": entries_part["knockout"],
+    }
+
+
 def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
     if challenge.pk is not None:
         challenge.refresh_from_db(fields=["metadata"])
-    revision = get_challenge_stats_revision(challenge)
-    cached = _read_cached_stats(challenge, revision)
-    if cached is not None:
-        return cached
-    stats = compute_challenge_stats(challenge)
-    _write_cached_stats(challenge, revision, stats)
-    return stats
+    entries_revision = get_challenge_stats_revision(challenge)
+    master_revision = get_challenge_stats_master_revision(challenge)
+
+    entries_part = _read_entries_cache(challenge, entries_revision)
+    points_part = _read_points_cache(
+        challenge, entries_revision, master_revision
+    )
+
+    if entries_part is None:
+        # Entry data changed: recompute both parts together (shared work).
+        entries_part, points_part = _compute_stats_parts(challenge)
+        _write_entries_cache(challenge, entries_revision, entries_part)
+        _write_points_cache(
+            challenge, entries_revision, master_revision, points_part
+        )
+    elif points_part is None:
+        # Only the master changed: recompute the cheaper points block.
+        points_part = _compute_points_part(challenge)
+        _write_points_cache(
+            challenge, entries_revision, master_revision, points_part
+        )
+
+    return _merge_stats_parts(entries_part, points_part)
 
 
 def _team_position_in_row(row: dict, team_id: int) -> int | None:
@@ -304,6 +421,79 @@ def _entry_label(ub: UserBracket) -> str:
     return getattr(ub.user, "username", "") or "Player"
 
 
+def _ordinal(n: int) -> str:
+    if 10 <= (n % 100) <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _knockout_progression_for_contestant(
+    cid: int,
+    user_brackets: list[UserBracket],
+    ub_stage_hits: dict[int, dict[str, set[int]]],
+    reversed_main_ko_stages: list[BracketStage],
+    group_code_by_team: dict[int, str],
+) -> list[dict[str, Any]]:
+    """Buckets of entries by the farthest stage they placed this contestant.
+
+    Ordered farthest-first: Champions, then each knockout stage (final → first
+    round), then exact group placements for entries that never advanced. Buckets
+    with no entries are omitted.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+
+    def ensure(key: str, label: str, order: int) -> dict[str, Any]:
+        bucket = buckets.get(key)
+        if bucket is None:
+            bucket = {"key": key, "label": label, "order": order, "entries": []}
+            buckets[key] = bucket
+        return bucket
+
+    for ub in user_brackets:
+        hits = ub_stage_hits.get(ub.id, {})
+        bucket: dict[str, Any] | None = None
+        if cid in hits.get("champion", set()):
+            bucket = ensure("champion", "Champions", 0)
+        else:
+            for idx, stage in enumerate(reversed_main_ko_stages):
+                if cid in hits.get(f"stage:{stage.id}", set()):
+                    bucket = ensure(f"stage:{stage.id}", stage.name, 1 + idx)
+                    break
+            if bucket is None:
+                code = group_code_by_team.get(cid)
+                if code is not None:
+                    gp = (ub.metadata or {}).get("group_positions") or {}
+                    row = gp.get(code) if isinstance(gp, dict) else None
+                    pos = (
+                        _team_position_in_row(row, cid)
+                        if isinstance(row, dict)
+                        else None
+                    )
+                    if pos is not None:
+                        bucket = ensure(
+                            f"group:{pos}",
+                            f"{_ordinal(pos)} in Group",
+                            1000 + pos,
+                        )
+        if bucket is None:
+            continue
+        bucket["entries"].append(
+            {
+                "user_bracket_id": ub.id,
+                "display_name": _entry_label(ub),
+                "username": getattr(ub.user, "username", "") or "",
+            }
+        )
+
+    ordered = sorted(buckets.values(), key=lambda b: b["order"])
+    for bucket in ordered:
+        bucket["entries"].sort(key=lambda e: e["display_name"].casefold())
+        bucket.pop("order", None)
+    return ordered
+
+
 def _group_points_breakdown(
     group: dict[str, Any],
     user_brackets: list[UserBracket],
@@ -360,11 +550,8 @@ def _group_points_breakdown(
     return max_points, avg_points, entries
 
 
-def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
-    bracket = challenge.bracket
-    groups_preview = bracket_groups_preview(bracket)
-
-    user_brackets = list(
+def _submitted_user_brackets(challenge: BracketChallenge) -> list[UserBracket]:
+    return list(
         UserBracket.objects.filter(
             challenge=challenge,
             is_master=False,
@@ -373,11 +560,59 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
         .select_related("user")
         .prefetch_related("matchup_set__stage")
     )
+
+
+def _compute_group_points(
+    bracket: Bracket,
+    groups_preview: list[dict[str, Any]],
+    user_brackets: list[UserBracket],
+) -> list[dict[str, Any]]:
+    """Per-group max/avg/per-entry points (depends on entries AND master)."""
+    ctx = _build_group_points_context(bracket, user_brackets)
+    group_points: list[dict[str, Any]] = []
+    for group in groups_preview:
+        max_points, avg_points, entries = _group_points_breakdown(
+            group, user_brackets, ctx
+        )
+        group_points.append(
+            {
+                "code": group["code"],
+                "max_points": max_points,
+                "avg_points": avg_points,
+                "entries": entries,
+            }
+        )
+    return group_points
+
+
+def _compute_points_part(challenge: BracketChallenge) -> dict[str, Any]:
+    bracket = challenge.bracket
+    groups_preview = bracket_groups_preview(bracket)
+    user_brackets = _submitted_user_brackets(challenge)
+    return {
+        "group_points": _compute_group_points(
+            bracket, groups_preview, user_brackets
+        )
+    }
+
+
+def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
+    entries_part, points_part = _compute_stats_parts(challenge)
+    return _merge_stats_parts(entries_part, points_part)
+
+
+def _compute_stats_parts(
+    challenge: BracketChallenge,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    bracket = challenge.bracket
+    groups_preview = bracket_groups_preview(bracket)
+
+    user_brackets = _submitted_user_brackets(challenge)
     submitted_count = len(user_brackets)
 
-    group_points_ctx = _build_group_points_context(bracket, user_brackets)
+    group_points = _compute_group_points(bracket, groups_preview, user_brackets)
 
-    group_stage: list[dict[str, Any]] = []
+    group_teams: list[dict[str, Any]] = []
     for group in groups_preview:
         code = group["code"]
         teams_out: list[dict[str, Any]] = []
@@ -410,18 +645,7 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
                 t["average_position"] if t["average_position"] is not None else 999.0,
             )
         )
-        max_points, avg_points, entries = _group_points_breakdown(
-            group, user_brackets, group_points_ctx
-        )
-        group_stage.append(
-            {
-                "code": code,
-                "teams": teams_out,
-                "max_points": max_points,
-                "avg_points": avg_points,
-                "entries": entries,
-            }
-        )
+        group_teams.append({"code": code, "teams": teams_out})
 
     knockout_stages = list(
         bracket.stages.filter(stage_type=BracketStage.StageType.KNOCKOUT).order_by(
@@ -498,6 +722,15 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
         for team_id, score in ub_scores.items():
             progression_totals[team_id] = progression_totals.get(team_id, 0) + score
 
+    reversed_main_ko_stages = list(reversed(main_knockout_stages))
+    group_code_by_team: dict[int, str] = {}
+    for group in groups_preview:
+        for team in group["teams"]:
+            try:
+                group_code_by_team[int(team["id"])] = group["code"]
+            except (TypeError, ValueError):
+                continue
+
     knockout_rows: list[dict[str, Any]] = []
     contestants = (
         BracketContestant.objects.filter(bracket=bracket)
@@ -532,11 +765,20 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
                 if submitted_count > 0
                 else 0.0,
                 "percentages": percentages,
+                "progression": _knockout_progression_for_contestant(
+                    bc.id,
+                    user_brackets,
+                    ub_stage_hits,
+                    reversed_main_ko_stages,
+                    group_code_by_team,
+                ),
             }
         )
 
-    return {
+    entries_part = {
         "submitted_count": submitted_count,
-        "group_stage": group_stage,
+        "group_teams": group_teams,
         "knockout": {"columns": columns, "rows": knockout_rows},
     }
+    points_part = {"group_points": group_points}
+    return entries_part, points_part

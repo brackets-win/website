@@ -147,9 +147,12 @@ export function ChallengeView({
   const [bracketRevision, setBracketRevision] = useState(0);
   const autoTeamsTabDone = useRef(false);
 
-  const playerNameFromState = (
-    location.state as { playerName?: string } | null | undefined
-  )?.playerName;
+  const playerNavState = location.state as
+    | { playerName?: string; fromTab?: ChallengeTab }
+    | null
+    | undefined;
+  const playerNameFromState = playerNavState?.playerName;
+  const playerFromTab = playerNavState?.fromTab;
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -732,9 +735,9 @@ export function ChallengeView({
             <button
               type="button"
               className="btn btn--ghost"
-              onClick={() => goToTab('leaderboard')}
+              onClick={() => goToTab(playerFromTab === 'stats' ? 'stats' : 'leaderboard')}
             >
-              ← Leaderboard
+              {playerFromTab === 'stats' ? '← Stats' : '← Leaderboard'}
             </button>
             <h2 className="challenge-view__player-bracket-title">
               {viewingPlayer.name}
@@ -829,11 +832,12 @@ export function ChallengeView({
           ) : stats ? (
             <ChallengeStatsPanel
               stats={stats}
+              viewerUsername={currentUser.username}
               onSelectPlayer={
                 canViewPeerBrackets
                   ? (id, name) => {
                       navigate(challengePlayerPath(challengeId, id), {
-                        state: { playerName: name },
+                        state: { playerName: name, fromTab: 'stats' },
                       });
                     }
                   : undefined

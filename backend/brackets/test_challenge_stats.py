@@ -231,6 +231,67 @@ class ChallengeStatsTests(TestCase):
         self.assertEqual(group_a["entries"][0]["display_name"], "u1")
         self.assertEqual(group_a["entries"][1]["display_name"], "u2")
 
+    def test_knockout_progression_buckets(self):
+        t = [team.id for team in self.teams]
+        ub1 = self._submit_with_groups(
+            self.u1,
+            {
+                "A": {"1": t[0], "2": t[1], "3": t[2], "4": t[3]},
+                "B": {"1": t[4], "2": t[5], "3": t[6], "4": t[7]},
+            },
+        )
+        ub2 = self._submit_with_groups(
+            self.u2,
+            {
+                "A": {"1": t[0], "2": t[1], "3": t[3], "4": t[2]},
+                "B": {"1": t[4], "2": t[5], "3": t[6], "4": t[7]},
+            },
+        )
+        final = KnockoutStage.objects.get(bracket=self.bracket, is_final=True)
+        # u1 makes T1 champion; u2 makes T1 runner-up (reaches the final).
+        fm1 = ub1.matchup_set.get(stage=final, position=1)
+        fm1.contestant1 = self.teams[0]
+        fm1.contestant2 = self.teams[4]
+        fm1.winner = self.teams[0]
+        fm1.save()
+        fm2 = ub2.matchup_set.get(stage=final, position=1)
+        fm2.contestant1 = self.teams[0]
+        fm2.contestant2 = self.teams[4]
+        fm2.winner = self.teams[4]
+        fm2.save()
+
+        stats = compute_challenge_stats(self.challenge)
+        row_t1 = next(
+            r
+            for r in stats["knockout"]["rows"]
+            if r["bracket_contestant_id"] == t[0]
+        )
+        prog = row_t1["progression"]
+        labels = [b["label"] for b in prog]
+        # Champions bucket comes before the Final bucket.
+        self.assertEqual(labels[0], "Champions")
+        self.assertIn("Final", labels)
+        self.assertLess(labels.index("Champions"), labels.index("Final"))
+        champ_names = [
+            e["display_name"] for e in prog[0]["entries"]
+        ]
+        self.assertEqual(champ_names, ["u1"])
+
+        # T3 was placed 3rd/4th in group A (never advanced) by both entries.
+        row_t3 = next(
+            r
+            for r in stats["knockout"]["rows"]
+            if r["bracket_contestant_id"] == t[2]
+        )
+        t3_labels = [b["label"] for b in row_t3["progression"]]
+        self.assertTrue(
+            all("in Group" in lbl for lbl in t3_labels),
+            t3_labels,
+        )
+        # Every bucket has at least one entry.
+        for bucket in row_t3["progression"]:
+            self.assertGreaterEqual(len(bucket["entries"]), 1)
+
     def test_stats_api_requires_auth(self):
         res = self.client.get(f"/brackets/api/challenges/{self.challenge.id}/stats")
         self.assertEqual(res.status_code, 401)

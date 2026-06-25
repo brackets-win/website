@@ -8,7 +8,9 @@ from brackets.models import BracketChallenge, BracketContestant, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.challenge_stats import (
     CHALLENGE_STATS_CACHE_KEY,
+    CHALLENGE_STATS_POINTS_CACHE_KEY,
     CHALLENGE_STATS_REVISION_KEY,
+    bump_challenge_stats_master_revision,
     bump_challenge_stats_revision,
     compute_challenge_stats,
     get_challenge_stats,
@@ -134,6 +136,49 @@ class ChallengeStatsCacheTests(TestCase):
         invalidate_challenge_stats_for_user_bracket(ub2)
         stats_two = get_challenge_stats(self.challenge)
         self.assertEqual(stats_two["submitted_count"], 2)
+
+    def test_master_change_keeps_entries_cache(self):
+        gp = {
+            "A": {
+                "1": self.teams[0].id,
+                "2": self.teams[1].id,
+                "3": self.teams[2].id,
+                "4": self.teams[3].id,
+            },
+            "B": {
+                "1": self.teams[4].id,
+                "2": self.teams[5].id,
+                "3": self.teams[6].id,
+                "4": self.teams[7].id,
+            },
+        }
+        self._submit(self.u1, gp)
+        get_challenge_stats(self.challenge)
+        self.challenge.refresh_from_db()
+        entries_cache_before = self.challenge.metadata.get(CHALLENGE_STATS_CACHE_KEY)
+        self.assertIsInstance(entries_cache_before, dict)
+
+        # A master-only change drops the points cache but keeps the entries cache.
+        bump_challenge_stats_master_revision(self.challenge)
+        self.challenge.refresh_from_db()
+        self.assertIsInstance(
+            self.challenge.metadata.get(CHALLENGE_STATS_CACHE_KEY), dict
+        )
+        self.assertIsNone(
+            self.challenge.metadata.get(CHALLENGE_STATS_POINTS_CACHE_KEY)
+        )
+
+        # Reading recomputes only the points cache; entries cache is reused.
+        stats = get_challenge_stats(self.challenge)
+        self.assertEqual(stats["submitted_count"], 1)
+        self.challenge.refresh_from_db()
+        self.assertEqual(
+            self.challenge.metadata.get(CHALLENGE_STATS_CACHE_KEY),
+            entries_cache_before,
+        )
+        self.assertIsInstance(
+            self.challenge.metadata.get(CHALLENGE_STATS_POINTS_CACHE_KEY), dict
+        )
 
     def test_compute_still_available_for_tests(self):
         self.assertEqual(

@@ -105,7 +105,9 @@ def _staff_user_or_error(request: HttpRequest):
 def _try_sync_knockout_master(bracket: Bracket) -> None:
     try:
         from brackets.utils.leaderboard_scoring import on_master_bracket_changed
-        from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
+        from brackets.utils.challenge_stats import (
+            bump_challenge_stats_full_for_bracket,
+        )
         from brackets.utils.sync_group_knockout import resync_group_knockout_for_bracket
 
         master = bracket.get_master_bracket()
@@ -113,7 +115,7 @@ def _try_sync_knockout_master(bracket: Bracket) -> None:
         if bracket.stages.filter(stage_type=BracketStage.StageType.GROUP).exists():
             resync_group_knockout_for_bracket(bracket)
         on_master_bracket_changed(bracket)
-        bump_challenge_stats_for_bracket(bracket)
+        bump_challenge_stats_full_for_bracket(bracket)
     except ValueError:
         pass
 
@@ -399,6 +401,20 @@ def auth_me(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"user": None})
 
 
+def _authenticate_case_insensitive(request: HttpRequest, username: str, password: str):
+    """Authenticate ignoring username casing.
+
+    Django's default backend matches usernames case-sensitively, but accounts are
+    unique case-insensitively. Resolve the stored username, then verify the
+    password against it so users can sign in regardless of how they typed it.
+    """
+    for candidate in User.objects.filter(username__iexact=username):
+        user = authenticate(request, username=candidate.username, password=password)
+        if user is not None:
+            return user
+    return None
+
+
 @require_http_methods(["POST"])
 def auth_login(request: HttpRequest) -> JsonResponse:
     try:
@@ -406,12 +422,12 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     except json.JSONDecodeError:
         return _json_error("Invalid JSON body", 400)
 
-    username = body.get("username")
-    password = body.get("password")
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
     if not username or not password:
         return _json_error("username and password required", 400)
 
-    user = authenticate(request, username=username, password=password)
+    user = _authenticate_case_insensitive(request, username, password)
     if user is None:
         return _json_error("Invalid credentials", 401)
 
@@ -2095,11 +2111,11 @@ def admin_bracket_detail(
                     on_master_bracket_changed,
                 )
                 from brackets.utils.challenge_stats import (
-                    bump_challenge_stats_for_bracket,
+                    bump_challenge_stats_full_for_bracket,
                 )
 
                 on_master_bracket_changed(bracket)
-                bump_challenge_stats_for_bracket(bracket)
+                bump_challenge_stats_full_for_bracket(bracket)
     b = get_object_or_404(
         Bracket.objects.prefetch_related("stages"), pk=bracket.pk
     )
@@ -2149,11 +2165,11 @@ def admin_bracket_stages_update(
                     on_master_bracket_changed,
                 )
                 from brackets.utils.challenge_stats import (
-                    bump_challenge_stats_for_bracket,
+                    bump_challenge_stats_full_for_bracket,
                 )
 
                 on_master_bracket_changed(bracket)
-                bump_challenge_stats_for_bracket(bracket)
+                bump_challenge_stats_full_for_bracket(bracket)
     except ValueError as e:
         return _json_error(str(e), 400)
 

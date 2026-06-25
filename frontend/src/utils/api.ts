@@ -721,12 +721,25 @@ export type ChallengeStatsGroup = {
   entries: ChallengeStatsGroupEntry[];
 };
 
+export type ChallengeStatsProgressionEntry = {
+  user_bracket_id: number;
+  display_name: string;
+  username: string;
+};
+
+export type ChallengeStatsProgressionBucket = {
+  key: string;
+  label: string;
+  entries: ChallengeStatsProgressionEntry[];
+};
+
 export type ChallengeStatsKnockoutRow = {
   bracket_contestant_id: number;
   display_name: string;
   image_url: string | null;
   progression_score: number;
   percentages: Record<string, number>;
+  progression: ChallengeStatsProgressionBucket[];
 };
 
 export type ChallengeStats = {

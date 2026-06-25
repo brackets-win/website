@@ -1,9 +1,10 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useMemo, useState, type CSSProperties } from 'react';
 
 import type {
   ChallengeStats,
   ChallengeStatsGroupEntry,
   ChallengeStatsKnockoutRow,
+  ChallengeStatsProgressionBucket,
   LeaderboardColumn,
 } from '../../utils/api';
 
@@ -12,6 +13,7 @@ import './ChallengeStats.css';
 type Props = {
   stats: ChallengeStats;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
+  viewerUsername?: string | null;
 };
 
 type KnockoutSortKey = 'team' | string;
@@ -43,6 +45,87 @@ function TeamChip({
       )}
       <span className="challenge-stats__chip-name">{displayName}</span>
     </span>
+  );
+}
+
+type NamedEntry = {
+  user_bracket_id: number;
+  display_name: string;
+  username?: string;
+};
+
+function EntryNames({
+  entries,
+  onSelectPlayer,
+  viewerUsername,
+}: {
+  entries: NamedEntry[];
+  onSelectPlayer?: (userBracketId: number, displayName: string) => void;
+  viewerUsername?: string | null;
+}) {
+  return (
+    <>
+      {entries.map((entry, i) => {
+        const isViewer =
+          viewerUsername != null && entry.username === viewerUsername;
+        const nameClass = isViewer
+          ? 'challenge-stats__group-points-name challenge-stats__entry-name--viewer'
+          : 'challenge-stats__group-points-name';
+        return (
+          <span
+            key={entry.user_bracket_id}
+            className="challenge-stats__group-points-name-wrap"
+          >
+            {onSelectPlayer ? (
+              <button
+                type="button"
+                className={`${nameClass} challenge-stats__group-points-name--btn`}
+                onClick={() =>
+                  onSelectPlayer(entry.user_bracket_id, entry.display_name)
+                }
+              >
+                {entry.display_name}
+              </button>
+            ) : (
+              <span className={nameClass}>{entry.display_name}</span>
+            )}
+            {i < entries.length - 1 ? <span aria-hidden>, </span> : null}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function ProgressionList({
+  buckets,
+  onSelectPlayer,
+  viewerUsername,
+}: {
+  buckets: ChallengeStatsProgressionBucket[];
+  onSelectPlayer?: (userBracketId: number, displayName: string) => void;
+  viewerUsername?: string | null;
+}) {
+  if (buckets.length === 0) {
+    return (
+      <p className="challenge-stats__group-points-empty">No entries yet.</p>
+    );
+  }
+  return (
+    <ul className="challenge-stats__prog-list">
+      {buckets.map((bucket) => (
+        <li key={bucket.key} className="challenge-stats__prog-row">
+          <span className="challenge-stats__prog-label">{bucket.label}</span>
+          <span className="challenge-stats__prog-names">
+            <EntryNames
+              entries={bucket.entries}
+              onSelectPlayer={onSelectPlayer}
+              viewerUsername={viewerUsername}
+            />
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -212,23 +295,32 @@ function SortableHeader({
   );
 }
 
-export function ChallengeStats({ stats, onSelectPlayer }: Props) {
+export function ChallengeStats({
+  stats,
+  onSelectPlayer,
+  viewerUsername,
+}: Props) {
   const { submitted_count, group_stage, knockout } = stats;
   const [sort, setSort] = useState<SortState>({
     key: 'progression_score',
     direction: 'desc',
   });
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+  const [groupsExpanded, setGroupsExpanded] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(
     () => new Set(),
   );
 
-  function toggleGroup(code: string) {
-    setExpandedGroups((prev) => {
+  function toggleGroups() {
+    setGroupsExpanded((prev) => !prev);
+  }
+
+  function toggleRow(id: number) {
+    setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        next.add(code);
+        next.add(id);
       }
       return next;
     });
@@ -294,17 +386,17 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
 
       {group_stage.length > 0 ? (
         <section className="challenge-stats__section">
-          <h2 className="challenge-stats__heading">Group Stage</h2>
+          <h2 className="challenge-stats__heading">Groups</h2>
           <div className="challenge-stats__group-grid">
             {group_stage.map((group) => {
-              const expanded = expandedGroups.has(group.code);
+              const expanded = groupsExpanded;
               return (
                 <div key={group.code} className="challenge-stats__group-card">
                   <button
                     type="button"
                     className="challenge-stats__group-head-row challenge-stats__group-toggle"
                     aria-expanded={expanded}
-                    onClick={() => toggleGroup(group.code)}
+                    onClick={toggleGroups}
                   >
                     <span className="challenge-stats__group-head">
                       <span
@@ -345,40 +437,33 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
                     <div className="challenge-stats__group-points">
                       <div className="challenge-stats__group-points-summary">
                         <div className="challenge-stats__group-points-stat">
-                          <span className="challenge-stats__group-points-stat-label">
-                            Max points
-                          </span>
-                          <span className="challenge-stats__group-points-stat-value">
-                            {group.max_points}
-                          </span>
-                        </div>
-                        <div className="challenge-stats__group-points-stat">
-                          <span className="challenge-stats__group-points-stat-label">
-                            Avg points
-                          </span>
+                          <div className="challenge-stats__group-points-stat-top">
+                            <span className="challenge-stats__group-points-stat-label">
+                              Avg Points
+                            </span>
+                            {(() => {
+                              const difficulty = groupDifficulty(
+                                group.avg_points,
+                                group.max_points,
+                              );
+                              if (!difficulty) return null;
+                              return (
+                                <span
+                                  className={`challenge-stats__group-difficulty challenge-stats__group-difficulty--${difficulty.level}`}
+                                >
+                                  {difficulty.label}
+                                </span>
+                              );
+                            })()}
+                          </div>
                           <span className="challenge-stats__group-points-stat-value">
                             {formatAverage(group.avg_points)}
+                            <span className="challenge-stats__group-points-stat-max">
+                              {' '}
+                              / {group.max_points}
+                            </span>
                           </span>
                         </div>
-                        {(() => {
-                          const difficulty = groupDifficulty(
-                            group.avg_points,
-                            group.max_points,
-                          );
-                          if (!difficulty) return null;
-                          return (
-                            <div className="challenge-stats__group-points-stat">
-                              <span className="challenge-stats__group-points-stat-label">
-                                Difficulty
-                              </span>
-                              <span
-                                className={`challenge-stats__group-difficulty challenge-stats__group-difficulty--${difficulty.level}`}
-                              >
-                                {difficulty.label}
-                              </span>
-                            </div>
-                          );
-                        })()}
                       </div>
                       {group.entries.length > 0 ? (
                         <ul className="challenge-stats__group-points-list">
@@ -392,34 +477,11 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
                                   {bucket.points}
                                 </span>
                                 <span className="challenge-stats__group-points-names">
-                                  {bucket.entries.map((entry, i) => (
-                                    <span
-                                      key={entry.user_bracket_id}
-                                      className="challenge-stats__group-points-name-wrap"
-                                    >
-                                      {onSelectPlayer ? (
-                                        <button
-                                          type="button"
-                                          className="challenge-stats__group-points-name challenge-stats__group-points-name--btn"
-                                          onClick={() =>
-                                            onSelectPlayer(
-                                              entry.user_bracket_id,
-                                              entry.display_name,
-                                            )
-                                          }
-                                        >
-                                          {entry.display_name}
-                                        </button>
-                                      ) : (
-                                        <span className="challenge-stats__group-points-name">
-                                          {entry.display_name}
-                                        </span>
-                                      )}
-                                      {i < bucket.entries.length - 1 ? (
-                                        <span aria-hidden>, </span>
-                                      ) : null}
-                                    </span>
-                                  ))}
+                                  <EntryNames
+                                    entries={bucket.entries}
+                                    onSelectPlayer={onSelectPlayer}
+                                    viewerUsername={viewerUsername}
+                                  />
                                 </span>
                               </li>
                             ),
@@ -441,7 +503,7 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
 
       {knockout.columns.length > 0 ? (
         <section className="challenge-stats__section">
-          <h2 className="challenge-stats__heading">Knockout</h2>
+          <h2 className="challenge-stats__heading">Teams</h2>
           <div className="challenge-stats__ko-mobile">
             <div
               className="challenge-stats__sort-bar"
@@ -475,32 +537,57 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
               ))}
             </div>
             <ol className="challenge-stats__ko-cards">
-              {sortedKnockoutRows.map((row) => (
-                <li
-                  key={row.bracket_contestant_id}
-                  className="challenge-stats__ko-card"
-                >
-                  <div className="challenge-stats__ko-card-head">
-                    <TeamChip
-                      displayName={row.display_name}
-                      imageUrl={row.image_url}
-                    />
-                    <span
-                      className="challenge-stats__ko-card-score"
-                      aria-label={`Progression score ${formatProgression(row.progression_score)}`}
+              {sortedKnockoutRows.map((row) => {
+                const rowExpanded = expandedRows.has(row.bracket_contestant_id);
+                return (
+                  <li
+                    key={row.bracket_contestant_id}
+                    className="challenge-stats__ko-card"
+                  >
+                    <button
+                      type="button"
+                      className="challenge-stats__ko-card-head challenge-stats__ko-card-toggle"
+                      aria-expanded={rowExpanded}
+                      onClick={() => toggleRow(row.bracket_contestant_id)}
                     >
-                      {formatProgression(row.progression_score)}
-                    </span>
-                  </div>
-                  {mobileStatColumns.length > 0 ? (
-                    <dl className="challenge-stats__ko-card-stats">
-                      {mobileStatColumns.map((col) =>
-                        renderMobileKnockoutStat(row, col),
-                      )}
-                    </dl>
-                  ) : null}
-                </li>
-              ))}
+                      <span className="challenge-stats__ko-card-head-team">
+                        <span
+                          className="challenge-stats__group-chevron"
+                          aria-hidden
+                        >
+                          {rowExpanded ? '▾' : '▸'}
+                        </span>
+                        <TeamChip
+                          displayName={row.display_name}
+                          imageUrl={row.image_url}
+                        />
+                      </span>
+                      <span
+                        className="challenge-stats__ko-card-score"
+                        aria-label={`Progression score ${formatProgression(row.progression_score)}`}
+                      >
+                        {formatProgression(row.progression_score)}
+                      </span>
+                    </button>
+                    {mobileStatColumns.length > 0 ? (
+                      <dl className="challenge-stats__ko-card-stats">
+                        {mobileStatColumns.map((col) =>
+                          renderMobileKnockoutStat(row, col),
+                        )}
+                      </dl>
+                    ) : null}
+                    {rowExpanded ? (
+                      <div className="challenge-stats__ko-card-prog">
+                        <ProgressionList
+                          buckets={row.progression}
+                          onSelectPlayer={onSelectPlayer}
+                          viewerUsername={viewerUsername}
+                        />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ol>
           </div>
           <div className="challenge-stats__ko-scroll challenge-stats__ko-desktop">
@@ -526,35 +613,68 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {sortedKnockoutRows.map((row) => (
-                  <tr key={row.bracket_contestant_id}>
-                    <td className="challenge-stats__ko-team">
-                      <TeamChip
-                        displayName={row.display_name}
-                        imageUrl={row.image_url}
-                      />
-                    </td>
-                    {knockout.columns.map((col) => {
-                      if (col.key === 'progression_score') {
-                        return (
-                          <td key={col.key} className="is-num challenge-stats__ko-pct">
-                            {formatProgression(row.progression_score)}
-                          </td>
-                        );
-                      }
-                      const pct = row.percentages[col.key] ?? 0;
-                      return (
-                        <td
-                          key={col.key}
-                          className="is-num challenge-stats__ko-pct"
-                          style={pctCellStyle(pct)}
-                        >
-                          {formatPct(pct)}
+                {sortedKnockoutRows.map((row) => {
+                  const rowExpanded = expandedRows.has(
+                    row.bracket_contestant_id,
+                  );
+                  return (
+                    <Fragment key={row.bracket_contestant_id}>
+                      <tr
+                        className="challenge-stats__ko-row challenge-stats__ko-row--clickable"
+                        aria-expanded={rowExpanded}
+                        onClick={() => toggleRow(row.bracket_contestant_id)}
+                      >
+                        <td className="challenge-stats__ko-team">
+                          <span className="challenge-stats__ko-team-cell">
+                            <span
+                              className="challenge-stats__group-chevron"
+                              aria-hidden
+                            >
+                              {rowExpanded ? '▾' : '▸'}
+                            </span>
+                            <TeamChip
+                              displayName={row.display_name}
+                              imageUrl={row.image_url}
+                            />
+                          </span>
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                        {knockout.columns.map((col) => {
+                          if (col.key === 'progression_score') {
+                            return (
+                              <td
+                                key={col.key}
+                                className="is-num challenge-stats__ko-pct"
+                              >
+                                {formatProgression(row.progression_score)}
+                              </td>
+                            );
+                          }
+                          const pct = row.percentages[col.key] ?? 0;
+                          return (
+                            <td
+                              key={col.key}
+                              className="is-num challenge-stats__ko-pct"
+                              style={pctCellStyle(pct)}
+                            >
+                              {formatPct(pct)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {rowExpanded ? (
+                        <tr className="challenge-stats__ko-prog-row">
+                          <td colSpan={knockout.columns.length + 1}>
+                            <ProgressionList
+                              buckets={row.progression}
+                              onSelectPlayer={onSelectPlayer}
+                              viewerUsername={viewerUsername}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
