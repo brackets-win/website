@@ -263,11 +263,13 @@ function DragHandle({
   label,
   onDragStart,
   onDragEnd,
+  onPointerDown,
 }: {
   disabled: boolean;
   label: string;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
 }) {
   return (
     <span
@@ -277,6 +279,7 @@ function DragHandle({
       title={label}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onPointerDown={disabled ? undefined : onPointerDown}
     >
       <span className="bf-g-drag-bar" aria-hidden />
       <span className="bf-g-drag-bar" aria-hidden />
@@ -296,6 +299,7 @@ function ContestantChip({
   previewShift,
   onDragStart,
   onDragEnd,
+  onPointerDragStart,
   onClick,
   onClear,
   clearLabel,
@@ -313,6 +317,8 @@ function ContestantChip({
   previewShift?: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
+  /** Touch/pen drag start (HTML5 DnD doesn't fire on touch). */
+  onPointerDragStart?: (e: React.PointerEvent) => void;
   onClick?: () => void;
   onClear?: () => void;
   clearLabel?: string;
@@ -345,6 +351,7 @@ function ContestantChip({
           label="Drag to reorder"
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
+          onPointerDown={onPointerDragStart}
         />
       ) : null}
       <button
@@ -353,6 +360,7 @@ function ContestantChip({
         draggable={chipDraggable}
         onDragStart={chipDraggable ? onDragStart : undefined}
         onDragEnd={chipDraggable ? onDragEnd : undefined}
+        onPointerDown={chipDraggable ? onPointerDragStart : undefined}
         onClick={onClick}
         disabled={busy || readOnly}
       >
@@ -425,6 +433,25 @@ export function GroupStagePanel({
     gp: Meta['group_positions'];
     tp: number[];
   } | null>(null);
+
+  // Touch/pen drag: HTML5 DnD never fires on touchscreens, so we run a
+  // pointer-based fallback that mirrors the same drop logic.
+  const pointerDragRef = useRef<{
+    pointerId: number;
+    payload: DragPayload;
+    startX: number;
+    startY: number;
+    started: boolean;
+    source: HTMLElement | null;
+    ghost: HTMLElement | null;
+    ghostOffsetX: number;
+    ghostOffsetY: number;
+    move: (e: PointerEvent) => void;
+    up: (e: PointerEvent) => void;
+  } | null>(null);
+  // Always hold the freshest move/up logic so window listeners avoid stale state.
+  const pointerMoveLogicRef = useRef<(e: PointerEvent) => void>(() => {});
+  const pointerUpLogicRef = useRef<(e: PointerEvent) => void>(() => {});
 
   gpRef.current = gp;
   tpRef.current = tp;
@@ -738,11 +765,162 @@ export function GroupStagePanel({
     [persist],
   );
 
+  const endPointerDrag = useCallback(() => {
+    const st = pointerDragRef.current;
+    if (st) {
+      window.removeEventListener('pointermove', st.move);
+      window.removeEventListener('pointerup', st.up);
+      window.removeEventListener('pointercancel', st.up);
+      st.ghost?.remove();
+    }
+    pointerDragRef.current = null;
+    clearDrag();
+  }, [clearDrag]);
+
+  const dropTargetAt = useCallback((x: number, y: number) => {
+    const st = pointerDragRef.current;
+    if (st?.ghost) st.ghost.style.display = 'none';
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (st?.ghost) st.ghost.style.display = '';
+    return el;
+  }, []);
+
+  pointerMoveLogicRef.current = (ev: PointerEvent) => {
+    const st = pointerDragRef.current;
+    if (!st || ev.pointerId !== st.pointerId) return;
+    const dx = ev.clientX - st.startX;
+    const dy = ev.clientY - st.startY;
+    if (!st.started) {
+      if (Math.hypot(dx, dy) < 6) return;
+      st.started = true;
+      dragPayloadRef.current = st.payload;
+      setActiveDragId(st.payload.contestantId);
+      if (st.source) {
+        const rect = st.source.getBoundingClientRect();
+        const ghost = st.source.cloneNode(true) as HTMLElement;
+        ghost.classList.add('bf-g-drag-ghost');
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.left = `${rect.left}px`;
+        ghost.style.top = `${rect.top}px`;
+        st.ghostOffsetX = ev.clientX - rect.left;
+        st.ghostOffsetY = ev.clientY - rect.top;
+        document.body.appendChild(ghost);
+        st.ghost = ghost;
+      }
+    }
+    ev.preventDefault();
+    if (st.ghost) {
+      st.ghost.style.left = `${ev.clientX - st.ghostOffsetX}px`;
+      st.ghost.style.top = `${ev.clientY - st.ghostOffsetY}px`;
+    }
+    const el = dropTargetAt(ev.clientX, ev.clientY);
+    const slotEl = el?.closest('[data-drop-group]') as HTMLElement | null;
+    if (slotEl) {
+      updateDragPreview(
+        slotEl.dataset.dropGroup ?? '',
+        slotEl.dataset.dropSlot ?? '',
+      );
+    } else {
+      setDragPreview(null);
+    }
+  };
+
+  pointerUpLogicRef.current = (ev: PointerEvent) => {
+    const st = pointerDragRef.current;
+    if (!st || ev.pointerId !== st.pointerId) return;
+    const { started, payload } = st;
+    if (!started) {
+      endPointerDrag();
+      return;
+    }
+    // Swallow the single synthetic click a touch drag leaves behind so it
+    // doesn't re-trigger the chip's tap handler (e.g. add-third-advancer).
+    const suppressClick = (ce: MouseEvent) => {
+      ce.stopPropagation();
+      ce.preventDefault();
+      window.removeEventListener('click', suppressClick, true);
+    };
+    window.addEventListener('click', suppressClick, true);
+    window.setTimeout(
+      () => window.removeEventListener('click', suppressClick, true),
+      400,
+    );
+    const el = dropTargetAt(ev.clientX, ev.clientY);
+    const slotEl = el?.closest('[data-drop-group]') as HTMLElement | null;
+    const thirdEl = el?.closest(
+      '[data-drop-third-index]',
+    ) as HTMLElement | null;
+    endPointerDrag();
+
+    if (slotEl) {
+      const group = slotEl.dataset.dropGroup ?? '';
+      const slot = slotEl.dataset.dropSlot ?? '';
+      if (!teamInGroup(group, payload.contestantId)) return;
+      if (
+        payload.from.type === 'third-adv' ||
+        payload.from.type === 'third-candidate'
+      ) {
+        return;
+      }
+      if (
+        (payload.from.type === 'slot' || payload.from.type === 'unplaced') &&
+        payload.from.groupCode !== group
+      ) {
+        return;
+      }
+      placeInSlot(group, slot, payload.contestantId);
+    } else if (thirdEl && hasThirdPlaceRail) {
+      const index = Number(thirdEl.dataset.dropThirdIndex);
+      if (!thirdIdsFromGp(gpRef.current).has(payload.contestantId)) return;
+      addThirdAdvancer(payload.contestantId, index);
+    }
+  };
+
+  const startPointerDrag = useCallback(
+    (e: React.PointerEvent, payload: DragPayload) => {
+      // Mouse keeps the native HTML5 DnD path (richer preview, no regression).
+      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+      if (readOnly || busy) return;
+      if (pointerDragRef.current) endPointerDrag();
+
+      const shelf = (e.currentTarget as HTMLElement).closest(
+        '.bf-g-chip-shelf',
+      ) as HTMLElement | null;
+
+      const move = (ev: PointerEvent) => pointerMoveLogicRef.current(ev);
+      const up = (ev: PointerEvent) => pointerUpLogicRef.current(ev);
+
+      pointerDragRef.current = {
+        pointerId: e.pointerId,
+        payload,
+        startX: e.clientX,
+        startY: e.clientY,
+        started: false,
+        source: shelf,
+        ghost: null,
+        ghostOffsetX: 0,
+        ghostOffsetY: 0,
+        move,
+        up,
+      };
+      window.addEventListener('pointermove', move, { passive: false });
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    },
+    [readOnly, busy, endPointerDrag],
+  );
+
+  useEffect(() => endPointerDrag, [endPointerDrag]);
+
   const renderThirdAdvSlot = (index: number) => {
     const id = tp[index];
     const c = id != null ? byId.get(id) : null;
     return (
-      <div key={index} className="bf-g-third-cell bf-g-third-cell--rail">
+      <div
+        key={index}
+        data-drop-third-index={index}
+        className="bf-g-third-cell bf-g-third-cell--rail"
+      >
         <span className="bf-g-third-idx">{index + 1}</span>
         {c ? (
           <ContestantChip
@@ -760,6 +938,12 @@ export function GroupStagePanel({
               })
             }
             onDragEnd={onDragEnd}
+            onPointerDragStart={(e) =>
+              startPointerDrag(e, {
+                contestantId: c.id,
+                from: { type: 'third-adv' },
+              })
+            }
             clearLabel="Remove from list"
             onClear={() => removeFromThird(c.id)}
           />
@@ -835,6 +1019,8 @@ export function GroupStagePanel({
             return (
               <div
                 key={k}
+                data-drop-group={g.code}
+                data-drop-slot={k}
                 className={[
                   'bf-g-slot',
                   isOver ? 'bf-g-slot--over' : '',
@@ -872,6 +1058,12 @@ export function GroupStagePanel({
                       })
                     }
                     onDragEnd={onDragEnd}
+                    onPointerDragStart={(e) =>
+                      startPointerDrag(e, {
+                        contestantId: c.id,
+                        from: { type: 'slot', groupCode: g.code, slot: k },
+                      })
+                    }
                     clearLabel={`Remove from ${slotLabel(i)}`}
                     onClear={() => clearSlot(g.code, k)}
                   />
@@ -900,6 +1092,12 @@ export function GroupStagePanel({
                   })
                 }
                 onDragEnd={onDragEnd}
+                onPointerDragStart={(e) =>
+                  startPointerDrag(e, {
+                    contestantId: t.id,
+                    from: { type: 'unplaced', groupCode: g.code },
+                  })
+                }
                 onClick={() => {
                   if (readOnly || busy) return;
                   clearDrag();
@@ -938,6 +1136,12 @@ export function GroupStagePanel({
                   })
                 }
                 onDragEnd={onDragEnd}
+                onPointerDragStart={(e) =>
+                  startPointerDrag(e, {
+                    contestantId: c.id,
+                    from: { type: 'third-candidate' },
+                  })
+                }
                 onClick={() => {
                   if (readOnly || busy) return;
                   addThirdAdvancer(c.id);

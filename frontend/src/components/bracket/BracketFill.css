@@ -932,10 +932,23 @@
 
 .bf-g-chip[draggable='true'] {
   cursor: grab;
+  touch-action: none;
 }
 
 .bf-g-chip[draggable='true']:active {
   cursor: grabbing;
+}
+
+/* Floating clone that follows the finger during a touch/pen drag. */
+.bf-g-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: rotate(1.5deg);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  transition: none;
 }
 
 .bf-g-chip-shelf--dragging {
