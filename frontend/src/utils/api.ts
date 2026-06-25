@@ -706,9 +706,19 @@ export type ChallengeStatsGroupTeam = {
   pick_count: number;
 };
 
+export type ChallengeStatsGroupEntry = {
+  user_bracket_id: number;
+  display_name: string;
+  username: string;
+  points: number;
+};
+
 export type ChallengeStatsGroup = {
   code: string;
   teams: ChallengeStatsGroupTeam[];
+  max_points: number;
+  avg_points: number | null;
+  entries: ChallengeStatsGroupEntry[];
 };
 
 export type ChallengeStatsKnockoutRow = {

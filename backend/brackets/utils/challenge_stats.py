@@ -5,8 +5,19 @@ from __future__ import annotations
 from typing import Any
 
 from brackets.api.serializers import bracket_groups_preview, contestant_public
-from brackets.models import Bracket, BracketChallenge, BracketContestant, BracketStage, KnockoutStage, UserBracket
-from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
+from brackets.models import (
+    Bracket,
+    BracketChallenge,
+    BracketContestant,
+    BracketStage,
+    GroupStage,
+    KnockoutStage,
+    UserBracket,
+)
+from brackets.utils.sync_group_knockout import (
+    contestants_credited_for_knockout_score,
+    contestants_in_stage_for_scoring,
+)
 
 CHALLENGE_STATS_REVISION_KEY = "challenge_stats_revision"
 CHALLENGE_STATS_CACHE_KEY = "challenge_stats_cache"
@@ -63,6 +74,10 @@ def _read_cached_stats(
         or not isinstance(knockout, dict)
     ):
         return None
+    # Older caches predate per-group points; force a recompute so the new
+    # fields (max_points, avg_points, entries) are present.
+    if group_stage and "entries" not in group_stage[0]:
+        return None
     return {
         "submitted_count": submitted_count,
         "group_stage": group_stage,
@@ -111,6 +126,52 @@ def _team_position_in_row(row: dict, team_id: int) -> int | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _row_contestant_at(row: Any, pos: Any) -> int | None:
+    """Read the contestant id at a position, tolerating int/str position keys."""
+    if not isinstance(row, dict):
+        return None
+    cid = row.get(pos)
+    if cid is None:
+        cid = row.get(str(pos))
+    if cid is None:
+        try:
+            cid = row.get(int(pos))
+        except (TypeError, ValueError):
+            cid = None
+    if cid is None:
+        return None
+    try:
+        return int(cid)
+    except (TypeError, ValueError):
+        return None
+
+
+def _group_exact_placement_points(
+    user_row: Any,
+    master_row: Any,
+    points_per_exact_position: int,
+) -> int:
+    """Points an entry earns for exact group placements vs the master."""
+    if (
+        points_per_exact_position <= 0
+        or not isinstance(user_row, dict)
+        or not isinstance(master_row, dict)
+    ):
+        return 0
+    total = 0
+    for pos, user_cid in user_row.items():
+        if user_cid is None:
+            continue
+        try:
+            user_id = int(user_cid)
+        except (TypeError, ValueError):
+            continue
+        master_id = _row_contestant_at(master_row, pos)
+        if master_id is not None and master_id == user_id:
+            total += points_per_exact_position
+    return total
 
 
 def _progression_scores_for_user_bracket(
@@ -167,6 +228,138 @@ def _progression_scores_for_user_bracket(
     return scores
 
 
+class _GroupPointsContext:
+    """Shared inputs for per-group points: scoring config + master results."""
+
+    def __init__(
+        self,
+        *,
+        points_per_exact_position: int,
+        first_ko_stage: BracketStage | None,
+        first_ko_points: int,
+        master_gp: dict[str, Any],
+        master_first_ko_ids: set[int],
+        entry_first_ko_ids: dict[int, set[int]],
+    ) -> None:
+        self.points_per_exact_position = points_per_exact_position
+        self.first_ko_stage = first_ko_stage
+        self.first_ko_points = first_ko_points
+        self.master_gp = master_gp
+        self.master_first_ko_ids = master_first_ko_ids
+        self.entry_first_ko_ids = entry_first_ko_ids
+
+
+def _build_group_points_context(
+    bracket: Bracket,
+    user_brackets: list[UserBracket],
+) -> _GroupPointsContext:
+    group_cfg = (
+        GroupStage.objects.filter(bracket=bracket).order_by("order").first()
+    )
+    points_per_exact_position = (
+        group_cfg.points_per_exact_position if group_cfg is not None else 0
+    )
+
+    first_ko_stage = (
+        KnockoutStage.objects.filter(bracket=bracket)
+        .exclude(is_third_place=True)
+        .order_by("order")
+        .first()
+    )
+    first_ko_points = (
+        first_ko_stage.points_per_correct_pick if first_ko_stage is not None else 0
+    )
+
+    master = bracket.userbracket_set.filter(is_master=True).first()
+    master_gp = {}
+    master_first_ko_ids: set[int] = set()
+    if master is not None:
+        master_gp = (master.metadata or {}).get("group_positions") or {}
+        if first_ko_stage is not None:
+            master_first_ko_ids = contestants_credited_for_knockout_score(
+                master, first_ko_stage
+            )
+
+    entry_first_ko_ids: dict[int, set[int]] = {}
+    if first_ko_stage is not None:
+        for ub in user_brackets:
+            entry_first_ko_ids[ub.id] = contestants_credited_for_knockout_score(
+                ub, first_ko_stage
+            )
+
+    return _GroupPointsContext(
+        points_per_exact_position=points_per_exact_position,
+        first_ko_stage=first_ko_stage,
+        first_ko_points=first_ko_points,
+        master_gp=master_gp if isinstance(master_gp, dict) else {},
+        master_first_ko_ids=master_first_ko_ids,
+        entry_first_ko_ids=entry_first_ko_ids,
+    )
+
+
+def _entry_label(ub: UserBracket) -> str:
+    name = (ub.display_name or "").strip()
+    if name:
+        return name
+    return getattr(ub.user, "username", "") or "Player"
+
+
+def _group_points_breakdown(
+    group: dict[str, Any],
+    user_brackets: list[UserBracket],
+    ctx: _GroupPointsContext,
+) -> tuple[int, float | None, list[dict[str, Any]]]:
+    """Max points, average earned, and per-entry points for one group."""
+    code = group["code"]
+    group_team_ids = {int(t["id"]) for t in group["teams"]}
+
+    advancers_in_group = ctx.master_first_ko_ids & group_team_ids
+    max_points = (
+        len(group_team_ids) * ctx.points_per_exact_position
+        + len(advancers_in_group) * ctx.first_ko_points
+    )
+
+    entries: list[dict[str, Any]] = []
+    for ub in user_brackets:
+        gp = ub.metadata if isinstance(ub.metadata, dict) else {}
+        user_gp = gp.get("group_positions") or {}
+        user_row = user_gp.get(code) if isinstance(user_gp, dict) else None
+        master_row = ctx.master_gp.get(code)
+
+        points = _group_exact_placement_points(
+            user_row, master_row, ctx.points_per_exact_position
+        )
+
+        if ctx.first_ko_points > 0 and ctx.first_ko_stage is not None:
+            credited = (
+                ctx.entry_first_ko_ids.get(ub.id, set())
+                & ctx.master_first_ko_ids
+                & group_team_ids
+            )
+            points += len(credited) * ctx.first_ko_points
+
+        entries.append(
+            {
+                "user_bracket_id": ub.id,
+                "display_name": _entry_label(ub),
+                "username": getattr(ub.user, "username", "") or "",
+                "points": points,
+            }
+        )
+
+    entries.sort(
+        key=lambda e: (-e["points"], e["display_name"].casefold())
+    )
+
+    avg_points = (
+        round(sum(e["points"] for e in entries) / len(entries), 2)
+        if entries
+        else None
+    )
+
+    return max_points, avg_points, entries
+
+
 def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
     bracket = challenge.bracket
     groups_preview = bracket_groups_preview(bracket)
@@ -176,9 +369,13 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
             challenge=challenge,
             is_master=False,
             submitted_at__isnull=False,
-        ).prefetch_related("matchup_set__stage")
+        )
+        .select_related("user")
+        .prefetch_related("matchup_set__stage")
     )
     submitted_count = len(user_brackets)
+
+    group_points_ctx = _build_group_points_context(bracket, user_brackets)
 
     group_stage: list[dict[str, Any]] = []
     for group in groups_preview:
@@ -213,7 +410,18 @@ def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
                 t["average_position"] if t["average_position"] is not None else 999.0,
             )
         )
-        group_stage.append({"code": code, "teams": teams_out})
+        max_points, avg_points, entries = _group_points_breakdown(
+            group, user_brackets, group_points_ctx
+        )
+        group_stage.append(
+            {
+                "code": code,
+                "teams": teams_out,
+                "max_points": max_points,
+                "avg_points": avg_points,
+                "entries": entries,
+            }
+        )
 
     knockout_stages = list(
         bracket.stages.filter(stage_type=BracketStage.StageType.KNOCKOUT).order_by(

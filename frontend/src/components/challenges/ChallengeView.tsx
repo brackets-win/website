@@ -827,7 +827,18 @@ export function ChallengeView({
               {statsErr}
             </div>
           ) : stats ? (
-            <ChallengeStatsPanel stats={stats} />
+            <ChallengeStatsPanel
+              stats={stats}
+              onSelectPlayer={
+                canViewPeerBrackets
+                  ? (id, name) => {
+                      navigate(challengePlayerPath(challengeId, id), {
+                        state: { playerName: name },
+                      });
+                    }
+                  : undefined
+              }
+            />
           ) : null}
         </section>
       ) : null}

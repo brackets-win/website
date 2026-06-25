@@ -10,6 +10,7 @@ import './ChallengeStats.css';
 
 type Props = {
   stats: ChallengeStats;
+  onSelectPlayer?: (userBracketId: number, displayName: string) => void;
 };
 
 type KnockoutSortKey = 'team' | string;
@@ -172,12 +173,27 @@ function SortableHeader({
   );
 }
 
-export function ChallengeStats({ stats }: Props) {
+export function ChallengeStats({ stats, onSelectPlayer }: Props) {
   const { submitted_count, group_stage, knockout } = stats;
   const [sort, setSort] = useState<SortState>({
     key: 'progression_score',
     direction: 'desc',
   });
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  function toggleGroup(code: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  }
 
   const sortedKnockoutRows = useMemo(() => {
     const rows = [...knockout.rows];
@@ -241,38 +257,115 @@ export function ChallengeStats({ stats }: Props) {
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Group Stage</h2>
           <div className="challenge-stats__group-grid">
-            {group_stage.map((group) => (
-              <div key={group.code} className="challenge-stats__group-card">
-                <div className="challenge-stats__group-head-row">
-                  <div className="challenge-stats__group-head">
-                    Group {group.code}
-                  </div>
-                  <span className="challenge-stats__group-avg-label">Avg Place</span>
-                </div>
-                <div className="challenge-stats__group-teams">
-                  {group.teams.map((team, index) => (
-                    <div
-                      key={team.bracket_contestant_id}
-                      className="challenge-stats__group-row"
-                    >
-                      <span className="challenge-stats__group-rank">
-                        {index + 1}
-                      </span>
-                      <TeamChip
-                        displayName={team.display_name}
-                        imageUrl={team.image_url}
-                      />
+            {group_stage.map((group) => {
+              const expanded = expandedGroups.has(group.code);
+              return (
+                <div key={group.code} className="challenge-stats__group-card">
+                  <button
+                    type="button"
+                    className="challenge-stats__group-head-row challenge-stats__group-toggle"
+                    aria-expanded={expanded}
+                    onClick={() => toggleGroup(group.code)}
+                  >
+                    <span className="challenge-stats__group-head">
                       <span
-                        className="challenge-stats__group-avg"
-                        title={`${team.pick_count} picks`}
+                        className="challenge-stats__group-chevron"
+                        aria-hidden
                       >
-                        {formatAverage(team.average_position)}
+                        {expanded ? '▾' : '▸'}
                       </span>
+                      Group {group.code}
+                    </span>
+                    <span className="challenge-stats__group-avg-label">
+                      Avg Place
+                    </span>
+                  </button>
+                  <div className="challenge-stats__group-teams">
+                    {group.teams.map((team, index) => (
+                      <div
+                        key={team.bracket_contestant_id}
+                        className="challenge-stats__group-row"
+                      >
+                        <span className="challenge-stats__group-rank">
+                          {index + 1}
+                        </span>
+                        <TeamChip
+                          displayName={team.display_name}
+                          imageUrl={team.image_url}
+                        />
+                        <span
+                          className="challenge-stats__group-avg"
+                          title={`${team.pick_count} picks`}
+                        >
+                          {formatAverage(team.average_position)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {expanded ? (
+                    <div className="challenge-stats__group-points">
+                      <div className="challenge-stats__group-points-summary">
+                        <div className="challenge-stats__group-points-stat">
+                          <span className="challenge-stats__group-points-stat-label">
+                            Max points
+                          </span>
+                          <span className="challenge-stats__group-points-stat-value">
+                            {group.max_points}
+                          </span>
+                        </div>
+                        <div className="challenge-stats__group-points-stat">
+                          <span className="challenge-stats__group-points-stat-label">
+                            Avg points
+                          </span>
+                          <span className="challenge-stats__group-points-stat-value">
+                            {formatAverage(group.avg_points)}
+                          </span>
+                        </div>
+                      </div>
+                      {group.entries.length > 0 ? (
+                        <ol className="challenge-stats__group-points-list">
+                          {group.entries.map((entry, index) => (
+                            <li
+                              key={entry.user_bracket_id}
+                              className="challenge-stats__group-points-row"
+                            >
+                              <span className="challenge-stats__group-points-rank">
+                                {index + 1}
+                              </span>
+                              {onSelectPlayer ? (
+                                <button
+                                  type="button"
+                                  className="challenge-stats__group-points-name challenge-stats__group-points-name--btn"
+                                  onClick={() =>
+                                    onSelectPlayer(
+                                      entry.user_bracket_id,
+                                      entry.display_name,
+                                    )
+                                  }
+                                >
+                                  {entry.display_name}
+                                </button>
+                              ) : (
+                                <span className="challenge-stats__group-points-name">
+                                  {entry.display_name}
+                                </span>
+                              )}
+                              <span className="challenge-stats__group-points-pts">
+                                {entry.points}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="challenge-stats__group-points-empty">
+                          No entries yet.
+                        </p>
+                      )}
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}

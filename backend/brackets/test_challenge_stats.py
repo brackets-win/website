@@ -186,6 +186,51 @@ class ChallengeStatsTests(TestCase):
             row_group_winner_only["progression_score"],
         )
 
+    def test_group_points_breakdown(self):
+        t = [team.id for team in self.teams]
+        master = self.bracket.get_master_bracket()
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": t[0], "2": t[1], "3": t[2], "4": t[3]},
+                "B": {"1": t[4], "2": t[5], "3": t[6], "4": t[7]},
+            }
+        }
+        master.save(update_fields=["metadata"])
+
+        # u1 matches the master exactly in group A.
+        self._submit_with_groups(
+            self.u1,
+            {
+                "A": {"1": t[0], "2": t[1], "3": t[2], "4": t[3]},
+                "B": {"1": t[4], "2": t[5], "3": t[6], "4": t[7]},
+            },
+        )
+        # u2 swaps the non-qualifying 3rd/4th spots in group A: loses 2 exact
+        # placement points but still gets the same qualifiers into the knockout.
+        self._submit_with_groups(
+            self.u2,
+            {
+                "A": {"1": t[0], "2": t[1], "3": t[3], "4": t[2]},
+                "B": {"1": t[4], "2": t[5], "3": t[6], "4": t[7]},
+            },
+        )
+
+        stats = compute_challenge_stats(self.challenge)
+        group_a = next(g for g in stats["group_stage"] if g["code"] == "A")
+
+        # 4 exact placements + 2 qualifiers into the first knockout round.
+        self.assertEqual(group_a["max_points"], 6)
+        self.assertEqual(group_a["avg_points"], 5.0)
+
+        points_by_name = {
+            e["display_name"]: e["points"] for e in group_a["entries"]
+        }
+        self.assertEqual(points_by_name["u1"], 6)
+        self.assertEqual(points_by_name["u2"], 4)
+        # Ordered by points desc, then entry name.
+        self.assertEqual(group_a["entries"][0]["display_name"], "u1")
+        self.assertEqual(group_a["entries"][1]["display_name"], "u2")
+
     def test_stats_api_requires_auth(self):
         res = self.client.get(f"/brackets/api/challenges/{self.challenge.id}/stats")
         self.assertEqual(res.status_code, 401)
