@@ -268,14 +268,22 @@ class ChallengeStatsTests(TestCase):
         )
         prog = row_t1["progression"]
         labels = [b["label"] for b in prog]
-        # Champions bucket comes before the Final bucket.
+        # No third-place match here: Champions, then Runner-Up (not "Final").
         self.assertEqual(labels[0], "Champions")
-        self.assertIn("Final", labels)
-        self.assertLess(labels.index("Champions"), labels.index("Final"))
+        self.assertIn("Runner-Up", labels)
+        self.assertNotIn("Final", labels)
+        self.assertLess(labels.index("Champions"), labels.index("Runner-Up"))
         champ_names = [
             e["display_name"] for e in prog[0]["entries"]
         ]
         self.assertEqual(champ_names, ["u1"])
+        runner_up_names = [
+            e["display_name"]
+            for b in prog
+            if b["label"] == "Runner-Up"
+            for e in b["entries"]
+        ]
+        self.assertEqual(runner_up_names, ["u2"])
 
         # T3 was placed 3rd/4th in group A (never advanced) by both entries.
         row_t3 = next(
@@ -291,6 +299,79 @@ class ChallengeStatsTests(TestCase):
         # Every bucket has at least one entry.
         for bucket in row_t3["progression"]:
             self.assertGreaterEqual(len(bucket["entries"]), 1)
+
+    def test_knockout_progression_third_place_buckets(self):
+        from django.utils import timezone
+
+        host = User.objects.create_user(username="tp_host", password="x")
+        u1 = User.objects.create_user(username="tp1", password="x")
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT", "stats-tp", "Stats TP", 8, host, has_third_place=True
+        )
+        teams = [
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
+            for i in range(8)
+        ]
+        challenge = BracketChallenge.objects.create(
+            name="Pool TP", bracket=bracket, created_by=host
+        )
+        ub = UserBracket.objects.create(
+            bracket=bracket,
+            user=u1,
+            challenge=challenge,
+            is_master=False,
+            metadata={
+                "group_positions": {
+                    "A": {
+                        "1": teams[0].id,
+                        "2": teams[1].id,
+                        "3": teams[2].id,
+                        "4": teams[3].id,
+                    },
+                    "B": {
+                        "1": teams[4].id,
+                        "2": teams[5].id,
+                        "3": teams[6].id,
+                        "4": teams[7].id,
+                    },
+                }
+            },
+        )
+        ub.submitted_at = timezone.now()
+        ub.save(update_fields=["submitted_at", "metadata"])
+        ensure_knockout_matchup_shell(ub)
+
+        final = KnockoutStage.objects.get(bracket=bracket, is_final=True)
+        third = KnockoutStage.objects.get(bracket=bracket, is_third_place=True)
+        # T1 champion, T5 runner-up; T2 third place, T6 fourth place.
+        fm = ub.matchup_set.filter(stage=final).first()
+        fm.contestant1 = teams[0]
+        fm.contestant2 = teams[4]
+        fm.winner = teams[0]
+        fm.save()
+        tp = ub.matchup_set.filter(stage=third).first()
+        tp.contestant1 = teams[1]
+        tp.contestant2 = teams[5]
+        tp.winner = teams[1]
+        tp.save()
+
+        stats = compute_challenge_stats(challenge)
+        rows = {
+            r["bracket_contestant_id"]: r for r in stats["knockout"]["rows"]
+        }
+
+        self.assertEqual(rows[teams[0].id]["progression"][0]["label"], "Champions")
+        self.assertEqual(rows[teams[4].id]["progression"][0]["label"], "Runner-Up")
+
+        t2_labels = [b["label"] for b in rows[teams[1].id]["progression"]]
+        self.assertIn("Third Place", t2_labels)
+        self.assertNotIn("Semi Final", t2_labels)
+
+        t6_labels = [b["label"] for b in rows[teams[5].id]["progression"]]
+        self.assertIn("Fourth Place", t6_labels)
+        self.assertNotIn("Semi Final", t6_labels)
 
     def test_stats_api_requires_auth(self):
         res = self.client.get(f"/brackets/api/challenges/{self.challenge.id}/stats")

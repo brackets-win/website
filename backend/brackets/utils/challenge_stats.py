@@ -118,6 +118,15 @@ def _read_entries_cache(
         and "progression" not in knockout_rows[0]
     ):
         return None
+    # Older caches labeled top placements by round ("Final"); the current format
+    # uses placement names (Runner-Up, Third/Fourth Place). Force a recompute so
+    # stale labels don't linger after deploy.
+    if isinstance(knockout_rows, list) and any(
+        bucket.get("label") == "Final"
+        for row in knockout_rows
+        for bucket in row.get("progression", [])
+    ):
+        return None
     return {
         "submitted_count": submitted_count,
         "group_teams": group_teams,
@@ -433,14 +442,15 @@ def _knockout_progression_for_contestant(
     cid: int,
     user_brackets: list[UserBracket],
     ub_stage_hits: dict[int, dict[str, set[int]]],
-    reversed_main_ko_stages: list[BracketStage],
+    ko_levels: list[tuple[str, str, str]],
     group_code_by_team: dict[int, str],
 ) -> list[dict[str, Any]]:
     """Buckets of entries by the farthest stage they placed this contestant.
 
-    Ordered farthest-first: Champions, then each knockout stage (final → first
-    round), then exact group placements for entries that never advanced. Buckets
-    with no entries are omitted.
+    Ordered farthest-first using ``ko_levels`` (Champions, Runner-Up, then
+    Third/Fourth Place or Semi Final, then deeper rounds by name), followed by
+    exact group placements for entries that never advanced. Buckets with no
+    entries are omitted.
     """
     buckets: dict[str, dict[str, Any]] = {}
 
@@ -454,29 +464,26 @@ def _knockout_progression_for_contestant(
     for ub in user_brackets:
         hits = ub_stage_hits.get(ub.id, {})
         bucket: dict[str, Any] | None = None
-        if cid in hits.get("champion", set()):
-            bucket = ensure("champion", "Champions", 0)
-        else:
-            for idx, stage in enumerate(reversed_main_ko_stages):
-                if cid in hits.get(f"stage:{stage.id}", set()):
-                    bucket = ensure(f"stage:{stage.id}", stage.name, 1 + idx)
-                    break
-            if bucket is None:
-                code = group_code_by_team.get(cid)
-                if code is not None:
-                    gp = (ub.metadata or {}).get("group_positions") or {}
-                    row = gp.get(code) if isinstance(gp, dict) else None
-                    pos = (
-                        _team_position_in_row(row, cid)
-                        if isinstance(row, dict)
-                        else None
+        for idx, (key, label, hit_key) in enumerate(ko_levels):
+            if cid in hits.get(hit_key, set()):
+                bucket = ensure(key, label, idx)
+                break
+        if bucket is None:
+            code = group_code_by_team.get(cid)
+            if code is not None:
+                gp = (ub.metadata or {}).get("group_positions") or {}
+                row = gp.get(code) if isinstance(gp, dict) else None
+                pos = (
+                    _team_position_in_row(row, cid)
+                    if isinstance(row, dict)
+                    else None
+                )
+                if pos is not None:
+                    bucket = ensure(
+                        f"group:{pos}",
+                        f"{_ordinal(pos)} in Group",
+                        1000 + pos,
                     )
-                    if pos is not None:
-                        bucket = ensure(
-                            f"group:{pos}",
-                            f"{_ordinal(pos)} in Group",
-                            1000 + pos,
-                        )
         if bucket is None:
             continue
         bucket["entries"].append(
@@ -679,6 +686,15 @@ def _compute_stats_parts(
         None,
     )
     main_knockout_stages = [s for s in knockout_stages if s.id not in third_place_ids]
+    # The main stage immediately before the final (its losers play for 3rd/4th).
+    semifinal_stage: BracketStage | None = None
+    if final_stage is not None:
+        prev: BracketStage | None = None
+        for stage in main_knockout_stages:
+            if stage.id == final_stage.id:
+                semifinal_stage = prev
+                break
+            prev = stage
 
     ub_stage_hits: dict[int, dict[str, set[int]]] = {}
     for ub in user_brackets:
@@ -695,6 +711,19 @@ def _compute_stats_parts(
                 if loser is not None:
                     runner_up = {loser.id}
         hits["runner_up"] = runner_up
+        third_place: set[int] = set()
+        fourth_place: set[int] = set()
+        if third_place_stage is not None:
+            tp_matchup = ub.matchup_set.filter(stage=third_place_stage).first()
+            if tp_matchup is not None:
+                tp_winner = tp_matchup.winner
+                if tp_winner is not None:
+                    third_place = {tp_winner.id}
+                tp_loser = tp_matchup.get_loser()
+                if tp_loser is not None:
+                    fourth_place = {tp_loser.id}
+        hits["third_place"] = third_place
+        hits["fourth_place"] = fourth_place
         group_winners: set[int] = set()
         gp = (ub.metadata or {}).get("group_positions") or {}
         for row in gp.values():
@@ -723,6 +752,27 @@ def _compute_stats_parts(
             progression_totals[team_id] = progression_totals.get(team_id, 0) + score
 
     reversed_main_ko_stages = list(reversed(main_knockout_stages))
+    # Farthest-first progression levels. The top placements use placement names
+    # (Champions, Runner-Up, and Third/Fourth Place when a third-place match
+    # exists) rather than round names so each entry lands in exactly one bucket.
+    ko_levels: list[tuple[str, str, str]] = [
+        ("champion", "Champions", "champion"),
+        ("runner_up", "Runner-Up", "runner_up"),
+    ]
+    if third_place_stage is not None:
+        ko_levels.append(("third_place", "Third Place", "third_place"))
+        ko_levels.append(("fourth_place", "Fourth Place", "fourth_place"))
+    for stage in reversed_main_ko_stages:
+        if final_stage is not None and stage.id == final_stage.id:
+            continue
+        if (
+            third_place_stage is not None
+            and semifinal_stage is not None
+            and stage.id == semifinal_stage.id
+        ):
+            continue
+        ko_levels.append((f"stage:{stage.id}", stage.name, f"stage:{stage.id}"))
+
     group_code_by_team: dict[int, str] = {}
     for group in groups_preview:
         for team in group["teams"]:
@@ -769,7 +819,7 @@ def _compute_stats_parts(
                     bc.id,
                     user_brackets,
                     ub_stage_hits,
-                    reversed_main_ko_stages,
+                    ko_levels,
                     group_code_by_team,
                 ),
             }
