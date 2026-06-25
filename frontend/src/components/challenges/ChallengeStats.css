@@ -159,21 +159,48 @@
   color: var(--activity-accent, var(--app-accent, #5782a8));
 }
 
+.challenge-stats__group-difficulty {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.challenge-stats__group-difficulty--easy {
+  color: #15803d;
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.challenge-stats__group-difficulty--medium {
+  color: #a16207;
+  background: #fef9c3;
+  border-color: #fde047;
+}
+
+.challenge-stats__group-difficulty--hard {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 .challenge-stats__group-points-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
 .challenge-stats__group-points-row {
   display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  align-items: baseline;
   gap: 0.5rem;
-  padding: 0.3rem 0.55rem;
+  padding: 0.25rem 0.5rem;
   border-radius: 6px;
 }
 
@@ -181,19 +208,27 @@
   background: var(--surface-muted, #f8fafc);
 }
 
-.challenge-stats__group-points-rank {
+.challenge-stats__group-points-pts {
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted, #64748b);
-  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text, #1a1d21);
+  text-align: right;
+}
+
+.challenge-stats__group-points-names {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.challenge-stats__group-points-name-wrap {
+  white-space: nowrap;
 }
 
 .challenge-stats__group-points-name {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .challenge-stats__group-points-name--btn {
@@ -214,17 +249,9 @@
   color: var(--app-accent-hover, #466a87);
 }
 
-.challenge-stats__group-points-pts {
-  font-size: 0.875rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--app-text, #1a1d21);
-  text-align: right;
-}
-
 .challenge-stats__group-points-empty {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--text-muted, #64748b);
 }
 

@@ -2,6 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 
 import type {
   ChallengeStats,
+  ChallengeStatsGroupEntry,
   ChallengeStatsKnockoutRow,
   LeaderboardColumn,
 } from '../../utils/api';
@@ -48,6 +49,44 @@ function TeamChip({
 function formatAverage(avg: number | null): string {
   if (avg == null) return '—';
   return Number(avg.toFixed(2)).toString();
+}
+
+type GroupDifficulty = {
+  label: string;
+  level: 'easy' | 'medium' | 'hard';
+};
+
+/** Difficulty from avg/max points: more points earned = easier group. */
+function groupDifficulty(
+  avgPoints: number | null,
+  maxPoints: number,
+): GroupDifficulty | null {
+  if (avgPoints == null || maxPoints <= 0) return null;
+  const ratio = avgPoints / maxPoints;
+  if (ratio >= 0.6) return { label: 'Easy', level: 'easy' };
+  if (ratio >= 0.35) return { label: 'Medium', level: 'medium' };
+  return { label: 'Hard', level: 'hard' };
+}
+
+type PointsBucket = {
+  points: number;
+  entries: ChallengeStatsGroupEntry[];
+};
+
+/** Group entries (pre-sorted by points desc, then name) by their points value. */
+function bucketEntriesByPoints(
+  entries: ChallengeStatsGroupEntry[],
+): PointsBucket[] {
+  const buckets: PointsBucket[] = [];
+  for (const entry of entries) {
+    const last = buckets[buckets.length - 1];
+    if (last && last.points === entry.points) {
+      last.entries.push(entry);
+    } else {
+      buckets.push({ points: entry.points, entries: [entry] });
+    }
+  }
+  return buckets;
 }
 
 function formatPct(value: number): string {
@@ -321,41 +360,71 @@ export function ChallengeStats({ stats, onSelectPlayer }: Props) {
                             {formatAverage(group.avg_points)}
                           </span>
                         </div>
+                        {(() => {
+                          const difficulty = groupDifficulty(
+                            group.avg_points,
+                            group.max_points,
+                          );
+                          if (!difficulty) return null;
+                          return (
+                            <div className="challenge-stats__group-points-stat">
+                              <span className="challenge-stats__group-points-stat-label">
+                                Difficulty
+                              </span>
+                              <span
+                                className={`challenge-stats__group-difficulty challenge-stats__group-difficulty--${difficulty.level}`}
+                              >
+                                {difficulty.label}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                       {group.entries.length > 0 ? (
-                        <ol className="challenge-stats__group-points-list">
-                          {group.entries.map((entry, index) => (
-                            <li
-                              key={entry.user_bracket_id}
-                              className="challenge-stats__group-points-row"
-                            >
-                              <span className="challenge-stats__group-points-rank">
-                                {index + 1}
-                              </span>
-                              {onSelectPlayer ? (
-                                <button
-                                  type="button"
-                                  className="challenge-stats__group-points-name challenge-stats__group-points-name--btn"
-                                  onClick={() =>
-                                    onSelectPlayer(
-                                      entry.user_bracket_id,
-                                      entry.display_name,
-                                    )
-                                  }
-                                >
-                                  {entry.display_name}
-                                </button>
-                              ) : (
-                                <span className="challenge-stats__group-points-name">
-                                  {entry.display_name}
+                        <ul className="challenge-stats__group-points-list">
+                          {bucketEntriesByPoints(group.entries).map(
+                            (bucket) => (
+                              <li
+                                key={bucket.points}
+                                className="challenge-stats__group-points-row"
+                              >
+                                <span className="challenge-stats__group-points-pts">
+                                  {bucket.points}
                                 </span>
-                              )}
-                              <span className="challenge-stats__group-points-pts">
-                                {entry.points}
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
+                                <span className="challenge-stats__group-points-names">
+                                  {bucket.entries.map((entry, i) => (
+                                    <span
+                                      key={entry.user_bracket_id}
+                                      className="challenge-stats__group-points-name-wrap"
+                                    >
+                                      {onSelectPlayer ? (
+                                        <button
+                                          type="button"
+                                          className="challenge-stats__group-points-name challenge-stats__group-points-name--btn"
+                                          onClick={() =>
+                                            onSelectPlayer(
+                                              entry.user_bracket_id,
+                                              entry.display_name,
+                                            )
+                                          }
+                                        >
+                                          {entry.display_name}
+                                        </button>
+                                      ) : (
+                                        <span className="challenge-stats__group-points-name">
+                                          {entry.display_name}
+                                        </span>
+                                      )}
+                                      {i < bucket.entries.length - 1 ? (
+                                        <span aria-hidden>, </span>
+                                      ) : null}
+                                    </span>
+                                  ))}
+                                </span>
+                              </li>
+                            ),
+                          )}
+                        </ul>
                       ) : (
                         <p className="challenge-stats__group-points-empty">
                           No entries yet.
