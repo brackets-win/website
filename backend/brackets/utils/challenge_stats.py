@@ -186,6 +186,38 @@ def _write_points_cache(
     challenge.save(update_fields=["metadata"])
 
 
+def _order_teams_by_master(
+    teams: list[dict[str, Any]],
+    master_order: list[Any],
+) -> list[dict[str, Any]]:
+    """Rank teams by the master bracket, keeping avg-place order as fallback.
+
+    ``teams`` arrives pre-sorted by average placement, so unranked teams (or an
+    unfilled master group) keep that order.
+    """
+    if not master_order:
+        return teams
+    rank: dict[int, int] = {}
+    for idx, team_id in enumerate(master_order):
+        try:
+            rank[int(team_id)] = idx
+        except (TypeError, ValueError):
+            continue
+    if not rank:
+        return teams
+    fallback = len(rank)
+    return [
+        team
+        for _, team in sorted(
+            enumerate(teams),
+            key=lambda it: (
+                rank.get(int(it[1]["bracket_contestant_id"]), fallback),
+                it[0],
+            ),
+        )
+    ]
+
+
 def _merge_stats_parts(
     entries_part: dict[str, Any],
     points_part: dict[str, Any],
@@ -198,7 +230,9 @@ def _merge_stats_parts(
         group_stage.append(
             {
                 "code": code,
-                "teams": group["teams"],
+                "teams": _order_teams_by_master(
+                    group["teams"], points.get("master_order") or []
+                ),
                 "max_points": points.get("max_points", 0),
                 "avg_points": points.get("avg_points"),
                 "entries": points.get("entries", []),
@@ -569,6 +603,28 @@ def _submitted_user_brackets(challenge: BracketChallenge) -> list[UserBracket]:
     )
 
 
+def _master_group_order_ids(master_row: Any) -> list[int]:
+    """Team ids for one group ordered by their master-bracket placement.
+
+    Empty when the master hasn't filled out the group, which lets the merge
+    step fall back to the average-placement ordering.
+    """
+    if not isinstance(master_row, dict):
+        return []
+    placed: list[tuple[int, int]] = []
+    for raw_pos, raw_team in master_row.items():
+        if raw_team is None:
+            continue
+        try:
+            pos = int(raw_pos)
+            team_id = int(raw_team)
+        except (TypeError, ValueError):
+            continue
+        placed.append((pos, team_id))
+    placed.sort(key=lambda pt: pt[0])
+    return [team_id for _, team_id in placed]
+
+
 def _compute_group_points(
     bracket: Bracket,
     groups_preview: list[dict[str, Any]],
@@ -587,6 +643,9 @@ def _compute_group_points(
                 "max_points": max_points,
                 "avg_points": avg_points,
                 "entries": entries,
+                "master_order": _master_group_order_ids(
+                    ctx.master_gp.get(group["code"])
+                ),
             }
         )
     return group_points
