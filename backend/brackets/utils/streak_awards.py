@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import datetime
+
 from brackets.api import serializers
-from brackets.models import StreakParticipant
+from brackets.models import (
+    StreakChallenge,
+    StreakParticipant,
+    StreakPick,
+    StreakQuestion,
+)
 from brackets.utils.leaderboard_preview import (
     streak_participant_label,
     streak_ranked_participants,
     streak_win_rate,
 )
+from brackets.utils.streak_deadlines import closes_at_key
+from brackets.utils.streak_scoring import _apply_batch, _is_correct
 
 
 def _long_win_display(value: int) -> str:
@@ -31,17 +41,20 @@ def _award_person(p: StreakParticipant) -> dict:
     }
 
 
-def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
-    empty = {
+def _empty_awards() -> dict:
+    return {
         "streak_champion": {"winners": []},
         "best_picker": {"winners": []},
         "most_wins": {"winners": []},
         "active_streak": {"winners": []},
         "losing_streak": {"winners": []},
+        "nicest_question": {"winners": []},
+        "meanest_question": {"winners": []},
+        "streak_ending_question": {"winners": []},
     }
-    if not participants:
-        return empty
 
+
+def _person_awards(participants: list[StreakParticipant]) -> dict:
     champions = [p for p, rank in streak_ranked_participants(participants) if rank == 1]
 
     answered = [p for p in participants if p.wins + p.losses > 0]
@@ -89,9 +102,7 @@ def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
             ],
         },
         "most_wins": {
-            "winners": [
-                {**_award_person(p), "wins": p.wins} for p in most_wins
-            ],
+            "winners": [{**_award_person(p), "wins": p.wins} for p in most_wins],
         },
         "active_streak": {
             "winners": [
@@ -113,4 +124,175 @@ def compute_streak_awards(participants: list[StreakParticipant]) -> dict:
                 for p in losing
             ],
         },
+    }
+
+
+def _resolved_questions(challenge: StreakChallenge) -> list[StreakQuestion]:
+    return list(
+        StreakQuestion.objects.filter(
+            streak_competition_id=challenge.streak_competition_id,
+            resolved_at__isnull=False,
+            correct_choice_id__isnull=False,
+        )
+        .prefetch_related("choices")
+        .order_by("closes_at", "order", "id")
+    )
+
+
+def _choice_counts(
+    challenge: StreakChallenge, question_ids: list[int]
+) -> dict[tuple[int, int], int]:
+    counts: dict[tuple[int, int], int] = defaultdict(int)
+    for row in StreakPick.objects.filter(
+        streak_challenge=challenge,
+        question_id__in=question_ids,
+    ).values("question_id", "choice_id"):
+        counts[(row["question_id"], row["choice_id"])] += 1
+    return counts
+
+
+def _question_payload(
+    q: StreakQuestion, counts: dict[tuple[int, int], int]
+) -> dict:
+    choices = list(q.choices.all())
+    total = sum(counts.get((q.id, c.id), 0) for c in choices)
+    choice_rows = []
+    for c in choices:
+        count = counts.get((q.id, c.id), 0)
+        choice_rows.append(
+            {
+                "id": c.id,
+                "label": c.label,
+                "pick_count": count,
+                "pick_pct": round(count * 100 / total) if total else 0,
+            }
+        )
+    return {
+        "question_id": q.id,
+        "text": q.text,
+        "closes_at": q.closes_at.isoformat(),
+        "correct_choice_id": q.correct_choice_id,
+        "choices": choice_rows,
+    }
+
+
+def _streak_ending_events(
+    challenge: StreakChallenge, questions: list[StreakQuestion]
+) -> list[tuple[int, int, int]]:
+    """Return (user_id, question_id, broken_win_streak) for each streak break."""
+    question_ids = [q.id for q in questions]
+    picks_by_user: dict[int, dict[int, StreakPick]] = defaultdict(dict)
+    for p in StreakPick.objects.filter(
+        streak_challenge=challenge,
+        question_id__in=question_ids,
+    ).select_related("choice"):
+        picks_by_user[p.user_id][p.question_id] = p
+
+    events: list[tuple[int, int, int]] = []
+    for user_id, picks_by_q in picks_by_user.items():
+        # At most one scored pick per deadline; prefer lowest order on dupes.
+        deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
+        for q in questions:
+            pick = picks_by_q.get(q.id)
+            if pick is None:
+                continue
+            key = closes_at_key(q.closes_at)
+            prev = deadline_pick.get(key)
+            if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
+                deadline_pick[key] = (q, pick)
+
+        streak_signed = 0
+        for closes_at in sorted(deadline_pick.keys()):
+            q, pick = deadline_pick[closes_at]
+            previous = streak_signed
+            if _is_correct(pick, q):
+                streak_signed = _apply_batch(streak_signed, 1, 0)
+            else:
+                streak_signed = _apply_batch(streak_signed, 0, 1)
+                if previous > 0:
+                    events.append((user_id, q.id, previous))
+    return events
+
+
+def _question_awards(
+    challenge: StreakChallenge, participants: list[StreakParticipant]
+) -> dict:
+    questions = _resolved_questions(challenge)
+    if not questions:
+        return {
+            "nicest_question": {"winners": []},
+            "meanest_question": {"winners": []},
+            "streak_ending_question": {"winners": []},
+        }
+
+    question_ids = [q.id for q in questions]
+    counts = _choice_counts(challenge, question_ids)
+    q_by_id = {q.id: q for q in questions}
+
+    correct_count: dict[int, int] = {}
+    incorrect_count: dict[int, int] = {}
+    for q in questions:
+        for c in q.choices.all():
+            n = counts.get((q.id, c.id), 0)
+            if c.id == q.correct_choice_id:
+                correct_count[q.id] = correct_count.get(q.id, 0) + n
+            else:
+                incorrect_count[q.id] = incorrect_count.get(q.id, 0) + n
+
+    nicest = []
+    answered_correct = {qid: n for qid, n in correct_count.items() if n > 0}
+    if answered_correct:
+        max_correct = max(answered_correct.values())
+        nicest = [
+            {**_question_payload(q_by_id[qid], counts), "correct_count": n}
+            for qid, n in answered_correct.items()
+            if n == max_correct
+        ]
+
+    meanest = []
+    answered_incorrect = {qid: n for qid, n in incorrect_count.items() if n > 0}
+    if answered_incorrect:
+        max_incorrect = max(answered_incorrect.values())
+        meanest = [
+            {**_question_payload(q_by_id[qid], counts), "incorrect_count": n}
+            for qid, n in answered_incorrect.items()
+            if n == max_incorrect
+        ]
+
+    person_by_user = {p.user_id: _award_person(p) for p in participants}
+    events = _streak_ending_events(challenge, questions)
+    streak_ending = []
+    if events:
+        max_broken = max(broken for _user, _q, broken in events)
+        for user_id, question_id, broken in events:
+            if broken != max_broken:
+                continue
+            streak_ending.append(
+                {
+                    **_question_payload(q_by_id[question_id], counts),
+                    "player": person_by_user.get(user_id),
+                    "broken_win_streak": broken,
+                    "long_win_display": _long_win_display(broken),
+                }
+            )
+
+    def sort_key(row: dict) -> tuple:
+        return (row["question_id"], (row.get("player") or {}).get("user_id", 0))
+
+    return {
+        "nicest_question": {"winners": sorted(nicest, key=sort_key)},
+        "meanest_question": {"winners": sorted(meanest, key=sort_key)},
+        "streak_ending_question": {"winners": sorted(streak_ending, key=sort_key)},
+    }
+
+
+def compute_streak_awards(
+    challenge: StreakChallenge, participants: list[StreakParticipant]
+) -> dict:
+    if not participants:
+        return _empty_awards()
+
+    return {
+        **_person_awards(participants),
+        **_question_awards(challenge, participants),
     }

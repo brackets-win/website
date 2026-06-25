@@ -771,7 +771,7 @@ def streak_challenge_awards(
             "user"
         )
     )
-    return JsonResponse(compute_streak_awards(participants))
+    return JsonResponse(compute_streak_awards(challenge, participants))
 
 
 @require_http_methods(["GET"])

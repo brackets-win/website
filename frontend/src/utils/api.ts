@@ -212,12 +212,36 @@ export type StreakAwardCategory = {
   winners: StreakAwardWinner[];
 };
 
+export type StreakAwardQuestionWinner = {
+  question_id: number;
+  text: string;
+  closes_at: string;
+  correct_choice_id: number | null;
+  choices: StreakQuestionChoiceInfo[];
+  correct_count?: number;
+  incorrect_count?: number;
+  player?: {
+    user_id: number;
+    username: string;
+    display_name: string;
+  } | null;
+  broken_win_streak?: number;
+  long_win_display?: string;
+};
+
+export type StreakAwardQuestionCategory = {
+  winners: StreakAwardQuestionWinner[];
+};
+
 export type StreakAwardsPayload = {
   streak_champion: StreakAwardCategory;
   best_picker: StreakAwardCategory;
   most_wins: StreakAwardCategory;
   active_streak: StreakAwardCategory;
   losing_streak: StreakAwardCategory;
+  nicest_question: StreakAwardQuestionCategory;
+  meanest_question: StreakAwardQuestionCategory;
+  streak_ending_question: StreakAwardQuestionCategory;
 };
 
 export type StreakParticipantPickRow = {

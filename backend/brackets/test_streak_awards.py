@@ -10,6 +10,9 @@ from brackets.models import (
     StreakChallenge,
     StreakCompetition,
     StreakParticipant,
+    StreakPick,
+    StreakQuestion,
+    StreakQuestionChoice,
     User,
 )
 
@@ -166,3 +169,113 @@ class StreakAwardsTests(TestCase):
             f"/brackets/api/streak-challenges/{self.challenge.id}"
         )
         self.assertTrue(res.json()["streak_challenge"]["competition_is_over"])
+
+
+class StreakQuestionAwardsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.host = User.objects.create_user(username="host", password="x")
+        self.competition = StreakCompetition.objects.create(name="Cup")
+        self.challenge = StreakChallenge.objects.create(
+            name="Pool",
+            streak_competition=self.competition,
+            created_by=self.host,
+            is_public=True,
+        )
+        self.alice = User.objects.create_user(username="alice", password="x")
+        self.bob = User.objects.create_user(username="bob", password="x")
+        for user, name in [(self.alice, "Alice"), (self.bob, "Bob")]:
+            StreakParticipant.objects.create(
+                streak_challenge=self.challenge, user=user, display_name=name
+            )
+        self._next_close = timezone.now() - timedelta(days=10)
+
+    def _make_question(self, text: str) -> StreakQuestion:
+        self._next_close += timedelta(days=1)
+        question = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text=text,
+            closes_at=self._next_close,
+            resolved_at=timezone.now(),
+        )
+        right = StreakQuestionChoice.objects.create(
+            question=question, label="Right", order=0
+        )
+        StreakQuestionChoice.objects.create(question=question, label="Wrong", order=1)
+        question.correct_choice = right
+        question.save(update_fields=["correct_choice"])
+        return question
+
+    def _pick(self, user, question: StreakQuestion, correct: bool) -> None:
+        choice = question.correct_choice if correct else question.choices.get(
+            label="Wrong"
+        )
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=question,
+            user=user,
+            choice=choice,
+        )
+
+    def _end_and_fetch(self) -> dict:
+        self.competition.ended_at = timezone.now()
+        self.competition.save(update_fields=["ended_at"])
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/awards"
+        )
+        self.assertEqual(res.status_code, 200)
+        return res.json()
+
+    def test_nicest_and_meanest_questions(self):
+        nice = self._make_question("Nice one")
+        mean = self._make_question("Mean one")
+        # Nice: both correct. Mean: both wrong.
+        self._pick(self.alice, nice, correct=True)
+        self._pick(self.bob, nice, correct=True)
+        self._pick(self.alice, mean, correct=False)
+        self._pick(self.bob, mean, correct=False)
+
+        payload = self._end_and_fetch()
+
+        nicest = payload["nicest_question"]["winners"]
+        self.assertEqual(len(nicest), 1)
+        self.assertEqual(nicest[0]["question_id"], nice.id)
+        self.assertEqual(nicest[0]["correct_count"], 2)
+
+        meanest = payload["meanest_question"]["winners"]
+        self.assertEqual(len(meanest), 1)
+        self.assertEqual(meanest[0]["question_id"], mean.id)
+        self.assertEqual(meanest[0]["incorrect_count"], 2)
+
+    def test_question_awards_allow_ties(self):
+        q1 = self._make_question("Q1")
+        q2 = self._make_question("Q2")
+        self._pick(self.alice, q1, correct=True)
+        self._pick(self.alice, q2, correct=True)
+
+        payload = self._end_and_fetch()
+        nicest_ids = {w["question_id"] for w in payload["nicest_question"]["winners"]}
+        self.assertEqual(nicest_ids, {q1.id, q2.id})
+
+    def test_streak_ending_question(self):
+        q1 = self._make_question("Q1")
+        q2 = self._make_question("Q2")
+        q3 = self._make_question("Q3")
+        q4 = self._make_question("Q4")
+        # Alice: 3W then break at q4 (broken streak = 3).
+        self._pick(self.alice, q1, correct=True)
+        self._pick(self.alice, q2, correct=True)
+        self._pick(self.alice, q3, correct=True)
+        self._pick(self.alice, q4, correct=False)
+        # Bob: 1W then break at q2 (broken streak = 1).
+        self._pick(self.bob, q1, correct=True)
+        self._pick(self.bob, q2, correct=False)
+
+        payload = self._end_and_fetch()
+        winners = payload["streak_ending_question"]["winners"]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(winners[0]["question_id"], q4.id)
+        self.assertEqual(winners[0]["broken_win_streak"], 3)
+        self.assertEqual(winners[0]["long_win_display"], "3W")
+        self.assertEqual(winners[0]["player"]["display_name"], "Alice")
