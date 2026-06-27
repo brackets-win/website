@@ -5,7 +5,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("brackets", "0027_user_username_ci_unique"),
+        ("bracket", "0026_user_must_change_password"),
     ]
 
     operations = [
@@ -109,7 +109,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
-                        to="brackets.streakparticipant",
+                        to="bracket.streakparticipant",
                     ),
                 ),
                 (
@@ -117,7 +117,7 @@ class Migration(migrations.Migration):
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="knockout",
-                        to="brackets.streakchallenge",
+                        to="bracket.streakchallenge",
                     ),
                 ),
             ],
@@ -146,7 +146,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="matches",
-                        to="brackets.streakknockout",
+                        to="bracket.streakknockout",
                     ),
                 ),
                 (
@@ -156,7 +156,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="knockout_matches_as_a",
-                        to="brackets.streakparticipant",
+                        to="bracket.streakparticipant",
                     ),
                 ),
                 (
@@ -166,7 +166,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="knockout_matches_as_b",
-                        to="brackets.streakparticipant",
+                        to="bracket.streakparticipant",
                     ),
                 ),
                 (
@@ -176,7 +176,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
-                        to="brackets.streakknockoutmatch",
+                        to="bracket.streakknockoutmatch",
                     ),
                 ),
                 (
@@ -186,7 +186,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
-                        to="brackets.streakknockoutmatch",
+                        to="bracket.streakknockoutmatch",
                     ),
                 ),
                 (
@@ -196,7 +196,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="knockout_match_wins",
-                        to="brackets.streakparticipant",
+                        to="bracket.streakparticipant",
                     ),
                 ),
             ],
