@@ -195,13 +195,18 @@ def update_knockout_consolation_for_question(question: StreakQuestion) -> None:
 
 def clear_question_resolution(question: StreakQuestion) -> None:
     """Remove the correct answer and reopen the question (e.g. accidental admin pick)."""
+    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
+
     question.correct_choice = None
     question.resolved_at = None
     question.save(update_fields=["correct_choice", "resolved_at"])
     recalculate_streak_competition(question.streak_competition_id)
+    bump_streak_stats_for_competition(question.streak_competition_id)
 
 
 def resolve_question(question: StreakQuestion, correct_choice_id: int) -> None:
+    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
+
     choice = StreakQuestionChoice.objects.filter(
         pk=correct_choice_id, question_id=question.id
     ).first()
@@ -215,3 +220,4 @@ def resolve_question(question: StreakQuestion, correct_choice_id: int) -> None:
     question.save(update_fields=update_fields)
     recalculate_streak_competition(question.streak_competition_id)
     update_knockout_consolation_for_question(question)
+    bump_streak_stats_for_competition(question.streak_competition_id)

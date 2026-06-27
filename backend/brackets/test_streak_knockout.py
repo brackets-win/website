@@ -64,6 +64,16 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_start_knockout_freezes_stats_and_builds_bracket(self):
+        eve = User.objects.create_user(username="eve", password="x")
+        StreakParticipant.objects.create(
+            streak_challenge=self.challenge,
+            user=eve,
+            display_name="Eve",
+            wins=1,
+            losses=5,
+            best_win_streak=1,
+            streak_signed=-1,
+        )
         self.client.force_login(self.host)
         res = self.client.post(
             f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
@@ -81,9 +91,9 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(alice.frozen_best_win_streak, 4)
         self.assertTrue(alice.in_knockout_bracket)
 
-        dave = StreakParticipant.objects.get(user=self.dave)
-        self.assertFalse(dave.in_knockout_bracket)
-        self.assertIsNotNone(dave.consolation_eligible_from)
+        eve_p = StreakParticipant.objects.get(user=eve)
+        self.assertFalse(eve_p.in_knockout_bracket)
+        self.assertIsNotNone(eve_p.consolation_eligible_from)
 
     def test_advance_round_scores_and_eliminates(self):
         self.client.force_login(self.host)
