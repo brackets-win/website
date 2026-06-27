@@ -206,6 +206,7 @@ export type StreakAwardWinner = {
   best_loss_streak?: number;
   win_pct?: number;
   wins?: number;
+  record?: string;
   current_display?: string;
   streak_signed?: number;
 };
