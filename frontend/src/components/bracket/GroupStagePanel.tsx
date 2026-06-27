@@ -267,8 +267,8 @@ function DragHandle({
 }: {
   disabled: boolean;
   label: string;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: (e: React.DragEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onPointerDown?: (e: React.PointerEvent) => void;
 }) {
   return (
@@ -291,7 +291,6 @@ function DragHandle({
 function ContestantChip({
   contestant,
   reorderable,
-  dragFromChip,
   busy,
   readOnly,
   muted,
@@ -306,17 +305,16 @@ function ContestantChip({
   scoredCorrect,
 }: {
   contestant: BracketContestantInfo;
-  /** Show grip handle; drag starts from handle only. */
+  /** Show grip handle; drag starts from the handle only. */
   reorderable?: boolean;
-  /** Drag whole chip (third-place rail, etc.). */
-  dragFromChip?: boolean;
   busy: boolean;
   readOnly: boolean;
   muted?: boolean;
   dragging?: boolean;
   previewShift?: boolean;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: (e: React.DragEvent) => void;
+  /** Handle drag handlers; only needed when reorderable. */
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   /** Touch/pen drag start (HTML5 DnD doesn't fire on touch). */
   onPointerDragStart?: (e: React.PointerEvent) => void;
   onClick?: () => void;
@@ -325,7 +323,6 @@ function ContestantChip({
   scoredCorrect?: boolean;
 }) {
   const canDrag = !busy && !readOnly;
-  const chipDraggable = Boolean(dragFromChip && canDrag);
   const chipClass = [
     'bf-chip',
     'bf-g-chip',
@@ -357,10 +354,6 @@ function ContestantChip({
       <button
         type="button"
         className={chipClass}
-        draggable={chipDraggable}
-        onDragStart={chipDraggable ? onDragStart : undefined}
-        onDragEnd={chipDraggable ? onDragEnd : undefined}
-        onPointerDown={chipDraggable ? onPointerDragStart : undefined}
         onClick={onClick}
         disabled={busy || readOnly}
       >
@@ -925,24 +918,10 @@ export function GroupStagePanel({
         {c ? (
           <ContestantChip
             contestant={c}
-            dragFromChip
             busy={busy}
             readOnly={readOnly}
             scoredCorrect={
               scoringHighlights?.group_advancers?.includes(c.id) === true
-            }
-            onDragStart={(e) =>
-              onDragStart(e, {
-                contestantId: c.id,
-                from: { type: 'third-adv' },
-              })
-            }
-            onDragEnd={onDragEnd}
-            onPointerDragStart={(e) =>
-              startPointerDrag(e, {
-                contestantId: c.id,
-                from: { type: 'third-adv' },
-              })
             }
             clearLabel="Remove from list"
             onClear={() => removeFromThird(c.id)}
@@ -1125,23 +1104,9 @@ export function GroupStagePanel({
               <ContestantChip
                 key={c.id}
                 contestant={c}
-                dragFromChip
                 busy={busy}
                 readOnly={readOnly}
                 muted
-                onDragStart={(e) =>
-                  onDragStart(e, {
-                    contestantId: c.id,
-                    from: { type: 'third-candidate' },
-                  })
-                }
-                onDragEnd={onDragEnd}
-                onPointerDragStart={(e) =>
-                  startPointerDrag(e, {
-                    contestantId: c.id,
-                    from: { type: 'third-candidate' },
-                  })
-                }
                 onClick={() => {
                   if (readOnly || busy) return;
                   addThirdAdvancer(c.id);
