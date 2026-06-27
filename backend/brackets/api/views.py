@@ -146,6 +146,36 @@ def _apply_bracket_contestant_rows(
         )
 
 
+def _replace_bracket_contestant_rows(
+    bracket: Bracket, rows: list[dict[str, Any]]
+) -> None:
+    """Reseed a bracket: set its contestants to exactly ``rows`` and rebuild.
+
+    Only safe for brackets with no challenges (caller enforces this). Deletes
+    the master's knockout matchups so the standard seeding is rebuilt from the
+    new seeds, drops contestants no longer present, then upserts the new set.
+    """
+    keep_ids: set[int] = set()
+    for row in rows:
+        cid = row.get("contestant_id")
+        if cid is None:
+            raise ValueError("Each entry needs contestant_id")
+        try:
+            keep_ids.add(int(cid))
+        except (TypeError, ValueError) as e:
+            raise ValueError("contestant_id must be an integer") from e
+
+    master = bracket.get_master_bracket()
+    if master is not None:
+        Matchup.objects.filter(user_bracket=master).delete()
+
+    BracketContestant.objects.filter(bracket=bracket).exclude(
+        contestant_id__in=keep_ids
+    ).delete()
+
+    _apply_bracket_contestant_rows(bracket, rows)
+
+
 def _parse_json(request: HttpRequest) -> dict[str, Any]:
     if not request.body:
         return {}
@@ -2004,9 +2034,20 @@ def admin_bracket_contestants_assign(
     if not isinstance(raw, list):
         return _json_error("assignments must be a list", 400)
     rows = [r for r in raw if isinstance(r, dict)]
+    replace = bool(body.get("replace"))
+
+    if replace and BracketChallenge.objects.filter(bracket=bracket).exists():
+        return _json_error(
+            "Cannot reseed a bracket that is already used by a challenge.",
+            409,
+        )
+
     try:
         with transaction.atomic():
-            _apply_bracket_contestant_rows(bracket, rows)
+            if replace:
+                _replace_bracket_contestant_rows(bracket, rows)
+            else:
+                _apply_bracket_contestant_rows(bracket, rows)
     except ValueError as e:
         return _json_error(str(e), 400)
 
