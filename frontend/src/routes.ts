@@ -13,6 +13,7 @@ export type ChallengeTab = (typeof CHALLENGE_TABS)[number];
 export const STREAK_TABS = [
   'awards',
   'leaderboard',
+  'knockout',
   'results',
   'make',
   'rules',

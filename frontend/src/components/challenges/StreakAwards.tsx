@@ -13,18 +13,18 @@ type Props = {
 };
 
 type PersonAwardCard = {
-  key: 'streak_champion' | 'best_picker' | 'most_wins' | 'active_streak' | 'losing_streak';
+  key: keyof StreakAwardsPayload;
   emoji: string;
   title: string;
   valueLabel: (winner: StreakAwardWinner) => string;
 };
 
-const PERSON_AWARD_CARDS: PersonAwardCard[] = [
+const BASE_PERSON_AWARD_CARDS: PersonAwardCard[] = [
   {
     key: 'streak_champion',
     emoji: '🏆',
     title: 'Streak Champion',
-    valueLabel: (w) => String(w.long_win_display ?? '—'),
+    valueLabel: (w) => String(w.long_win_display ?? w.display_name ?? '—'),
   },
   {
     key: 'best_picker',
@@ -52,6 +52,21 @@ const PERSON_AWARD_CARDS: PersonAwardCard[] = [
   },
 ];
 
+const KNOCKOUT_EXTRA_CARDS: PersonAwardCard[] = [
+  {
+    key: 'best_streak',
+    emoji: '🐦‍🔥',
+    title: 'Best Streak',
+    valueLabel: (w) => String(w.long_win_display ?? '—'),
+  },
+  {
+    key: 'consolation_champion',
+    emoji: '🥲',
+    title: 'Consolation Champion',
+    valueLabel: (w) => String(w.record ?? w.wins ?? '—'),
+  },
+];
+
 type QuestionAwardCard = {
   key: 'nicest_question' | 'meanest_question' | 'streak_ending_question';
   emoji: string;
@@ -65,18 +80,14 @@ const QUESTION_AWARD_CARDS: QuestionAwardCard[] = [
     emoji: '⛽',
     title: 'Nicest Question',
     badge: (w) =>
-      w.correct_count != null
-        ? `${w.correct_count} correct`
-        : null,
+      w.correct_count != null ? `${w.correct_count} correct` : null,
   },
   {
     key: 'meanest_question',
     emoji: '🌊',
     title: 'Meanest Question',
     badge: (w) =>
-      w.incorrect_count != null
-        ? `${w.incorrect_count} wrong`
-        : null,
+      w.incorrect_count != null ? `${w.incorrect_count} wrong` : null,
   },
   {
     key: 'streak_ending_question',
@@ -93,6 +104,34 @@ function winnerKey(winner: StreakAwardQuestionWinner): string {
   return winner.player != null
     ? `${winner.question_id}-${winner.player.user_id}`
     : String(winner.question_id);
+}
+
+function personAwardCards(awards: StreakAwardsPayload): PersonAwardCard[] {
+  const cards = [...BASE_PERSON_AWARD_CARDS];
+  if (awards.had_knockout) {
+    cards.splice(1, 0, ...KNOCKOUT_EXTRA_CARDS);
+    cards[0] = {
+      ...cards[0],
+      valueLabel: () => 'Champion',
+    };
+  }
+  return cards;
+}
+
+function categoryWinners(
+  awards: StreakAwardsPayload,
+  key: keyof StreakAwardsPayload,
+): StreakAwardWinner[] {
+  const category = awards[key];
+  if (
+    category &&
+    typeof category === 'object' &&
+    'winners' in category &&
+    Array.isArray(category.winners)
+  ) {
+    return category.winners as StreakAwardWinner[];
+  }
+  return [];
 }
 
 function QuestionAwardCardView({
@@ -118,10 +157,7 @@ function QuestionAwardCardView({
           {winners.map((winner) => {
             const badge = card.badge(winner);
             return (
-              <li
-                key={winnerKey(winner)}
-                className="streak-awards__question"
-              >
+              <li key={winnerKey(winner)} className="streak-awards__question">
                 <p className="streak-awards__question-text">{winner.text}</p>
                 {badge ? (
                   <p className="streak-awards__question-badge">{badge}</p>
@@ -144,13 +180,15 @@ function QuestionAwardCardView({
 }
 
 export function StreakAwards({ awards }: Props) {
+  const personCards = personAwardCards(awards);
+
   return (
     <section className="card streak-awards">
       <ul className="streak-awards__grid">
-        {PERSON_AWARD_CARDS.map((card) => {
-          const winners = awards[card.key].winners;
+        {personCards.map((card) => {
+          const winners = categoryWinners(awards, card.key);
           return (
-            <li key={card.key} className="streak-awards__card">
+            <li key={String(card.key)} className="streak-awards__card">
               <h2 className="streak-awards__title">
                 <span className="streak-awards__emoji" aria-hidden>
                   {card.emoji}

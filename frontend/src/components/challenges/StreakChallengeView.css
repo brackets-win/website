@@ -85,6 +85,16 @@
   margin-top: 0.75rem;
 }
 
+.streak-view__rules-heading {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.streak-view__rules-heading:first-child {
+  margin-top: 0;
+}
+
 .streak-view__panel .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;

@@ -133,6 +133,8 @@ def _streak_summary(
         "competition_ended_at": competition.ended_at.isoformat()
         if competition is not None and competition.ended_at
         else None,
+        "mode": c.mode,
+        "is_knockout": c.is_knockout,
     }
 
 
@@ -191,6 +193,7 @@ def _question_public(
     *,
     deadline_picks: dict | None = None,
     pick_stats: dict[int, dict[str, int]] | None = None,
+    knockout_mode: bool = False,
 ) -> dict[str, Any]:
     pick = (
         StreakPick.objects.filter(
@@ -204,7 +207,7 @@ def _question_public(
     is_open = q.resolved_at is None and q.closes_at > now
     locked_by_question_id = None
     deadline_locked = False
-    if is_open and deadline_picks is not None:
+    if is_open and deadline_picks is not None and not knockout_mode:
         locked_by_question_id = deadline_picks.get(closes_at_key(q.closes_at))
         deadline_locked = (
             locked_by_question_id is not None
@@ -693,6 +696,7 @@ def streak_challenge_detail(
             challenge.id,
             deadline_picks=deadline_picks,
             pick_stats=pick_stats_map.get(q.id),
+            knockout_mode=challenge.is_knockout,
         )
         for q in question_rows
     ]
@@ -963,10 +967,11 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
         return _json_error("choice_id is invalid for this question", 400)
 
     if other_open_pick_at_same_deadline(challenge, user.id, question) is not None:
-        return _json_error(
-            "You already picked another question for this deadline. Clear that pick first.",
-            409,
-        )
+        if not challenge.is_knockout:
+            return _json_error(
+                "You already picked another question for this deadline. Clear that pick first.",
+                409,
+            )
 
     StreakPick.objects.update_or_create(
         streak_challenge=challenge,
@@ -1092,3 +1097,179 @@ def streak_question_resolve(
 
     question = _questions_queryset().get(pk=question.pk)
     return JsonResponse({"question": _question_admin(question)})
+
+
+def _can_manage_knockout(challenge: StreakChallenge, user) -> bool:
+    return challenge.created_by_id == user.id or user.is_staff
+
+
+@require_http_methods(["GET"])
+def streak_challenge_knockout(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        StreakChallenge.objects.select_related("streak_competition"),
+        pk=streak_challenge_id,
+    )
+    if _streak_participant_or_none(challenge, user) is None:
+        return _json_error("Forbidden", 403)
+    if not challenge.is_knockout:
+        return _json_error("Challenge is not in knockout mode", 400)
+
+    from brackets.utils.streak_knockout import knockout_payload
+
+    payload = knockout_payload(challenge)
+    if payload is None:
+        return _json_error("Knockout not found", 404)
+    payload["can_manage"] = _can_manage_knockout(challenge, user)
+    return JsonResponse({"knockout": payload})
+
+
+@require_http_methods(["POST"])
+def streak_challenge_knockout_start(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        StreakChallenge.objects.select_related("streak_competition"),
+        pk=streak_challenge_id,
+    )
+    if not _can_manage_knockout(challenge, user):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    confirm = (body.get("confirm") or "").strip().lower()
+    if confirm != "knockout":
+        return _json_error('Type "knockout" to confirm', 400)
+
+    from brackets.utils.streak_knockout import knockout_payload, start_knockout
+
+    try:
+        start_knockout(challenge)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    challenge.refresh_from_db()
+    payload = knockout_payload(challenge)
+    if payload is not None:
+        payload["can_manage"] = True
+    return JsonResponse(
+        {
+            "streak_challenge": _streak_summary(challenge, user),
+            "knockout": payload,
+        }
+    )
+
+
+@require_http_methods(["PATCH"])
+def streak_challenge_knockout_setup(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(StreakChallenge, pk=streak_challenge_id)
+    if not _can_manage_knockout(challenge, user):
+        return _json_error("Forbidden", 403)
+    if not challenge.is_knockout:
+        return _json_error("Challenge is not in knockout mode", 400)
+
+    try:
+        knockout = challenge.knockout
+    except Exception:
+        return _json_error("Knockout not found", 404)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    match_position = body.get("match_position")
+    slot = body.get("slot")
+    participant_id = body.get("participant_id")
+    user_id = body.get("user_id")
+    if match_position is None or slot is None:
+        return _json_error("match_position and slot are required", 400)
+    if participant_id is None and user_id is None:
+        return _json_error("participant_id or user_id is required", 400)
+
+    from brackets.utils.streak_knockout import knockout_payload, swap_round1_players
+
+    if participant_id is None:
+        p = StreakParticipant.objects.filter(
+            streak_challenge=challenge, user_id=int(user_id)
+        ).first()
+        if p is None:
+            return _json_error("Participant not found", 404)
+        participant_id = p.id
+
+    try:
+        swap_round1_players(
+            knockout,
+            match_position=int(match_position),
+            slot=str(slot),
+            participant_id=int(participant_id),
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    payload = knockout_payload(challenge)
+    if payload is not None:
+        payload["can_manage"] = True
+    return JsonResponse({"knockout": payload})
+
+
+@require_http_methods(["POST"])
+def streak_challenge_knockout_advance(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(StreakChallenge, pk=streak_challenge_id)
+    if not _can_manage_knockout(challenge, user):
+        return _json_error("Forbidden", 403)
+    if not challenge.is_knockout:
+        return _json_error("Challenge is not in knockout mode", 400)
+
+    try:
+        knockout = challenge.knockout
+    except Exception:
+        return _json_error("Knockout not found", 404)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        body = {}
+
+    headstart_enabled = body.get("headstart_enabled", True)
+    if isinstance(headstart_enabled, str):
+        headstart_enabled = headstart_enabled.lower() in ("1", "true", "yes")
+
+    from brackets.utils.streak_knockout import advance_knockout_round, knockout_payload
+
+    try:
+        result = advance_knockout_round(
+            knockout,
+            headstart_enabled=bool(headstart_enabled),
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    payload = knockout_payload(challenge)
+    if payload is not None:
+        payload["can_manage"] = True
+    return JsonResponse({"knockout": payload, **result})

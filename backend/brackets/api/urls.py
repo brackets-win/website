@@ -70,6 +70,22 @@ urlpatterns = [
         streak_views.streak_challenge_awards,
     ),
     path(
+        "streak-challenges/<int:streak_challenge_id>/knockout",
+        streak_views.streak_challenge_knockout,
+    ),
+    path(
+        "streak-challenges/<int:streak_challenge_id>/knockout/start",
+        streak_views.streak_challenge_knockout_start,
+    ),
+    path(
+        "streak-challenges/<int:streak_challenge_id>/knockout/setup",
+        streak_views.streak_challenge_knockout_setup,
+    ),
+    path(
+        "streak-challenges/<int:streak_challenge_id>/knockout/advance",
+        streak_views.streak_challenge_knockout_advance,
+    ),
+    path(
         "streak-challenges/<int:streak_challenge_id>/players/<int:user_id>/picks",
         streak_views.streak_participant_picks,
     ),

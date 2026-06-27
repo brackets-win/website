@@ -8,6 +8,7 @@ from datetime import datetime
 from brackets.api import serializers
 from brackets.models import (
     StreakChallenge,
+    StreakKnockout,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
@@ -44,6 +45,8 @@ def _award_person(p: StreakParticipant) -> dict:
 def _empty_awards() -> dict:
     return {
         "streak_champion": {"winners": []},
+        "best_streak": {"winners": []},
+        "consolation_champion": {"winners": []},
         "best_picker": {"winners": []},
         "most_wins": {"winners": []},
         "active_streak": {"winners": []},
@@ -51,10 +54,135 @@ def _empty_awards() -> dict:
         "nicest_question": {"winners": []},
         "meanest_question": {"winners": []},
         "streak_ending_question": {"winners": []},
+        "had_knockout": False,
     }
 
 
-def _person_awards(participants: list[StreakParticipant]) -> dict:
+def _frozen_win_rate(p: StreakParticipant) -> float:
+    answered = p.frozen_wins + p.frozen_losses
+    return round(p.frozen_wins / answered, 4) if answered else 0.0
+
+
+def _person_awards(
+    participants: list[StreakParticipant],
+    *,
+    challenge: StreakChallenge,
+    knockout: StreakKnockout | None,
+) -> dict:
+    had_knockout = knockout is not None
+
+    if had_knockout:
+        champions = [knockout.champion] if knockout.champion else []
+        best_streak_candidates = [p for p in participants if p.frozen_best_win_streak > 0]
+        if best_streak_candidates:
+            max_streak = max(p.frozen_best_win_streak for p in best_streak_candidates)
+            best_streak = [
+                p for p in best_streak_candidates if p.frozen_best_win_streak == max_streak
+            ]
+        else:
+            best_streak = []
+
+        consolation = [
+            p
+            for p in participants
+            if p.consolation_wins + p.consolation_losses > 0
+            and (knockout.champion_id is None or p.id != knockout.champion_id)
+        ]
+        if consolation:
+            max_consolation_wins = max(p.consolation_wins for p in consolation)
+            consolation_winners = [
+                p for p in consolation if p.consolation_wins == max_consolation_wins
+            ]
+        else:
+            consolation_winners = []
+
+        answered = [p for p in participants if p.frozen_wins + p.frozen_losses > 0]
+        if answered:
+            max_rate = max(_frozen_win_rate(p) for p in answered)
+            best_pickers = [p for p in answered if _frozen_win_rate(p) == max_rate]
+        else:
+            best_pickers = []
+
+        max_wins = max((p.frozen_wins for p in participants), default=0)
+        most_wins = [p for p in participants if p.frozen_wins == max_wins]
+
+        active_positive = [p for p in participants if p.frozen_streak_signed > 0]
+        if active_positive:
+            max_active = max(p.frozen_streak_signed for p in active_positive)
+            active = [p for p in active_positive if p.frozen_streak_signed == max_active]
+        else:
+            active = []
+
+        with_loss_streak = [p for p in participants if p.frozen_best_loss_streak > 0]
+        if with_loss_streak:
+            max_loss = max(p.frozen_best_loss_streak for p in with_loss_streak)
+            losing = [
+                p for p in with_loss_streak if p.frozen_best_loss_streak == max_loss
+            ]
+        else:
+            losing = []
+
+        return {
+            "had_knockout": True,
+            "streak_champion": {
+                "winners": [{**_award_person(p)} for p in champions if p],
+            },
+            "best_streak": {
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "long_win_display": _long_win_display(p.frozen_best_win_streak),
+                        "best_win_streak": p.frozen_best_win_streak,
+                    }
+                    for p in best_streak
+                ],
+            },
+            "consolation_champion": {
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "wins": p.consolation_wins,
+                        "record": f"{p.consolation_wins}-{p.consolation_losses}",
+                    }
+                    for p in consolation_winners
+                ],
+            },
+            "best_picker": {
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "win_pct": round(_frozen_win_rate(p) * 100),
+                    }
+                    for p in best_pickers
+                ],
+            },
+            "most_wins": {
+                "winners": [{**_award_person(p), "wins": p.frozen_wins} for p in most_wins],
+            },
+            "active_streak": {
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "current_display": serializers.streak_display(
+                            p.frozen_streak_signed
+                        ),
+                        "streak_signed": p.frozen_streak_signed,
+                    }
+                    for p in active
+                ],
+            },
+            "losing_streak": {
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "long_loss_display": _long_loss_display(p.frozen_best_loss_streak),
+                        "best_loss_streak": p.frozen_best_loss_streak,
+                    }
+                    for p in losing
+                ],
+            },
+        }
+
     champions = [p for p, rank in streak_ranked_participants(participants) if rank == 1]
 
     answered = [p for p in participants if p.wins + p.losses > 0]
@@ -82,6 +210,7 @@ def _person_awards(participants: list[StreakParticipant]) -> dict:
         losing = []
 
     return {
+        "had_knockout": False,
         "streak_champion": {
             "winners": [
                 {
@@ -92,6 +221,8 @@ def _person_awards(participants: list[StreakParticipant]) -> dict:
                 for p in champions
             ],
         },
+        "best_streak": {"winners": []},
+        "consolation_champion": {"winners": []},
         "best_picker": {
             "winners": [
                 {
@@ -177,9 +308,14 @@ def _question_payload(
 
 
 def _streak_ending_events(
-    challenge: StreakChallenge, questions: list[StreakQuestion]
+    challenge: StreakChallenge,
+    questions: list[StreakQuestion],
+    *,
+    before: datetime | None = None,
 ) -> list[tuple[int, int, int]]:
     """Return (user_id, question_id, broken_win_streak) for each streak break."""
+    if before is not None:
+        questions = [q for q in questions if q.closes_at < before]
     question_ids = [q.id for q in questions]
     picks_by_user: dict[int, dict[int, StreakPick]] = defaultdict(dict)
     for p in StreakPick.objects.filter(
@@ -215,7 +351,10 @@ def _streak_ending_events(
 
 
 def _question_awards(
-    challenge: StreakChallenge, participants: list[StreakParticipant]
+    challenge: StreakChallenge,
+    participants: list[StreakParticipant],
+    *,
+    knockout: StreakKnockout | None = None,
 ) -> dict:
     questions = _resolved_questions(challenge)
     if not questions:
@@ -260,7 +399,8 @@ def _question_awards(
         ]
 
     person_by_user = {p.user_id: _award_person(p) for p in participants}
-    events = _streak_ending_events(challenge, questions)
+    before = knockout.started_at if knockout is not None else None
+    events = _streak_ending_events(challenge, questions, before=before)
     streak_ending = []
     if events:
         max_broken = max(broken for _user, _q, broken in events)
@@ -292,7 +432,12 @@ def compute_streak_awards(
     if not participants:
         return _empty_awards()
 
-    return {
-        **_person_awards(participants),
-        **_question_awards(challenge, participants),
-    }
+    knockout = None
+    try:
+        knockout = challenge.knockout
+    except StreakKnockout.DoesNotExist:
+        pass
+
+    person = _person_awards(participants, challenge=challenge, knockout=knockout)
+    question = _question_awards(challenge, participants, knockout=knockout)
+    return {**person, **question}

@@ -9,6 +9,8 @@ from .bracket_challenge import BracketChallenge, ChallengeParticipant
 from .streak_challenge import (
     StreakChallenge,
     StreakCompetition,
+    StreakKnockout,
+    StreakKnockoutMatch,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
@@ -36,6 +38,8 @@ __all__ = [
     'ChallengeParticipant',
     'StreakChallenge',
     'StreakCompetition',
+    'StreakKnockout',
+    'StreakKnockoutMatch',
     'StreakParticipant',
     'StreakQuestion',
     'StreakQuestionChoice',

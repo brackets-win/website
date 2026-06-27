@@ -26,6 +26,10 @@ class StreakCompetition(models.Model):
 class StreakChallenge(models.Model):
     """Joinable pool referencing one competition (many challenges per competition)."""
 
+    class Mode(models.TextChoices):
+        STREAK = "STREAK", "Streak"
+        KNOCKOUT = "KNOCKOUT", "H2H Knockout"
+
     name = models.CharField(max_length=100)
     streak_competition = models.ForeignKey(
         StreakCompetition,
@@ -40,11 +44,20 @@ class StreakChallenge(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_public = models.BooleanField(default=False)
     join_code = models.CharField(max_length=8, unique=True, null=True, blank=True)
+    mode = models.CharField(
+        max_length=20,
+        choices=Mode.choices,
+        default=Mode.STREAK,
+    )
     # Cached stats revision + payload (see streak_challenge_stats.py).
     metadata = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_knockout(self) -> bool:
+        return self.mode == self.Mode.KNOCKOUT
 
 
 class StreakParticipant(models.Model):
@@ -62,6 +75,18 @@ class StreakParticipant(models.Model):
     )
     best_win_streak = models.PositiveIntegerField(default=0)
     best_loss_streak = models.PositiveIntegerField(default=0)
+    # Frozen at knockout start (regular-season snapshot for awards/headstart).
+    frozen_best_win_streak = models.PositiveIntegerField(default=0)
+    frozen_wins = models.PositiveIntegerField(default=0)
+    frozen_losses = models.PositiveIntegerField(default=0)
+    frozen_streak_signed = models.IntegerField(default=0)
+    frozen_best_loss_streak = models.PositiveIntegerField(default=0)
+    knockout_seed = models.PositiveIntegerField(null=True, blank=True)
+    in_knockout_bracket = models.BooleanField(default=False)
+    bracket_eliminated_at = models.DateTimeField(null=True, blank=True)
+    consolation_wins = models.PositiveIntegerField(default=0)
+    consolation_losses = models.PositiveIntegerField(default=0)
+    consolation_eligible_from = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ["streak_challenge", "user"]
@@ -123,3 +148,93 @@ class StreakPick(models.Model):
 
     def __str__(self):
         return f"{self.user.username} → {self.choice.label}"
+
+
+class StreakKnockout(models.Model):
+    class Status(models.TextChoices):
+        SETUP = "SETUP", "Setup"
+        IN_PROGRESS = "IN_PROGRESS", "In Progress"
+        COMPLETE = "COMPLETE", "Complete"
+
+    streak_challenge = models.OneToOneField(
+        StreakChallenge,
+        on_delete=models.CASCADE,
+        related_name="knockout",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.SETUP,
+    )
+    current_round = models.PositiveIntegerField(default=0)
+    round_started_at = models.DateTimeField(null=True, blank=True)
+    headstart_enabled = models.BooleanField(default=True)
+    champion = models.ForeignKey(
+        StreakParticipant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Knockout for {self.streak_challenge.name}"
+
+
+class StreakKnockoutMatch(models.Model):
+    knockout = models.ForeignKey(
+        StreakKnockout,
+        on_delete=models.CASCADE,
+        related_name="matches",
+    )
+    round_index = models.PositiveIntegerField()
+    position = models.PositiveIntegerField()
+    player_a = models.ForeignKey(
+        StreakParticipant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knockout_matches_as_a",
+    )
+    player_b = models.ForeignKey(
+        StreakParticipant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knockout_matches_as_b",
+    )
+    seed_a = models.PositiveIntegerField(default=0)
+    seed_b = models.PositiveIntegerField(default=0)
+    score_a = models.PositiveIntegerField(null=True, blank=True)
+    score_b = models.PositiveIntegerField(null=True, blank=True)
+    winner = models.ForeignKey(
+        StreakParticipant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="knockout_match_wins",
+    )
+    finalized = models.BooleanField(default=False)
+    source_match_a = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    source_match_b = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        unique_together = ["knockout", "round_index", "position"]
+        ordering = ["round_index", "position"]
+
+    def __str__(self):
+        return f"R{self.round_index} M{self.position}"

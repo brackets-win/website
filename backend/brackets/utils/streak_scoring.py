@@ -157,6 +157,11 @@ def current_broken_win_streak(participant: StreakParticipant) -> int:
 
 
 def recalculate_streak_challenge(streak_challenge_id: int) -> None:
+    from brackets.models import StreakChallenge
+
+    challenge = StreakChallenge.objects.filter(pk=streak_challenge_id).first()
+    if challenge is not None and challenge.is_knockout:
+        return
     with transaction.atomic():
         for participant in StreakParticipant.objects.filter(
             streak_challenge_id=streak_challenge_id
@@ -167,11 +172,25 @@ def recalculate_streak_challenge(streak_challenge_id: int) -> None:
 def recalculate_streak_competition(streak_competition_id: int) -> None:
     from brackets.models import StreakChallenge
 
-    challenge_ids = StreakChallenge.objects.filter(
-        streak_competition_id=streak_competition_id
-    ).values_list("id", flat=True)
-    for challenge_id in challenge_ids:
+    challenges = list(
+        StreakChallenge.objects.filter(streak_competition_id=streak_competition_id)
+    )
+    streak_ids = [c.id for c in challenges if not c.is_knockout]
+    for challenge_id in streak_ids:
         recalculate_streak_challenge(challenge_id)
+
+
+def update_knockout_consolation_for_question(question: StreakQuestion) -> None:
+    from brackets.models import StreakChallenge
+    from brackets.utils.streak_knockout import update_consolation_for_question
+
+    if question.resolved_at is None or question.correct_choice_id is None:
+        return
+    for challenge in StreakChallenge.objects.filter(
+        streak_competition_id=question.streak_competition_id,
+        mode=StreakChallenge.Mode.KNOCKOUT,
+    ):
+        update_consolation_for_question(challenge, question)
 
 
 def clear_question_resolution(question: StreakQuestion) -> None:
@@ -179,9 +198,6 @@ def clear_question_resolution(question: StreakQuestion) -> None:
     question.correct_choice = None
     question.resolved_at = None
     question.save(update_fields=["correct_choice", "resolved_at"])
-    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
-
-    bump_streak_stats_for_competition(question.streak_competition_id)
     recalculate_streak_competition(question.streak_competition_id)
 
 
@@ -197,7 +213,5 @@ def resolve_question(question: StreakQuestion, correct_choice_id: int) -> None:
         question.resolved_at = timezone.now()
         update_fields.append("resolved_at")
     question.save(update_fields=update_fields)
-    from brackets.utils.streak_challenge_stats import bump_streak_stats_for_competition
-
-    bump_streak_stats_for_competition(question.streak_competition_id)
     recalculate_streak_competition(question.streak_competition_id)
+    update_knockout_consolation_for_question(question)

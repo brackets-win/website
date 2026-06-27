@@ -10,6 +10,7 @@ import {
   getStreakLeaderboard,
   getStreakParticipantPicks,
   clearStreakPick,
+  startStreakKnockout,
   streakPick,
   type ApiUser,
   type StreakAwardsPayload,
@@ -31,6 +32,7 @@ import {
 import { CopyJoinCode } from './CopyJoinCode';
 import { StreakAwards } from './StreakAwards';
 import { StreakChallengeStats } from './StreakChallengeStats';
+import { StreakKnockout } from './StreakKnockout';
 import { StreakLeaderboard } from './StreakLeaderboard';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
 import './challengeThemes.css';
@@ -100,6 +102,10 @@ export function StreakChallengeView({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState('');
+  const [knockoutOpen, setKnockoutOpen] = useState(false);
+  const [knockoutConfirm, setKnockoutConfirm] = useState('');
+  const [knockoutBusy, setKnockoutBusy] = useState(false);
+  const [knockoutErr, setKnockoutErr] = useState('');
 
   const selectedPlayer = useMemo<SelectedPlayer | null>(() => {
     if (viewingPlayerId == null) return null;
@@ -147,6 +153,9 @@ export function StreakChallengeView({
   }, [reload]);
 
   const competitionIsOver = summary?.competition_is_over === true;
+  const isKnockout = summary?.is_knockout === true;
+  const canManageKnockout =
+    summary?.is_creator === true || currentUser.is_staff === true;
 
   useEffect(() => {
     if (!summary) return;
@@ -306,6 +315,24 @@ export function StreakChallengeView({
         />
       </li>
     );
+  }
+
+  async function handleStartKnockout() {
+    setKnockoutBusy(true);
+    setKnockoutErr('');
+    try {
+      const result = await startStreakKnockout(streakChallengeId, knockoutConfirm);
+      setSummary(result.streak_challenge);
+      setKnockoutOpen(false);
+      setKnockoutConfirm('');
+      navigate(streakPath(streakChallengeId, 'knockout'));
+    } catch (e) {
+      setKnockoutErr(
+        e instanceof ApiError ? e.message : 'Could not start knockout.',
+      );
+    } finally {
+      setKnockoutBusy(false);
+    }
   }
 
   async function handleDeleteChallenge() {
@@ -479,6 +506,19 @@ export function StreakChallengeView({
         >
           Leaderboard
         </button>
+        {isKnockout ? (
+          <button
+            type="button"
+            className={
+              tab === 'knockout'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('knockout')}
+          >
+            Knockout
+          </button>
+        ) : null}
         <button
           type="button"
           className={
@@ -541,6 +581,13 @@ export function StreakChallengeView({
         </section>
       ) : null}
 
+      {tab === 'knockout' && isKnockout ? (
+        <StreakKnockout
+          streakChallengeId={streakChallengeId}
+          onSelectPlayer={onSelectLeaderboardPlayer}
+        />
+      ) : null}
+
       {tab === 'make' ? (
         <section className="streak-view__questions streak-view__questions--make">
           <ul className="streak-question-list">
@@ -563,28 +610,77 @@ export function StreakChallengeView({
 
       {tab === 'rules' ? (
         <section className="card streak-view__rules">
-          <p>
-            Win the challenge by earning the longest winning streak, active or
-            inactive.
-          </p>
-          <ul className="streak-view__rules-list">
-            <li>
-              Make your picks before the questions close. You can adjust your picks
-              anytime before they close.
-            </li>
-            <li>
-              You cannot make multiple picks with the exact same closing time. Tap on
-              your selected answer again to clear the pick.
-            </li>
-            <li>
-              You can make as many picks or as few picks as you want. The goal is to
-              create the longest winning streak with correct picks.
-            </li>
-            <li>
-              Tiebreakers: Best Streak, then Current Streak, then Wins, then Win
-              %, then better Worst Streak
-            </li>
-          </ul>
+          {isKnockout ? (
+            <>
+              <h2 className="streak-view__rules-heading">Streak Mode</h2>
+              <p>
+                Win the challenge by earning the longest winning streak, active or
+                inactive.
+              </p>
+              <ul className="streak-view__rules-list">
+                <li>
+                  Make your picks before the questions close. You can adjust your picks
+                  anytime before they close.
+                </li>
+                <li>
+                  You cannot make multiple picks with the exact same closing time. Tap on
+                  your selected answer again to clear the pick.
+                </li>
+                <li>
+                  You can make as many picks or as few picks as you want. The goal is to
+                  create the longest winning streak with correct picks.
+                </li>
+                <li>
+                  Tiebreakers: Best Streak, then Current Streak, then Wins, then Win
+                  %, then better Worst Streak
+                </li>
+              </ul>
+              <h2 className="streak-view__rules-heading">Knockout Mode</h2>
+              <ul className="streak-view__rules-list">
+                <li>
+                  Top seeds from the streak leaderboard qualify for a single-elimination
+                  bracket.
+                </li>
+                <li>
+                  Each round counts total correct picks plus an optional headstart from
+                  your frozen best streak.
+                </li>
+                <li>
+                  Ties go to the higher seed. The pool creator or staff advances each
+                  round manually.
+                </li>
+                <li>
+                  Eliminated and non-qualifying players can keep picking for the
+                  consolation leaderboard.
+                </li>
+              </ul>
+            </>
+          ) : (
+            <>
+              <p>
+                Win the challenge by earning the longest winning streak, active or
+                inactive.
+              </p>
+              <ul className="streak-view__rules-list">
+                <li>
+                  Make your picks before the questions close. You can adjust your picks
+                  anytime before they close.
+                </li>
+                <li>
+                  You cannot make multiple picks with the exact same closing time. Tap on
+                  your selected answer again to clear the pick.
+                </li>
+                <li>
+                  You can make as many picks or as few picks as you want. The goal is to
+                  create the longest winning streak with correct picks.
+                </li>
+                <li>
+                  Tiebreakers: Best Streak, then Current Streak, then Wins, then Win
+                  %, then better Worst Streak
+                </li>
+              </ul>
+            </>
+          )}
         </section>
       ) : null}
 
@@ -597,6 +693,33 @@ export function StreakChallengeView({
               This challenge is public. Anyone can join from the public list.
             </p>
           )}
+          {canManageKnockout &&
+          !isKnockout &&
+          !competitionIsOver ? (
+            <div className="challenge-view__danger">
+              <h2 className="challenge-view__danger-title">H2H Knockout</h2>
+              <p className="streak-view__muted">
+                Switch this pool to knockout mode. Streak stats will freeze and a
+                bracket will be seeded from the current leaderboard.
+              </p>
+              {knockoutErr ? (
+                <div className="alert alert--error" role="status">
+                  {knockoutErr}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  setKnockoutErr('');
+                  setKnockoutConfirm('');
+                  setKnockoutOpen(true);
+                }}
+              >
+                Start H2H Knockout
+              </button>
+            </div>
+          ) : null}
           {summary.is_creator ? (
             <div className="challenge-view__danger">
               <h2 className="challenge-view__danger-title">Delete Challenge</h2>
@@ -637,6 +760,62 @@ export function StreakChallengeView({
         onCancel={() => setDeleteOpen(false)}
         onConfirm={() => void handleDeleteChallenge()}
       />
+
+      {knockoutOpen ? (
+        <div
+          className="delete-dialog-backdrop"
+          role="presentation"
+          onClick={knockoutBusy ? undefined : () => setKnockoutOpen(false)}
+        >
+          <div
+            className="delete-dialog card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="streak-knockout-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="streak-knockout-dialog-title">Start H2H Knockout?</h2>
+            <p className="streak-view__muted">
+              Streak stats will freeze and a bracket will be seeded from the current
+              leaderboard. Type <strong>knockout</strong> to confirm.
+            </p>
+            <div className="field">
+              <label htmlFor="streak-knockout-confirm">Confirmation</label>
+              <input
+                id="streak-knockout-confirm"
+                className="input"
+                value={knockoutConfirm}
+                onChange={(e) => setKnockoutConfirm(e.target.value)}
+                disabled={knockoutBusy}
+                autoFocus
+              />
+            </div>
+            {knockoutErr ? (
+              <div className="alert alert--error" role="status">
+                {knockoutErr}
+              </div>
+            ) : null}
+            <div className="delete-dialog__actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setKnockoutOpen(false)}
+                disabled={knockoutBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={knockoutBusy || knockoutConfirm.trim().toLowerCase() !== 'knockout'}
+                onClick={() => void handleStartKnockout()}
+              >
+                {knockoutBusy ? 'Starting…' : 'Start Knockout'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

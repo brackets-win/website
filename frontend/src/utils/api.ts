@@ -153,6 +153,8 @@ export type StreakChallengeSummary = {
   competition_is_over?: boolean;
   competition_ended_at?: string | null;
   leaderboard_preview?: LeaderboardPreview;
+  mode?: 'STREAK' | 'KNOCKOUT';
+  is_knockout?: boolean;
 };
 
 export type StreakQuestionInfo = {
@@ -234,7 +236,10 @@ export type StreakAwardQuestionCategory = {
 };
 
 export type StreakAwardsPayload = {
+  had_knockout?: boolean;
   streak_champion: StreakAwardCategory;
+  best_streak?: StreakAwardCategory;
+  consolation_champion?: StreakAwardCategory;
   best_picker: StreakAwardCategory;
   most_wins: StreakAwardCategory;
   active_streak: StreakAwardCategory;
@@ -242,6 +247,51 @@ export type StreakAwardsPayload = {
   nicest_question: StreakAwardQuestionCategory;
   meanest_question: StreakAwardQuestionCategory;
   streak_ending_question: StreakAwardQuestionCategory;
+};
+
+export type StreakKnockoutPlayerSlot = {
+  user_id: number;
+  display_name: string;
+  seed: number | null;
+};
+
+export type StreakKnockoutMatch = {
+  id: number;
+  round_index: number;
+  position: number;
+  player_a: StreakKnockoutPlayerSlot | null;
+  player_b: StreakKnockoutPlayerSlot | null;
+  seed_a: number;
+  seed_b: number;
+  score_a: number;
+  score_b: number;
+  winner_user_id: number | null;
+  finalized: boolean;
+  is_live: boolean;
+};
+
+export type StreakKnockoutRound = {
+  round_index: number;
+  matches: StreakKnockoutMatch[];
+};
+
+export type StreakConsolationEntry = {
+  user_id: number;
+  display_name: string;
+  wins: number;
+  losses: number;
+  record: string;
+  win_pct: number;
+};
+
+export type StreakKnockoutPayload = {
+  status: 'SETUP' | 'IN_PROGRESS' | 'COMPLETE';
+  current_round: number;
+  headstart_enabled: boolean;
+  champion_user_id: number | null;
+  rounds: StreakKnockoutRound[];
+  consolation: StreakConsolationEntry[];
+  can_manage: boolean;
 };
 
 export type StreakParticipantPickRow = {
@@ -821,6 +871,52 @@ export async function getStreakAwards(
   streakChallengeId: number,
 ): Promise<StreakAwardsPayload> {
   return apiFetch('GET', `streak-challenges/${streakChallengeId}/awards`);
+}
+
+export async function getStreakKnockout(
+  streakChallengeId: number,
+): Promise<{ knockout: StreakKnockoutPayload }> {
+  return apiFetch('GET', `streak-challenges/${streakChallengeId}/knockout`);
+}
+
+export async function startStreakKnockout(
+  streakChallengeId: number,
+  confirm: string,
+): Promise<{
+  streak_challenge: StreakChallengeSummary;
+  knockout: StreakKnockoutPayload;
+}> {
+  return apiFetch('POST', `streak-challenges/${streakChallengeId}/knockout/start`, {
+    confirm,
+  });
+}
+
+export async function swapStreakKnockoutSetup(
+  streakChallengeId: number,
+  body: {
+    match_position: number;
+    slot: 'a' | 'b';
+    user_id: number;
+  },
+): Promise<{ knockout: StreakKnockoutPayload }> {
+  return apiFetch(
+    'PATCH',
+    `streak-challenges/${streakChallengeId}/knockout/setup`,
+    body,
+  );
+}
+
+export async function advanceStreakKnockout(
+  streakChallengeId: number,
+  headstartEnabled: boolean,
+): Promise<{
+  knockout: StreakKnockoutPayload;
+  warnings: string[];
+  completed: boolean;
+}> {
+  return apiFetch('POST', `streak-challenges/${streakChallengeId}/knockout/advance`, {
+    headstart_enabled: headstartEnabled,
+  });
 }
 
 export async function getStreakChallengeStats(
