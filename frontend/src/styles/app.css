@@ -101,6 +101,15 @@ body {
   cursor: not-allowed;
 }
 
+.input--invalid {
+  border-color: #dc2626;
+}
+
+.input--invalid:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.22);
+}
+
 .textarea {
   resize: vertical;
   min-height: 4.5rem;

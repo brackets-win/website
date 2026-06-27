@@ -115,15 +115,16 @@ export function BracketStageEditor({
               <label>Number of groups</label>
               <AdminNumberInput
                 value={stage.group.number_of_groups}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       number_of_groups: Math.max(1, n),
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -131,15 +132,16 @@ export function BracketStageEditor({
               <label>Qualifiers per group</label>
               <AdminNumberInput
                 value={stage.group.contestants_qualifying_per_group}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       contestants_qualifying_per_group: Math.max(1, n),
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -147,15 +149,16 @@ export function BracketStageEditor({
               <label>Matches per team</label>
               <AdminNumberInput
                 value={stage.group.matches_per_contestant}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       matches_per_contestant: Math.max(1, n),
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -184,15 +187,16 @@ export function BracketStageEditor({
               <label>Points per exact position</label>
               <AdminNumberInput
                 value={stage.group.points_per_exact_position ?? 0}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       points_per_exact_position: n,
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -200,15 +204,16 @@ export function BracketStageEditor({
               <label>Points per advancer</label>
               <AdminNumberInput
                 value={stage.group.points_per_advancer ?? 0}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       points_per_advancer: n,
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -216,15 +221,16 @@ export function BracketStageEditor({
               <label>Points per win</label>
               <AdminNumberInput
                 value={stage.group.points_per_win}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       points_per_win: n,
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -232,15 +238,16 @@ export function BracketStageEditor({
               <label>Points per tie</label>
               <AdminNumberInput
                 value={stage.group.points_per_tie}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       points_per_tie: n,
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -248,15 +255,16 @@ export function BracketStageEditor({
               <label>Points per loss</label>
               <AdminNumberInput
                 value={stage.group.points_per_loss}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     group: {
                       ...stage.group!,
                       points_per_loss: n,
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -286,9 +294,10 @@ export function BracketStageEditor({
               <label>Points per team in round</label>
               <AdminNumberInput
                 value={stage.points_per_correct_pick}
-                onChange={(n) =>
-                  onChange({ ...stage, points_per_correct_pick: n })
-                }
+                onChange={(n) => {
+                  if (n === null) return;
+                  onChange({ ...stage, points_per_correct_pick: n });
+                }}
                 disabled={disabled}
               />
             </div>
@@ -296,15 +305,16 @@ export function BracketStageEditor({
               <label>Number of legs</label>
               <AdminNumberInput
                 value={stage.knockout.number_of_legs}
-                onChange={(n) =>
+                onChange={(n) => {
+                  if (n === null) return;
                   onChange({
                     ...stage,
                     knockout: {
                       ...stage.knockout!,
                       number_of_legs: Math.max(1, n),
                     },
-                  })
-                }
+                  });
+                }}
                 disabled={disabled}
               />
             </div>

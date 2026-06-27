@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { BracketFill } from '../bracket/BracketFill';
+import { ContestantAvatar } from '../bracket/ContestantAvatar';
 import {
   ApiError,
+  adminAssignBracketContestants,
   adminCreateBracket,
   adminDeleteBracket,
   adminListBracketTemplates,
@@ -11,15 +13,18 @@ import {
   adminUpdateBracketStages,
   getBracket,
   listBrackets,
+  type BracketContestantInfo,
   type BracketStageInfo,
   type BracketStructureType,
   type BracketSummary,
   type BracketTemplateSummary,
   type ContestantCatalog,
+  type ContestantTagInfo,
 } from '../../utils/api';
 
 import { AdminBackBar } from './AdminBackBar';
 import { AdminNumberInput } from './AdminNumberInput';
+import { BracketSeeder } from './BracketSeeder';
 import { BracketStageEditor } from './BracketStageEditor';
 import {
   buildStructureConfig,
@@ -71,12 +76,88 @@ function buildAssignRows(
   return rows;
 }
 
+function buildEditAssignRows(
+  fieldSize: number,
+  contestants: BracketContestantInfo[],
+): AssignRow[] {
+  const bySeed = new Map<number, BracketContestantInfo>();
+  for (const c of contestants) {
+    if (c.seed != null) bySeed.set(c.seed, c);
+  }
+  const rows: AssignRow[] = [];
+  for (let i = 0; i < fieldSize; i++) {
+    const seed = i + 1;
+    const c = bySeed.get(seed);
+    rows.push({
+      seed: String(seed),
+      contestant_id: c?.contestant_id != null ? String(c.contestant_id) : '',
+    });
+  }
+  return rows;
+}
+
+function rowsToAssignmentBySeed(rows: AssignRow[]): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const row of rows) {
+    const cid = row.contestant_id.trim();
+    const seed = row.seed.trim();
+    if (!cid || !seed) continue;
+    const seedNum = parseInt(seed, 10);
+    const cidNum = parseInt(cid, 10);
+    if (Number.isFinite(seedNum) && Number.isFinite(cidNum)) {
+      map.set(seedNum, cidNum);
+    }
+  }
+  return map;
+}
+
+function assignSeedInRows(
+  rows: AssignRow[],
+  seed: number,
+  contestantId: number | null,
+): AssignRow[] {
+  return rows.map((r) => {
+    if (r.seed === String(seed)) {
+      return {
+        ...r,
+        contestant_id: contestantId == null ? '' : String(contestantId),
+      };
+    }
+    if (contestantId != null && r.contestant_id === String(contestantId)) {
+      return { ...r, contestant_id: '' };
+    }
+    return r;
+  });
+}
+
+function filterCatalog(
+  contestants: ContestantCatalog[],
+  search: string,
+  tagIds: number[],
+): ContestantCatalog[] {
+  const q = search.trim().toLowerCase();
+  return contestants.filter((c) => {
+    if (
+      q &&
+      !c.name.toLowerCase().includes(q) &&
+      !c.identifier.toLowerCase().includes(q)
+    ) {
+      return false;
+    }
+    if (tagIds.length > 0 && !c.tags.some((t) => tagIds.includes(t.id))) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function BracketsAdmin() {
   const [brackets, setBrackets] = useState<BracketSummary[]>([]);
   const [bracketTemplates, setBracketTemplates] = useState<
     BracketTemplateSummary[]
   >([]);
   const [contestants, setContestants] = useState<ContestantCatalog[]>([]);
+  const [contestantTags, setContestantTags] = useState<ContestantTagInfo[]>([]);
   const [loadErr, setLoadErr] = useState('');
 
   const [bTemplateId, setBTemplateId] = useState<BracketTemplateChoice | ''>(
@@ -87,27 +168,28 @@ export function BracketsAdmin() {
   const [bIdentifier, setBIdentifier] = useState('');
   const [bName, setBName] = useState('');
   const [bDesc, setBDesc] = useState('');
-  const [bN, setBN] = useState(8);
+  const [bN, setBN] = useState<number | null>(8);
+  const [contestantsInvalid, setContestantsInvalid] = useState(false);
   const [bThird, setBThird] = useState(false);
   const [bRand, setBRand] = useState(false);
   const [bShowSeeds, setBShowSeeds] = useState(true);
   const [bMetadata, setBMetadata] = useState('');
   const [bNumGroups, setBNumGroups] = useState('');
-  const [bMatchesPer, setBMatchesPer] = useState(3);
-  const [bQualify, setBQualify] = useState(2);
-  const [bPtWin, setBPtWin] = useState(3);
-  const [bPtTie, setBPtTie] = useState(1);
-  const [bPtLoss, setBPtLoss] = useState(0);
+  const [bMatchesPer, setBMatchesPer] = useState<number | null>(3);
+  const [bQualify, setBQualify] = useState<number | null>(2);
+  const [bPtWin, setBPtWin] = useState<number | null>(3);
+  const [bPtTie, setBPtTie] = useState<number | null>(1);
+  const [bPtLoss, setBPtLoss] = useState<number | null>(0);
   const [bTiesAllowed, setBTiesAllowed] = useState(true);
-  const [bGroupExactPts, setBGroupExactPts] = useState(1);
-  const [bGroupAdvancerPts, setBGroupAdvancerPts] = useState(0);
+  const [bGroupExactPts, setBGroupExactPts] = useState<number | null>(1);
+  const [bGroupAdvancerPts, setBGroupAdvancerPts] = useState<number | null>(0);
   const [bGroupRandom, setBGroupRandom] = useState(false);
-  const [bChampionPts, setBChampionPts] = useState(0);
-  const [bThirdPlacePts, setBThirdPlacePts] = useState(0);
-  const [bKoLegs, setBKoLegs] = useState(1);
+  const [bChampionPts, setBChampionPts] = useState<number | null>(0);
+  const [bThirdPlacePts, setBThirdPlacePts] = useState<number | null>(0);
+  const [bKoLegs, setBKoLegs] = useState<number | null>(1);
   const [bKoET, setBKoET] = useState(true);
   const [bKoPK, setBKoPK] = useState(true);
-  const [bKoPickPts, setBKoPickPts] = useState(1);
+  const [bKoPickPts, setBKoPickPts] = useState<number | null>(1);
   const [bKoRandom, setBKoRandom] = useState(false);
   const [bImage, setBImage] = useState<File | null>(null);
   const [bImagePreview, setBImagePreview] = useState<string | null>(null);
@@ -115,6 +197,8 @@ export function BracketsAdmin() {
     buildAssignRows(8, []),
   );
   const [assignSearch, setAssignSearch] = useState('');
+  const [assignTagIds, setAssignTagIds] = useState<number[]>([]);
+  const [seederOpen, setSeederOpen] = useState(false);
   const [view, setView] = useState<'list' | 'create' | 'edit' | 'master'>('list');
   const [listSearch, setListSearch] = useState('');
   const [pageMsg, setPageMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(
@@ -135,10 +219,19 @@ export function BracketsAdmin() {
   const [editShowSeeds, setEditShowSeeds] = useState(true);
   const [editRand, setEditRand] = useState(false);
   const [editThird, setEditThird] = useState(false);
-  const [editChampionPts, setEditChampionPts] = useState(0);
-  const [editThirdPlacePts, setEditThirdPlacePts] = useState(0);
+  const [editChampionPts, setEditChampionPts] = useState<number | null>(0);
+  const [editThirdPlacePts, setEditThirdPlacePts] = useState<number | null>(0);
   const [editMetadata, setEditMetadata] = useState('');
   const [editStages, setEditStages] = useState<BracketStageInfo[]>([]);
+  const [editContestants, setEditContestants] = useState<
+    BracketContestantInfo[]
+  >([]);
+  const [editChallengeCount, setEditChallengeCount] = useState(0);
+  const [editAssignRows, setEditAssignRows] = useState<AssignRow[]>([]);
+  const [editAssignSearch, setEditAssignSearch] = useState('');
+  const [editAssignTagIds, setEditAssignTagIds] = useState<number[]>([]);
+  const [editSeederOpen, setEditSeederOpen] = useState(false);
+  const [editSeedingInitial, setEditSeedingInitial] = useState('');
   const firstKnockoutStageId = useMemo(() => {
     const ko = editStages
       .filter(
@@ -176,6 +269,7 @@ export function BracketsAdmin() {
 
     if (contestantsResult.status === 'fulfilled') {
       setContestants(contestantsResult.value.contestants);
+      setContestantTags(contestantsResult.value.tags);
     } else {
       errors.push(
         contestantsResult.reason instanceof ApiError
@@ -223,7 +317,9 @@ export function BracketsAdmin() {
   }, [reload]);
 
   useEffect(() => {
-    setAssignRows((prev) => buildAssignRows(bN, prev));
+    if (bN != null && bN >= 1) {
+      setAssignRows((prev) => buildAssignRows(bN, prev));
+    }
   }, [bN]);
 
   useEffect(() => {
@@ -248,15 +344,70 @@ export function BracketsAdmin() {
 
   const isSingleElim = structureKind === 'SINGLE_ELIM';
 
-  const contestantOptions = useMemo(() => {
-    const q = assignSearch.trim().toLowerCase();
-    if (!q) return contestants;
-    return contestants.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.identifier.toLowerCase().includes(q),
+  const contestantOptions = useMemo(
+    () => filterCatalog(contestants, assignSearch, assignTagIds),
+    [contestants, assignSearch, assignTagIds],
+  );
+
+  const contestantById = useMemo(() => {
+    const map = new Map<number, ContestantCatalog>();
+    for (const c of contestants) map.set(c.id, c);
+    return map;
+  }, [contestants]);
+
+  const assignmentBySeed = useMemo(
+    () => rowsToAssignmentBySeed(assignRows),
+    [assignRows],
+  );
+
+  const assignSeed = useCallback((seed: number, contestantId: number | null) => {
+    setAssignRows((rows) => assignSeedInRows(rows, seed, contestantId));
+  }, []);
+
+  const toggleAssignTag = useCallback((id: number) => {
+    setAssignTagIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
     );
-  }, [contestants, assignSearch]);
+  }, []);
+
+  const editContestantOptions = useMemo(
+    () => filterCatalog(contestants, editAssignSearch, editAssignTagIds),
+    [contestants, editAssignSearch, editAssignTagIds],
+  );
+
+  const editAssignmentBySeed = useMemo(
+    () => rowsToAssignmentBySeed(editAssignRows),
+    [editAssignRows],
+  );
+
+  const editAssignSeed = useCallback(
+    (seed: number, contestantId: number | null) => {
+      setEditAssignRows((rows) => assignSeedInRows(rows, seed, contestantId));
+    },
+    [],
+  );
+
+  const toggleEditAssignTag = useCallback((id: number) => {
+    setEditAssignTagIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+    );
+  }, []);
+
+  const editIsKnockoutOnly = useMemo(
+    () =>
+      !editHasGroupStage &&
+      editStages.some((s) => s.stage_type === 'KNOCKOUT'),
+    [editHasGroupStage, editStages],
+  );
+
+  const editFieldSize = useMemo(() => {
+    const ko = editStages
+      .filter((s) => s.stage_type === 'KNOCKOUT' && !s.knockout?.is_third_place)
+      .sort((a, b) => a.order - b.order);
+    return ko[0]?.number_of_contestants ?? editContestants.length;
+  }, [editStages, editContestants]);
+
+  const editCanReseed = editIsKnockoutOnly && editChallengeCount === 0;
 
   const filteredBrackets = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -272,8 +423,12 @@ export function BracketsAdmin() {
     setView('list');
     setEditBracketId(null);
     setEditStages([]);
+    setEditContestants([]);
+    setEditAssignRows([]);
+    setEditSeederOpen(false);
     setFillMasterUbId(null);
     setFillBracketName('');
+    setSeederOpen(false);
   }
 
   function openCreate() {
@@ -282,6 +437,10 @@ export function BracketsAdmin() {
     setBName('');
     setBDesc('');
     setBImage(null);
+    setAssignSearch('');
+    setAssignTagIds([]);
+    setContestantsInvalid(false);
+    setSeederOpen(false);
     setPageMsg(null);
     const first = bracketTemplates[0];
     if (first) {
@@ -321,10 +480,12 @@ export function BracketsAdmin() {
       setPageMsg({ type: 'err', text: 'Display name is required.' });
       return;
     }
-    if (!Number.isFinite(bN) || bN < 2) {
+    if (bN == null || !Number.isFinite(bN) || bN < 2) {
+      setContestantsInvalid(true);
       setPageMsg({ type: 'err', text: 'Number of contestants must be at least 2.' });
       return;
     }
+    setContestantsInvalid(false);
     if (structureKind === 'GROUP_KNOCKOUT' && bN % 4 !== 0) {
       setPageMsg({
         type: 'err',
@@ -371,21 +532,21 @@ export function BracketsAdmin() {
       const structure_config = buildStructureConfig({
         structureKind,
         bNumGroups,
-        bMatchesPer,
-        bQualify,
-        bPtWin,
-        bPtTie,
-        bPtLoss,
+        bMatchesPer: bMatchesPer ?? 3,
+        bQualify: bQualify ?? 2,
+        bPtWin: bPtWin ?? 0,
+        bPtTie: bPtTie ?? 0,
+        bPtLoss: bPtLoss ?? 0,
         bTiesAllowed,
-        bGroupExactPts,
-        bGroupAdvancerPts,
+        bGroupExactPts: bGroupExactPts ?? 0,
+        bGroupAdvancerPts: bGroupAdvancerPts ?? 0,
         bGroupRandom,
-        bChampionPts,
-        bThirdPlacePts: bThird ? bThirdPlacePts : 0,
-        bKoLegs,
+        bChampionPts: bChampionPts ?? 0,
+        bThirdPlacePts: bThird ? (bThirdPlacePts ?? 0) : 0,
+        bKoLegs: bKoLegs ?? 1,
         bKoET,
         bKoPK,
-        bKoPickPts,
+        bKoPickPts: bKoPickPts ?? 1,
         bKoRandom,
       });
 
@@ -455,6 +616,24 @@ export function BracketsAdmin() {
       setEditStages(
         [...bracket.stages].sort((a, c) => a.order - c.order),
       );
+      const contestants = bracket.contestants ?? [];
+      setEditContestants(contestants);
+      setEditChallengeCount(
+        bracket.challenge_count ?? b.challenge_count ?? 0,
+      );
+      const firstKo = [...bracket.stages]
+        .filter(
+          (s) =>
+            s.stage_type === 'KNOCKOUT' && !s.knockout?.is_third_place,
+        )
+        .sort((a, c) => a.order - c.order)[0];
+      const fieldSize = firstKo?.number_of_contestants ?? contestants.length;
+      const rows = buildEditAssignRows(fieldSize, contestants);
+      setEditAssignRows(rows);
+      setEditSeedingInitial(JSON.stringify(rows));
+      setEditAssignSearch('');
+      setEditAssignTagIds([]);
+      setEditSeederOpen(false);
     } catch (err) {
       setPageMsg({
         type: 'err',
@@ -484,8 +663,8 @@ export function BracketsAdmin() {
       fd.append('show_seeds', editShowSeeds ? 'true' : 'false');
       fd.append('randomize_seeds_per_challenge', editRand ? 'true' : 'false');
       fd.append('has_third_place_match', editThird ? 'true' : 'false');
-      fd.append('points_champion', String(editChampionPts));
-      fd.append('points_third_place_winner', String(editThird ? editThirdPlacePts : 0));
+      fd.append('points_champion', String(editChampionPts ?? 0));
+      fd.append('points_third_place_winner', String(editThird ? (editThirdPlacePts ?? 0) : 0));
       fd.append('metadata', JSON.stringify(metadata));
       if (editImage) fd.append('image', editImage);
       await adminUpdateBracket(editBracketId, fd);
@@ -493,7 +672,50 @@ export function BracketsAdmin() {
         editBracketId,
         editStages.map(stageToAdminPatch),
       );
-      const bracket = stageRes.bracket;
+      let bracket = stageRes.bracket;
+
+      const seedingChanged =
+        JSON.stringify(editAssignRows) !== editSeedingInitial;
+      if (editCanReseed && seedingChanged) {
+        const assignments: {
+          contestant_id: number;
+          seed: number | null;
+        }[] = [];
+        const seen = new Set<number>();
+        for (const row of editAssignRows) {
+          const cid = row.contestant_id.trim();
+          if (!cid) continue;
+          const contestantId = parseInt(cid, 10);
+          if (seen.has(contestantId)) {
+            setPageMsg({
+              type: 'err',
+              text: 'Each contestant can only appear once.',
+            });
+            setEditBusy(false);
+            return;
+          }
+          seen.add(contestantId);
+          const seedRaw = row.seed.trim();
+          assignments.push({
+            contestant_id: contestantId,
+            seed: seedRaw === '' ? null : parseInt(seedRaw, 10),
+          });
+        }
+        if (assignments.length !== editFieldSize) {
+          setPageMsg({
+            type: 'err',
+            text: `Fill all ${editFieldSize} bracket slots before saving the seeding.`,
+          });
+          setEditBusy(false);
+          return;
+        }
+        const reseed = await adminAssignBracketContestants(
+          editBracketId,
+          assignments,
+          { replace: true },
+        );
+        bracket = reseed.bracket;
+      }
       setBrackets((prev) =>
         prev.map((r) =>
           r.id === bracket.id
@@ -680,14 +902,14 @@ export function BracketsAdmin() {
               </div>
               <div className="field">
                 <label htmlFor="bracket-n">Number of Contestants</label>
-                <input
+                <AdminNumberInput
                   id="bracket-n"
-                  className="input"
-                  type="number"
-                  min={2}
-                  max={128}
                   value={bN}
-                  onChange={(e) => setBN(parseInt(e.target.value, 10) || 2)}
+                  onChange={(n) => {
+                    setBN(n);
+                    if (n != null) setContestantsInvalid(false);
+                  }}
+                  invalid={contestantsInvalid}
                   disabled={createBusy}
                 />
               </div>
@@ -803,7 +1025,7 @@ export function BracketsAdmin() {
                           className="input"
                           type="number"
                           min={1}
-                          placeholder={`Auto (${Math.floor(bN / 4) || '—'})`}
+                          placeholder={`Auto (${Math.floor((bN ?? 0) / 4) || '—'})`}
                           value={bNumGroups}
                           onChange={(e) => setBNumGroups(e.target.value)}
                           disabled={createBusy}
@@ -811,29 +1033,19 @@ export function BracketsAdmin() {
                       </div>
                       <div className="field">
                         <label htmlFor="b-qualify">Qualifiers per group</label>
-                        <input
+                        <AdminNumberInput
                           id="b-qualify"
-                          className="input"
-                          type="number"
-                          min={1}
                           value={bQualify}
-                          onChange={(e) =>
-                            setBQualify(parseInt(e.target.value, 10) || 1)
-                          }
+                          onChange={setBQualify}
                           disabled={createBusy}
                         />
                       </div>
                       <div className="field">
                         <label htmlFor="b-matches">Matches per team</label>
-                        <input
+                        <AdminNumberInput
                           id="b-matches"
-                          className="input"
-                          type="number"
-                          min={1}
                           value={bMatchesPer}
-                          onChange={(e) =>
-                            setBMatchesPer(parseInt(e.target.value, 10) || 1)
-                          }
+                          onChange={setBMatchesPer}
                           disabled={createBusy}
                         />
                       </div>
@@ -877,43 +1089,28 @@ export function BracketsAdmin() {
                     <div className="form-grid form-grid--3">
                       <div className="field">
                         <label htmlFor="b-pt-win">Points per win</label>
-                        <input
+                        <AdminNumberInput
                           id="b-pt-win"
-                          className="input"
-                          type="number"
-                          min={0}
                           value={bPtWin}
-                          onChange={(e) =>
-                            setBPtWin(parseInt(e.target.value, 10) || 0)
-                          }
+                          onChange={setBPtWin}
                           disabled={createBusy}
                         />
                       </div>
                       <div className="field">
                         <label htmlFor="b-pt-tie">Points per tie</label>
-                        <input
+                        <AdminNumberInput
                           id="b-pt-tie"
-                          className="input"
-                          type="number"
-                          min={0}
                           value={bPtTie}
-                          onChange={(e) =>
-                            setBPtTie(parseInt(e.target.value, 10) || 0)
-                          }
+                          onChange={setBPtTie}
                           disabled={createBusy}
                         />
                       </div>
                       <div className="field">
                         <label htmlFor="b-pt-loss">Points per loss</label>
-                        <input
+                        <AdminNumberInput
                           id="b-pt-loss"
-                          className="input"
-                          type="number"
-                          min={0}
                           value={bPtLoss}
-                          onChange={(e) =>
-                            setBPtLoss(parseInt(e.target.value, 10) || 0)
-                          }
+                          onChange={setBPtLoss}
                           disabled={createBusy}
                         />
                       </div>
@@ -924,29 +1121,19 @@ export function BracketsAdmin() {
                 <div className="form-grid form-grid--2">
                   <div className="field">
                     <label htmlFor="b-ko-legs">Legs per matchup</label>
-                    <input
+                    <AdminNumberInput
                       id="b-ko-legs"
-                      className="input"
-                      type="number"
-                      min={1}
                       value={bKoLegs}
-                      onChange={(e) =>
-                        setBKoLegs(parseInt(e.target.value, 10) || 1)
-                      }
+                      onChange={setBKoLegs}
                       disabled={createBusy}
                     />
                   </div>
                   <div className="field">
                     <label htmlFor="b-ko-pick-pts">Points per correct pick</label>
-                    <input
+                    <AdminNumberInput
                       id="b-ko-pick-pts"
-                      className="input"
-                      type="number"
-                      min={1}
                       value={bKoPickPts}
-                      onChange={(e) =>
-                        setBKoPickPts(parseInt(e.target.value, 10) || 1)
-                      }
+                      onChange={setBKoPickPts}
                       disabled={createBusy}
                     />
                   </div>
@@ -984,6 +1171,16 @@ export function BracketsAdmin() {
             <div className="assign-section">
               <div className="assign-section__head">
                 <h3 className="assign-section__title">Contestants</h3>
+                {isSingleElim ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => setSeederOpen(true)}
+                    disabled={createBusy || contestants.length === 0}
+                  >
+                    Seed Visually
+                  </button>
+                ) : null}
                 <input
                   type="search"
                   className="input assign-section__search"
@@ -994,6 +1191,23 @@ export function BracketsAdmin() {
                   disabled={createBusy}
                 />
               </div>
+              {contestantTags.length > 0 ? (
+                <div className="assign-section__tags">
+                  {contestantTags.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`assign-tag${
+                        assignTagIds.includes(t.id) ? ' assign-tag--on' : ''
+                      }`}
+                      onClick={() => toggleAssignTag(t.id)}
+                      disabled={createBusy}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {contestants.length === 0 ? (
                 <p className="field__hint">
                   Add contestants in the Contestants tab first.
@@ -1032,6 +1246,15 @@ export function BracketsAdmin() {
                         disabled={createBusy}
                       >
                         <option value="">Select…</option>
+                        {row.contestant_id &&
+                        !contestantOptions.some(
+                          (c) => String(c.id) === row.contestant_id,
+                        ) ? (
+                          <option value={row.contestant_id}>
+                            {contestantById.get(parseInt(row.contestant_id, 10))
+                              ?.name ?? 'Selected'}
+                          </option>
+                        ) : null}
                         {contestantOptions.map((c) => (
                           <option key={c.id} value={String(c.id)}>
                             {c.name} ({c.identifier})
@@ -1043,6 +1266,17 @@ export function BracketsAdmin() {
                 </div>
               )}
             </div>
+
+            <BracketSeeder
+              open={seederOpen}
+              title={`Seed bracket${bName.trim() ? `: ${bName.trim()}` : ''}`}
+              numContestants={bN ?? 0}
+              contestants={contestants}
+              tags={contestantTags}
+              assignmentBySeed={assignmentBySeed}
+              onAssign={assignSeed}
+              onClose={() => setSeederOpen(false)}
+            />
 
             <button
               type="submit"
@@ -1228,6 +1462,146 @@ export function BracketsAdmin() {
                   ))}
                 </div>
               ) : null}
+
+              <div className="assign-section">
+                <div className="assign-section__head">
+                  <h3 className="assign-section__title">
+                    Contestants &amp; Seeding
+                  </h3>
+                  {editCanReseed ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => setEditSeederOpen(true)}
+                      disabled={
+                        editBusy || editLoadBusy || contestants.length === 0
+                      }
+                    >
+                      Seed Visually
+                    </button>
+                  ) : null}
+                </div>
+
+                {!editIsKnockoutOnly ? (
+                  <p className="field__hint">
+                    Seeding edits are available for single-elimination
+                    brackets. Current contestants are shown below.
+                  </p>
+                ) : editChallengeCount > 0 ? (
+                  <p className="field__hint">
+                    This bracket is used by {editChallengeCount} challenge
+                    {editChallengeCount === 1 ? '' : 's'}, so seeding is locked
+                    to protect submitted entries.
+                  </p>
+                ) : null}
+
+                {editCanReseed ? (
+                  <>
+                    {contestantTags.length > 0 ? (
+                      <div className="assign-section__tags">
+                        {contestantTags.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className={`assign-tag${
+                              editAssignTagIds.includes(t.id)
+                                ? ' assign-tag--on'
+                                : ''
+                            }`}
+                            onClick={() => toggleEditAssignTag(t.id)}
+                            disabled={editBusy}
+                          >
+                            {t.name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="assign-list assign-list--compact">
+                      {editAssignRows.map((row, i) => (
+                        <div key={i} className="assign-list__row">
+                          <span className="assign-list__seed-label">
+                            {row.seed}
+                          </span>
+                          <select
+                            className="select"
+                            aria-label={`Seed ${row.seed} contestant`}
+                            value={row.contestant_id}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setEditAssignRows((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, contestant_id: v } : r,
+                                ),
+                              );
+                            }}
+                            disabled={editBusy}
+                          >
+                            <option value="">Select…</option>
+                            {row.contestant_id &&
+                            !editContestantOptions.some(
+                              (c) => String(c.id) === row.contestant_id,
+                            ) ? (
+                              <option value={row.contestant_id}>
+                                {contestantById.get(
+                                  parseInt(row.contestant_id, 10),
+                                )?.name ?? 'Selected'}
+                              </option>
+                            ) : null}
+                            {editContestantOptions.map((c) => (
+                              <option key={c.id} value={String(c.id)}>
+                                {c.name} ({c.identifier})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : editContestants.length === 0 ? (
+                  <p className="field__hint">No contestants assigned yet.</p>
+                ) : (
+                  <ul className="seeding-readonly">
+                    {[...editContestants]
+                      .sort(
+                        (a, c) =>
+                          (a.seed ?? 9999) - (c.seed ?? 9999) ||
+                          a.display_name.localeCompare(c.display_name),
+                      )
+                      .map((c) => (
+                        <li key={c.id} className="seeding-readonly__row">
+                          <span className="seeder-slot__seed">
+                            {c.seed ?? '—'}
+                          </span>
+                          <ContestantAvatar
+                            displayName={c.display_name}
+                            imageUrl={c.image_url}
+                            className="seeder-slot__avatar"
+                            placeholderClassName="seeder-slot__avatar seeder-slot__avatar--ph"
+                          />
+                          <span className="seeding-readonly__name">
+                            {c.display_name}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+
+              {editIsKnockoutOnly ? (
+                <BracketSeeder
+                  open={editSeederOpen}
+                  title={`Seed bracket${
+                    editName.trim() ? `: ${editName.trim()}` : ''
+                  }`}
+                  numContestants={editFieldSize}
+                  contestants={contestants}
+                  tags={contestantTags}
+                  assignmentBySeed={editAssignmentBySeed}
+                  onAssign={editAssignSeed}
+                  onClose={() => setEditSeederOpen(false)}
+                />
+              ) : null}
+
               <button
                 type="submit"
                 className="btn btn--primary"
