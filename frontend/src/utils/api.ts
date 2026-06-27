@@ -1241,6 +1241,17 @@ export async function adminCreateBracket(
   return apiFetch('POST', 'admin/brackets', body);
 }
 
+export async function adminAssignBracketContestants(
+  bracketId: number,
+  assignments: { contestant_id: number; seed: number | null }[],
+  options?: { replace?: boolean },
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('POST', `admin/brackets/${bracketId}/contestants`, {
+    assignments,
+    replace: options?.replace ?? false,
+  });
+}
+
 export async function adminListUsers(): Promise<{ users: AdminUserRow[] }> {
   return apiFetch('GET', 'admin/users');
 }

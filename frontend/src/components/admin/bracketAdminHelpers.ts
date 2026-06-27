@@ -72,6 +72,61 @@ export function buildStructureConfig(opts: {
   return cfg;
 }
 
+export function isPowerOfTwo(n: number): boolean {
+  return Number.isInteger(n) && n >= 2 && (n & (n - 1)) === 0;
+}
+
+/**
+ * Seeds 1..N in first-round tree order (top game first, then downward).
+ * Mirrors the backend ``bracket_seed_order``. Returns null when N is not a
+ * power of two (no standard single-elim layout exists).
+ */
+export function bracketSeedOrder(n: number): number[] | null {
+  if (!isPowerOfTwo(n)) return null;
+  let order = [1];
+  while (order.length < n) {
+    const size = order.length * 2;
+    order = order.flatMap((x) => [x, size + 1 - x]);
+  }
+  return order;
+}
+
+export type FirstRoundGame = {
+  position: number;
+  topSeed: number;
+  bottomSeed: number | null;
+};
+
+/**
+ * First-round games for a visual seeder. For power-of-two fields this matches
+ * the backend seed pairing exactly; otherwise it falls back to sequential
+ * adjacent pairs so the admin can still place every contestant (a final odd
+ * seed becomes a bye).
+ */
+export function firstRoundSeedGames(n: number): FirstRoundGame[] {
+  const order = bracketSeedOrder(n);
+  if (order) {
+    const games: FirstRoundGame[] = [];
+    for (let i = 0; i < order.length; i += 2) {
+      games.push({
+        position: games.length + 1,
+        topSeed: order[i],
+        bottomSeed: order[i + 1],
+      });
+    }
+    return games;
+  }
+  const games: FirstRoundGame[] = [];
+  for (let seed = 1; seed <= n; seed += 2) {
+    games.push({
+      position: games.length + 1,
+      topSeed: seed,
+      bottomSeed: seed + 1 <= n ? seed + 1 : null,
+    });
+  }
+  return games;
+}
+
 export function stageToAdminPatch(s: BracketStageInfo): AdminStagePatch {
   const patch: AdminStagePatch = {
     id: s.id,

@@ -1,0 +1,327 @@
+.seeder-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: rgba(16, 24, 40, 0.55);
+}
+
+.seeder-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 88rem;
+  margin: 1rem;
+  background: var(--app-surface, #fff);
+  border-radius: 0.875rem;
+  box-shadow: 0 20px 60px rgba(16, 24, 40, 0.25);
+  overflow: hidden;
+}
+
+.seeder-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--app-border, rgba(16, 24, 40, 0.1));
+}
+
+.seeder-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: none;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--app-accent);
+  cursor: pointer;
+  border-radius: 0.4rem;
+}
+
+.seeder-back:hover {
+  background: rgba(var(--app-accent-rgb), 0.08);
+}
+
+.seeder-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.seeder-count {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--app-muted);
+  white-space: nowrap;
+}
+
+.seeder-note {
+  margin: 0;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--app-muted);
+  background: rgba(217, 119, 6, 0.08);
+  border-bottom: 1px solid var(--app-border, rgba(16, 24, 40, 0.1));
+}
+
+.seeder-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.75rem 1.25rem;
+  align-content: start;
+}
+
+.seeder-game {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.5rem;
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.1));
+  border-radius: 0.5rem;
+  background: rgba(var(--app-accent-rgb), 0.02);
+}
+
+.seeder-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  background: var(--app-surface, #fff);
+}
+
+.seeder-slot--filled {
+  background: rgba(var(--app-accent-rgb), 0.06);
+}
+
+.seeder-slot--bye {
+  justify-content: center;
+  color: var(--app-muted);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.seeder-slot__seed {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(var(--app-accent-rgb), 0.12);
+  color: var(--app-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.seeder-slot__avatar {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.seeder-slot__avatar--ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--app-accent-rgb), 0.15);
+  color: var(--app-accent);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+}
+
+.seeder-slot__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.seeder-slot__add {
+  flex: 1;
+  border: 1px dashed rgba(var(--app-accent-rgb), 0.4);
+  background: transparent;
+  border-radius: 0.375rem;
+  padding: 0.35rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--app-accent);
+  cursor: pointer;
+}
+
+.seeder-slot__add:hover {
+  background: rgba(var(--app-accent-rgb), 0.06);
+}
+
+.seeder-slot__btn {
+  flex: none;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--app-muted);
+}
+
+.seeder-slot__btn--edit {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-accent);
+}
+
+.seeder-slot__remove {
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.seeder-slot__remove:hover {
+  color: #dc2626;
+}
+
+/* Contestant picker overlay */
+.seeder-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(16, 24, 40, 0.45);
+}
+
+.seeder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  width: 100%;
+  max-width: 26rem;
+  max-height: min(80vh, 36rem);
+  padding: 1rem;
+}
+
+.seeder-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.seeder-picker__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.seeder-picker__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.seeder-tag {
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.15));
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.seeder-tag--on {
+  border-color: var(--app-accent);
+  background: rgba(var(--app-accent-rgb), 0.12);
+  color: var(--app-accent);
+}
+
+.seeder-picker__list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.seeder-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 0.375rem;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.seeder-picker__item:hover {
+  background: rgba(var(--app-accent-rgb), 0.08);
+}
+
+.seeder-picker__avatar {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.seeder-picker__avatar--ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--app-accent-rgb), 0.15);
+  color: var(--app-accent);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+}
+
+.seeder-picker__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.seeder-picker__item-tags {
+  flex: none;
+  font-size: 0.6875rem;
+  color: var(--app-muted);
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .seeder-panel {
+    margin: 0;
+    border-radius: 0;
+  }
+}
