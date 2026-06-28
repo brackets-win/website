@@ -18,6 +18,7 @@ import {
   type ChallengeStats,
   type ChallengeSummary,
   type LeaderboardColumn,
+  type LeaderboardDenominators,
   type LeaderboardEntry,
 } from '../../utils/api';
 import { invalidateHome } from '../../utils/homeCache';
@@ -120,6 +121,8 @@ export function ChallengeView({
   const [bracketDef, setBracketDef] = useState<BracketDetail | null>(null);
   const [columns, setColumns] = useState<LeaderboardColumn[]>([]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [denominators, setDenominators] =
+    useState<LeaderboardDenominators | null>(null);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardLoaded, setBoardLoaded] = useState(false);
@@ -175,6 +178,7 @@ export function ChallengeView({
       if (c.uses_prediction_leaderboard === false) {
         setColumns([]);
         setEntries([]);
+        setDenominators(null);
       }
     } catch (e) {
       setLoadErr(
@@ -222,6 +226,7 @@ export function ChallengeView({
         if (gen !== boardFetchGen.current) return;
         setColumns(board.columns);
         setEntries(board.entries);
+        setDenominators(board.denominators ?? null);
         setBoardLoaded(true);
       })
       .catch((err) => {
@@ -231,6 +236,7 @@ export function ChallengeView({
         );
         setColumns([]);
         setEntries([]);
+        setDenominators(null);
       })
       .finally(() => {
         if (gen !== boardFetchGen.current) return;
@@ -803,6 +809,7 @@ export function ChallengeView({
           <ChallengeLeaderboard
             columns={leaderboardColumns}
             entries={entries}
+            denominators={denominators}
             loading={boardLoading}
             error={boardErr}
             viewerUsername={currentUser.username}

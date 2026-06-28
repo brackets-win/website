@@ -18,6 +18,15 @@
   overflow-x: auto;
 }
 
+.challenge-leaderboard__mode {
+  margin-bottom: 1rem;
+}
+
+.challenge-leaderboard__mode button {
+  min-width: 3rem;
+  font-weight: 600;
+}
+
 .challenge-leaderboard__table {
   min-width: 100%;
 }

@@ -337,6 +337,12 @@ export type LeaderboardColumn = {
   name: string;
 };
 
+export type LeaderboardDenominators = {
+  total: number;
+  potential: number;
+  columns: Record<string, number>;
+};
+
 export type ScoringHighlights = {
   group_positions: Record<string, Record<string, boolean>>;
   group_advancers: number[];
@@ -746,6 +752,7 @@ export async function saveChallengeTeams(
 export async function getChallengeLeaderboard(challengeId: number): Promise<{
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
+  denominators?: LeaderboardDenominators;
 }> {
   return apiFetch('GET', `challenges/${challengeId}/leaderboard`);
 }

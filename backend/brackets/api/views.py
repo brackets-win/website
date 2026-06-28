@@ -1209,6 +1209,7 @@ def challenge_leaderboard(
 
     from brackets.utils.challenge_entries import user_has_submitted_challenge
     from brackets.utils.leaderboard_scoring import (
+        compute_leaderboard_denominators,
         get_master_scoring_revision,
         load_leaderboard_scoring_context,
         read_stored_leaderboard_scores,
@@ -1343,7 +1344,12 @@ def challenge_leaderboard(
                 submitted_at=ub.submitted_at,
             )
         )
-    return JsonResponse({"columns": columns, "entries": entries})
+    denominators = compute_leaderboard_denominators(
+        ctx, hidden_stage_id=hidden_stage_id
+    )
+    return JsonResponse(
+        {"columns": columns, "entries": entries, "denominators": denominators}
+    )
 
 
 @require_http_methods(["GET"])

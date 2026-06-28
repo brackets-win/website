@@ -438,6 +438,91 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
     return len(ubs)
 
 
+def compute_leaderboard_denominators(
+    ctx: LeaderboardScoringContext,
+    *,
+    hidden_stage_id: int | None = None,
+) -> dict[str, object]:
+    """Per-column denominators for the leaderboard PTS/% toggle.
+
+    Stage, champion, and total denominators use the master's *currently
+    available* points (what a perfect entry could have earned so far). These
+    drive the dash-before-results rule and the % conversion for those columns.
+
+    The potential denominator is the score of the *fully completed* perfect
+    bracket — a structural constant from the scoring rules, independent of
+    current results — matching what ``calculate_potential_score`` upper-bounds.
+    """
+    columns: dict[str, int] = {}
+    result: dict[str, object] = {"total": 0, "potential": 0, "columns": columns}
+
+    master = ctx.master
+    if master is None:
+        return result
+
+    from brackets.utils.group_stage_config import group_stage_pick_requirements
+    from brackets.utils.sync_group_knockout import (
+        contestants_credited_for_knockout_score,
+    )
+
+    bracket = master.bracket
+    current_total = 0
+    perfect_total = 0
+
+    for stage in ctx.stages:
+        key = f"stage:{stage.id}"
+        if stage.stage_type == BracketStage.StageType.GROUP:
+            gs = ctx.group_by_id.get(stage.pk)
+            if gs is None:
+                continue
+            current = master._calculate_group_stage_score(
+                master, stage, group_stage=gs
+            )
+            _, third_count = group_stage_pick_requirements(gs)
+            perfect = gs.points_per_exact_position * gs.number_of_contestants + (
+                gs.points_per_advancer
+                * (
+                    gs.contestants_qualifying_per_group * gs.number_of_groups
+                    + third_count
+                )
+            )
+        elif stage.stage_type == BracketStage.StageType.KNOCKOUT:
+            ks = ctx.knockout_by_id.get(stage.pk)
+            if ks is None:
+                continue
+            if ks.is_third_place:
+                current = master._calculate_third_place_stage_score(master, stage)
+                perfect = bracket.points_third_place_winner
+            else:
+                pts = ks.points_per_correct_pick
+                current = (
+                    len(contestants_credited_for_knockout_score(master, stage))
+                    * pts
+                )
+                perfect = ks.number_of_contestants * pts
+        else:
+            continue
+
+        # Perfect-complete total spans every scored stage (including a seeded
+        # first round) to match the potential numerator's stage set.
+        perfect_total += perfect
+        if stage.id == hidden_stage_id:
+            continue
+        columns[key] = current
+        current_total += current
+
+    champion_current = (
+        bracket.points_champion if master.get_final_matchup_winner() else 0
+    )
+    columns["champion"] = champion_current
+    current_total += champion_current
+    perfect_total += bracket.points_champion
+
+    result["total"] = current_total
+    result["potential"] = perfect_total
+    return result
+
+
 def load_leaderboard_scoring_context(bracket: Bracket) -> LeaderboardScoringContext:
     master = bracket.userbracket_set.filter(is_master=True).first()
     if master is not None:

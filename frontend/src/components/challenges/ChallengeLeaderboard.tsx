@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 
-import type { LeaderboardColumn, LeaderboardEntry } from '../../utils/api';
+import type {
+  LeaderboardColumn,
+  LeaderboardDenominators,
+  LeaderboardEntry,
+} from '../../utils/api';
 import { leaderboardRowClassName } from '../../utils/leaderboardRows';
 
 import './ChallengeLeaderboard.css';
@@ -12,9 +16,12 @@ type SortState = {
   direction: 'asc' | 'desc';
 };
 
+type ScoreMode = 'pts' | 'pct';
+
 type Props = {
   columns: LeaderboardColumn[];
   entries: LeaderboardEntry[];
+  denominators?: LeaderboardDenominators | null;
   loading?: boolean;
   error?: string;
   viewerUsername?: string | null;
@@ -165,6 +172,7 @@ function SortableHeader({
 export function ChallengeLeaderboard({
   columns,
   entries,
+  denominators = null,
   loading = false,
   error = '',
   viewerUsername = null,
@@ -174,6 +182,33 @@ export function ChallengeLeaderboard({
     key: 'rank',
     direction: 'asc',
   });
+  const [mode, setMode] = useState<ScoreMode>('pts');
+
+  /**
+   * Render a point value as raw points or as a % of its column denominator.
+   * Stage, champion, and total columns show a dash before any results exist
+   * (denominator 0) in both modes; potential rank is never converted.
+   */
+  function displayScore(colKey: string, raw: number | null): string {
+    if (colKey === 'potential_rank') {
+      return raw != null ? String(raw) : '—';
+    }
+    if (raw == null) return '—';
+    if (colKey === 'potential') {
+      const denom = denominators?.potential ?? 0;
+      if (mode === 'pct' && denom > 0) {
+        return `${Math.round((raw / denom) * 100)}%`;
+      }
+      return String(raw);
+    }
+    const denom =
+      colKey === 'total'
+        ? denominators?.total
+        : denominators?.columns?.[colKey];
+    if (!denom || denom <= 0) return '—';
+    if (mode === 'pct') return `${Math.round((raw / denom) * 100)}%`;
+    return String(raw);
+  }
 
   const submittedEntries = useMemo(
     () => entries.filter((e) => e.submitted_at != null),
@@ -231,6 +266,26 @@ export function ChallengeLeaderboard({
 
   return (
     <div className="challenge-leaderboard">
+      <div
+        className="challenge-leaderboard__mode segmented"
+        role="group"
+        aria-label="Score display"
+      >
+        <button
+          type="button"
+          aria-pressed={mode === 'pts'}
+          onClick={() => setMode('pts')}
+        >
+          PTS
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === 'pct'}
+          onClick={() => setMode('pct')}
+        >
+          %
+        </button>
+      </div>
       <div className="challenge-leaderboard__mobile">
         <div
           className="challenge-leaderboard__sort-bar"
@@ -273,7 +328,7 @@ export function ChallengeLeaderboard({
               return (
                 <div key={col.key} className="leaderboard-card__stat">
                   <dt>{col.name}</dt>
-                  <dd>{value != null ? value : '—'}</dd>
+                  <dd>{displayScore(col.key, value)}</dd>
                 </div>
               );
             }
@@ -301,7 +356,7 @@ export function ChallengeLeaderboard({
                   <div>
                     <span className="leaderboard-card__total-label">Total</span>
                     <span className="leaderboard-card__total">
-                      {row.score != null ? row.score : '—'}
+                      {displayScore('total', row.score)}
                     </span>
                   </div>
                 </div>
@@ -439,7 +494,7 @@ export function ChallengeLeaderboard({
                 )}
               </td>
               <td className="is-num">
-                {row.score != null ? row.score : '—'}
+                {displayScore('total', row.score)}
               </td>
               {columns.map((col) => {
                 if (col.key === 'top_four_picks') {
@@ -494,7 +549,7 @@ export function ChallengeLeaderboard({
                       : row.stage_scores[col.key];
                 return (
                   <td key={col.key} className="is-num">
-                    {value != null ? value : '—'}
+                    {displayScore(col.key, value)}
                   </td>
                 );
               })}
