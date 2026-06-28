@@ -150,6 +150,29 @@ class PotentialRankTests(TestCase):
         bundle = read_stored_leaderboard_scores(ub)
         self.assertEqual(bundle.potential_rank, 1)
 
+    def test_materialize_backfills_rank_when_scores_already_current(self):
+        # Mirrors data confirmed before potential rank shipped: scores exist at
+        # the current revision but the rank column is null. Materialize should
+        # backfill it without requiring a master change.
+        from brackets.utils.leaderboard_scoring import (
+            materialize_leaderboard_scores_batch,
+        )
+
+        t1, t2, t3, t4 = self.teams
+        self._set_master_partial(sf1_winner=t1)
+        ub = self._submit("solo", sf1=t1, sf2=t3, final_winner=t1)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+
+        # Simulate legacy rows: rank cleared, scores still current.
+        UserBracket.objects.filter(pk=ub.pk).update(leaderboard_potential_rank=None)
+        ub.refresh_from_db()
+        self.assertIsNone(ub.leaderboard_potential_rank)
+
+        result = materialize_leaderboard_scores_batch(self.bracket)
+        self.assertEqual(result["remaining_count"], 0)
+        ub.refresh_from_db()
+        self.assertEqual(ub.leaderboard_potential_rank, 1)
+
     def test_live_mode_omits_potential_rank_from_leaderboard(self):
         bracket = create_bracket_with_structure(
             "GROUP_KNOCKOUT",

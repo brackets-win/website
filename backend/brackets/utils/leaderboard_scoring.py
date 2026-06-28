@@ -137,6 +137,9 @@ def materialize_leaderboard_scores_batch(
     remaining_before = stale_qs.count()
     if remaining_before == 0:
         _clear_master_scoring_pending(bracket)
+        # Scores already current, but ranks may be missing (e.g. brackets
+        # confirmed before potential rank shipped). Backfill on demand.
+        _backfill_potential_ranks_if_missing(bracket, revision)
         return {
             "updated_count": 0,
             "remaining_count": 0,
@@ -190,6 +193,26 @@ def materialize_leaderboard_scores_batch(
         "remaining_count": remaining_count,
         "leaderboard_scores_pending": pending,
     }
+
+
+def _backfill_potential_ranks_if_missing(bracket: Bracket, revision: int) -> None:
+    """Compute ranks when entries are current but have no rank yet (e.g. older data)."""
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
+    if omit_leaderboard_potential_for_bracket(bracket):
+        return
+    missing = UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
+        leaderboard_scores_revision=revision,
+        leaderboard_potential_rank__isnull=True,
+    ).exists()
+    if not missing:
+        return
+    from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+
+    persist_potential_ranks_for_bracket(bracket)
 
 
 def on_master_bracket_changed(bracket: Bracket, *, materialize: bool = True) -> int:
