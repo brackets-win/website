@@ -43,6 +43,9 @@ def parse_structure_config(raw: Any) -> dict[str, Any]:
         if not isinstance(ko, dict):
             raise ValueError("structure_config.knockout must be an object")
         out["knockout"] = ko
+    for key in ("points_champion", "points_third_place_winner"):
+        if key in data:
+            out[key] = data[key]
     return out
 
 

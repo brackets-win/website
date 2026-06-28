@@ -1174,7 +1174,7 @@ export function BracketsAdmin() {
                 {isSingleElim ? (
                   <button
                     type="button"
-                    className="btn btn--ghost"
+                    className="btn btn--outline"
                     onClick={() => setSeederOpen(true)}
                     disabled={createBusy || contestants.length === 0}
                   >
@@ -1471,7 +1471,7 @@ export function BracketsAdmin() {
                   {editCanReseed ? (
                     <button
                       type="button"
-                      className="btn btn--ghost"
+                      className="btn btn--outline"
                       onClick={() => setEditSeederOpen(true)}
                       disabled={
                         editBusy || editLoadBusy || contestants.length === 0

@@ -61,6 +61,12 @@ export function BracketSeeder({
     [numContestants],
   );
 
+  // Split the first round into the bracket's two starting sides.
+  const { leftGames, rightGames } = useMemo(() => {
+    const half = Math.ceil(games.length / 2);
+    return { leftGames: games.slice(0, half), rightGames: games.slice(half) };
+  }, [games]);
+
   const contestantById = useMemo(() => {
     const map = new Map<number, ContestantCatalog>();
     for (const c of contestants) map.set(c.id, c);
@@ -75,7 +81,6 @@ export function BracketSeeder({
   const available = useMemo(() => {
     return contestants.filter((c) => {
       if (!matchesFilter(c, query.trim(), tagIds)) return false;
-      // Allow the contestant already in the slot being edited.
       const current =
         pickingSeed != null ? assignmentBySeed.get(pickingSeed) : undefined;
       if (assignedIds.has(c.id) && c.id !== current) return false;
@@ -106,45 +111,54 @@ export function BracketSeeder({
     const assignedId = assignmentBySeed.get(seed);
     const assigned =
       assignedId != null ? contestantById.get(assignedId) : undefined;
+    if (!assigned) {
+      return (
+        <button
+          type="button"
+          className="seeder-slot seeder-slot--empty"
+          onClick={() => setPickingSeed(seed)}
+        >
+          <span className="seeder-slot__seed">{seed}</span>
+          <span className="seeder-slot__add">+ Add team</span>
+        </button>
+      );
+    }
     return (
-      <div
-        className={`seeder-slot${assigned ? ' seeder-slot--filled' : ''}`}
-      >
+      <div className="seeder-slot seeder-slot--filled">
         <span className="seeder-slot__seed">{seed}</span>
-        {assigned ? (
-          <>
-            <ContestantAvatar
-              displayName={assigned.name}
-              imageUrl={contestantImage(assigned)}
-              className="seeder-slot__avatar"
-              placeholderClassName="seeder-slot__avatar seeder-slot__avatar--ph"
-            />
-            <span className="seeder-slot__name">{assigned.name}</span>
-            <button
-              type="button"
-              className="seeder-slot__btn seeder-slot__btn--edit"
-              onClick={() => setPickingSeed(seed)}
-            >
-              Change
-            </button>
-            <button
-              type="button"
-              className="seeder-slot__btn seeder-slot__remove"
-              aria-label={`Remove contestant from seed ${seed}`}
-              onClick={() => onAssign(seed, null)}
-            >
-              ×
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="seeder-slot__add"
-            onClick={() => setPickingSeed(seed)}
-          >
-            + Add
-          </button>
-        )}
+        <ContestantAvatar
+          displayName={assigned.name}
+          imageUrl={contestantImage(assigned)}
+          className="seeder-slot__avatar"
+          placeholderClassName="seeder-slot__avatar seeder-slot__avatar--ph"
+        />
+        <button
+          type="button"
+          className="seeder-slot__name-btn"
+          onClick={() => setPickingSeed(seed)}
+          title="Change team"
+        >
+          {assigned.name}
+        </button>
+        <button
+          type="button"
+          className="seeder-slot__remove"
+          aria-label={`Remove team from seed ${seed}`}
+          onClick={() => onAssign(seed, null)}
+        >
+          ×
+        </button>
+      </div>
+    );
+  }
+
+  function renderGame(position: number, topSeed: number, bottomSeed: number | null) {
+    return (
+      <div className="seeder-match" key={position}>
+        <div className="seeder-match__box">
+          {renderSlot(topSeed)}
+          {renderSlot(bottomSeed)}
+        </div>
       </div>
     );
   }
@@ -174,18 +188,25 @@ export function BracketSeeder({
 
         {!isPowerOfTwo(numContestants) ? (
           <p className="seeder-note">
-            Standard bracket layout needs a power-of-two field (8, 16, 32…).
-            Slots are paired in seed order below.
+            A standard bracket needs a power-of-two field (8, 16, 32…). Seed
+            slots are paired in order below.
           </p>
         ) : null}
 
-        <div className="seeder-board">
-          {games.map((game) => (
-            <div key={game.position} className="seeder-game">
-              {renderSlot(game.topSeed)}
-              {renderSlot(game.bottomSeed)}
+        <div className="seeder-scroll">
+          <div className="seeder-bracket">
+            <div className="seeder-side seeder-side--left">
+              {leftGames.map((g) =>
+                renderGame(g.position, g.topSeed, g.bottomSeed),
+              )}
             </div>
-          ))}
+            {rightGames.length > 0 ? <div className="seeder-center" /> : null}
+            <div className="seeder-side seeder-side--right">
+              {rightGames.map((g) =>
+                renderGame(g.position, g.topSeed, g.bottomSeed),
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -199,13 +220,11 @@ export function BracketSeeder({
             className="seeder-picker card"
             role="dialog"
             aria-modal="true"
-            aria-label={`Choose contestant for seed ${pickingSeed}`}
+            aria-label={`Choose team for seed ${pickingSeed}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="seeder-picker__head">
-              <h3 className="seeder-picker__title">
-                Seed {pickingSeed}
-              </h3>
+              <h3 className="seeder-picker__title">Seed {pickingSeed}</h3>
               <button
                 type="button"
                 className="btn btn--ghost"
@@ -240,7 +259,7 @@ export function BracketSeeder({
             ) : null}
             <div className="seeder-picker__list">
               {available.length === 0 ? (
-                <p className="field__hint">No matching contestants.</p>
+                <p className="field__hint">No matching teams.</p>
               ) : (
                 available.map((c) => (
                   <button

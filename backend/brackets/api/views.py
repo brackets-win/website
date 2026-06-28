@@ -1882,7 +1882,7 @@ def admin_brackets_create(request: HttpRequest) -> JsonResponse:
     image_file = None
     if _is_multipart(request):
         post, files = _multipart_post_files(request)
-        body = dict(post)
+        body = post.dict()
         raw_bc = body.get("bracket_contestants")
         if raw_bc:
             try:
