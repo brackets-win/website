@@ -394,6 +394,11 @@ export function ChallengeStats({
       {group_stage.length > 0 ? (
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Groups</h2>
+          <p className="challenge-stats__section-note">
+            Average group placement predictions. Click on a group name to expand
+            with average points earned per group, group difficulty, and points
+            earned by each bracket entry.
+          </p>
           <div className="challenge-stats__group-grid">
             {group_stage.map((group) => {
               const expanded = groupsExpanded;
@@ -511,6 +516,10 @@ export function ChallengeStats({
       {knockout.columns.length > 0 ? (
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Teams</h2>
+          <p className="challenge-stats__section-note">
+            Predicted progression percentages by team. Click on a team name to
+            expand with predicted progression by each bracket entry.
+          </p>
           <div className="challenge-stats__ko-mobile">
             <div
               className="challenge-stats__sort-bar"
@@ -688,10 +697,10 @@ export function ChallengeStats({
 
           {bracketSlotCount > 0 && bracketId != null ? (
             <div className="challenge-stats__bracket">
-              <h3 className="challenge-stats__subheading">Bracket</h3>
+              <h3 className="challenge-stats__subheading">Knockout</h3>
               <p className="challenge-stats__bracket-note">
-                How often each team was placed in each spot. The actual result is
-                highlighted in green.
+                Percentage of prediction entries that placed teams in each
+                knockout spot. Correct result is highlighted in green.
               </p>
               <BracketDistribution
                 bracketId={bracketId}

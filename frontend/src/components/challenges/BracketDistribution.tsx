@@ -120,9 +120,7 @@ function masterMatchupWinner(
 }
 
 function formatPct(value: number): string {
-  if (value === 0) return '0%';
-  if (value === 100) return '100%';
-  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
 /** Order a slot's picks for display: most common first, master pick always shown. */

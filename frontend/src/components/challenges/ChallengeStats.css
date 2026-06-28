@@ -18,6 +18,17 @@
   font-weight: 600;
 }
 
+.challenge-stats__heading + .challenge-stats__section-note {
+  margin-top: -0.65rem;
+}
+
+.challenge-stats__section-note {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-muted, #64748b);
+}
+
 .challenge-stats__bracket {
   margin-top: 1.75rem;
 }
