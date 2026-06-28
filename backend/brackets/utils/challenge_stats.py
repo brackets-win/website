@@ -130,6 +130,25 @@ def _read_entries_cache(
         for bucket in row.get("progression", [])
     ):
         return None
+    # Knockout-only brackets must not show the seeded first round or a Group
+    # Winner column. Older caches predate those changes; force a recompute when
+    # either stale column lingers.
+    bracket_obj = challenge.bracket
+    if not bracket_obj.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ).exists():
+        col_keys = {col.get("key") for col in knockout.get("columns", [])}
+        if "group_winner" in col_keys:
+            return None
+        first_ko = (
+            bracket_obj.stages.filter(
+                stage_type=BracketStage.StageType.KNOCKOUT
+            )
+            .order_by("order")
+            .first()
+        )
+        if first_ko is not None and f"stage:{first_ko.id}" in col_keys:
+            return None
     return {
         "submitted_count": submitted_count,
         "group_teams": group_teams,
@@ -377,19 +396,29 @@ def _progression_scores_for_user_bracket(
                 continue
             scores[team_id] = scores.get(team_id, 0) + points
 
+    # Each knockout round (past the seeded first round) is worth more than the
+    # last, so deeper advancement always scores higher. The first round is
+    # skipped: for group → knockout it reflects group results, and for
+    # knockout-only it is admin-seeded.
     has_group_stage = len(groups_preview) > 0
     round_bonus = 3 if has_group_stage else 1
+    final_round_bonus = round_bonus
     for stage in main_knockout_stages[1:]:
         for team_id in ub_hits.get(f"stage:{stage.id}", set()):
             scores[team_id] = scores.get(team_id, 0) + round_bonus
-        if has_group_stage:
-            round_bonus += 1
+        final_round_bonus = round_bonus
+        round_bonus += 1
 
     if third_place_stage is not None:
         tp = ub.matchup_set.filter(stage=third_place_stage, position=1).first()
         if tp is not None and tp.winner_id is not None:
             winner_id = int(tp.winner_id)
-            scores[winner_id] = scores.get(winner_id, 0) + 3
+            # Rank the third-place winner above fourth place but below the
+            # finalists, whatever the bracket size.
+            third_place_bonus = (
+                3 if has_group_stage else max(1, final_round_bonus - 1)
+            )
+            scores[winner_id] = scores.get(winner_id, 0) + third_place_bonus
 
     return scores
 
@@ -795,16 +824,31 @@ def _compute_stats_parts(
             "order"
         )
     )
+    # Knockout-only brackets seed the first round, so its percentages are always
+    # 100% and carry no information — drop that column. Group → knockout brackets
+    # keep it: the first round reflects who advanced from the group stage.
+    has_group_stage = len(groups_preview) > 0
+    hidden_stage_id = (
+        knockout_stages[0].id
+        if knockout_stages and not has_group_stage
+        else None
+    )
     stage_columns = [
         {"key": f"stage:{stage.id}", "name": stage.name}
         for stage in reversed(knockout_stages)
+        if stage.id != hidden_stage_id
     ]
     columns = [
         {"key": "progression_score", "name": "PROGRESSION SCORE"},
         {"key": "champion", "name": "Champions"},
         {"key": "runner_up", "name": "Runner-up"},
         *stage_columns,
-        {"key": "group_winner", "name": "Group Winner"},
+        # Group Winner only applies when the bracket has a group stage.
+        *(
+            [{"key": "group_winner", "name": "Group Winner"}]
+            if has_group_stage
+            else []
+        ),
     ]
 
     final_stage = KnockoutStage.objects.filter(

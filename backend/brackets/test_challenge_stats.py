@@ -410,6 +410,109 @@ class ChallengeStatsTests(TestCase):
         self.assertIn("Fourth Place", t6_labels)
         self.assertNotIn("Semi Final", t6_labels)
 
+    def test_knockout_only_omits_seeded_first_round_column(self):
+        from django.utils import timezone
+
+        host = User.objects.create_user(username="ko_host", password="x")
+        player = User.objects.create_user(username="ko_player", password="x")
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "stats-ko", "Stats KO", 8, host
+        )
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"K{i + 1}", seed=i + 1
+            )
+        challenge = BracketChallenge.objects.create(
+            name="KO Pool", bracket=bracket, created_by=host
+        )
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=player, challenge=challenge, is_master=False
+        )
+        ub.submitted_at = timezone.now()
+        ub.save(update_fields=["submitted_at"])
+        ensure_knockout_matchup_shell(ub)
+
+        first_round = (
+            bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        stats = compute_challenge_stats(challenge)
+        col_keys = [c["key"] for c in stats["knockout"]["columns"]]
+        self.assertNotIn(f"stage:{first_round.id}", col_keys)
+
+    def test_knockout_only_omits_group_winner_column(self):
+        from django.utils import timezone
+
+        host = User.objects.create_user(username="gw_host", password="x")
+        player = User.objects.create_user(username="gw_player", password="x")
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "stats-gw", "Stats GW", 8, host
+        )
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"G{i + 1}", seed=i + 1
+            )
+        challenge = BracketChallenge.objects.create(
+            name="GW Pool", bracket=bracket, created_by=host
+        )
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=player, challenge=challenge, is_master=False
+        )
+        ub.submitted_at = timezone.now()
+        ub.save(update_fields=["submitted_at"])
+        ensure_knockout_matchup_shell(ub)
+
+        stats = compute_challenge_stats(challenge)
+        col_keys = [c["key"] for c in stats["knockout"]["columns"]]
+        self.assertNotIn("group_winner", col_keys)
+
+    def test_knockout_only_finalists_outrank_third_place(self):
+        from django.utils import timezone
+
+        host = User.objects.create_user(username="ps_host", password="x")
+        player = User.objects.create_user(username="ps_player", password="x")
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "stats-ps", "Stats PS", 8, host, has_third_place=True
+        )
+        teams = [
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"P{i + 1}", seed=i + 1
+            )
+            for i in range(8)
+        ]
+        challenge = BracketChallenge.objects.create(
+            name="PS Pool", bracket=bracket, created_by=host
+        )
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=player, challenge=challenge, is_master=False
+        )
+        ub.submitted_at = timezone.now()
+        ub.save(update_fields=["submitted_at"])
+        ensure_knockout_matchup_shell(ub)
+
+        final = KnockoutStage.objects.get(bracket=bracket, is_final=True)
+        third = KnockoutStage.objects.get(bracket=bracket, is_third_place=True)
+        # Champion T1, runner-up T2; third-place winner T3, fourth T4.
+        fm = ub.matchup_set.filter(stage=final).first()
+        fm.contestant1 = teams[0]
+        fm.contestant2 = teams[1]
+        fm.winner = teams[0]
+        fm.save()
+        tp = ub.matchup_set.filter(stage=third).first()
+        tp.contestant1 = teams[2]
+        tp.contestant2 = teams[3]
+        tp.winner = teams[2]
+        tp.save()
+
+        stats = compute_challenge_stats(challenge)
+        score = {
+            r["bracket_contestant_id"]: r["progression_score"]
+            for r in stats["knockout"]["rows"]
+        }
+        # Champion >= runner-up > third-place winner > fourth place.
+        self.assertGreaterEqual(score[teams[0].id], score[teams[1].id])
+        self.assertGreater(score[teams[1].id], score[teams[2].id])
+        self.assertGreater(score[teams[2].id], score[teams[3].id])
+
     def test_stats_api_requires_auth(self):
         res = self.client.get(f"/brackets/api/challenges/{self.challenge.id}/stats")
         self.assertEqual(res.status_code, 401)
