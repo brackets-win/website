@@ -13,6 +13,7 @@ from brackets.utils.bracket_structure_config import (
     resolved_bracket_scoring,
     resolved_group_stage_options,
     resolved_knockout_defaults,
+    resolved_knockout_round_points,
 )
 from brackets.utils.third_place_structure import sync_third_place_structure
 
@@ -56,6 +57,14 @@ def create_bracket_with_structure(
     )
 
     ko_defaults = resolved_knockout_defaults(structure_config)
+    ko_round_points = resolved_knockout_round_points(structure_config)
+
+    def ko_stage_kwargs(round_size: int) -> dict[str, Any]:
+        kwargs = dict(ko_defaults)
+        kwargs["points_per_correct_pick"] = ko_round_points.get(
+            round_size, ko_defaults["points_per_correct_pick"]
+        )
+        return kwargs
 
     if template_type == "GROUP_KNOCKOUT":
         gs_opts = resolved_group_stage_options(
@@ -103,7 +112,7 @@ def create_bracket_with_structure(
                 number_of_contestants=current_contestants,
                 contestants_advancing=None if is_final else current_contestants // 2,
                 is_final=is_final,
-                **ko_defaults,
+                **ko_stage_kwargs(current_contestants),
             )
 
             current_contestants //= 2
@@ -136,7 +145,7 @@ def create_bracket_with_structure(
                 number_of_contestants=current_contestants,
                 contestants_advancing=None if is_final else current_contestants // 2,
                 is_final=is_final,
-                **ko_defaults,
+                **ko_stage_kwargs(current_contestants),
             )
 
             current_contestants //= 2

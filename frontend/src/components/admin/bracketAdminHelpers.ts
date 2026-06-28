@@ -39,6 +39,7 @@ export function buildStructureConfig(opts: {
   bKoPK: boolean;
   bKoPickPts: number;
   bKoRandom: boolean;
+  bKoRoundPoints?: Record<number, number>;
 }): BracketStructureConfig {
   const cfg: BracketStructureConfig = {
     knockout: {
@@ -49,6 +50,9 @@ export function buildStructureConfig(opts: {
       is_random_draw: opts.bKoRandom,
     },
   };
+  if (opts.bKoRoundPoints && Object.keys(opts.bKoRoundPoints).length > 0) {
+    cfg.knockout!.round_points = opts.bKoRoundPoints;
+  }
   if (opts.structureKind === 'GROUP_KNOCKOUT') {
     const gs: NonNullable<BracketStructureConfig['group_stage']> = {
       matches_per_contestant: opts.bMatchesPer,
@@ -125,6 +129,58 @@ export function firstRoundSeedGames(n: number): FirstRoundGame[] {
     });
   }
   return games;
+}
+
+const KO_STAGE_NAMES: Record<number, string> = {
+  64: 'Round of 64',
+  32: 'Round of 32',
+  16: 'Round of 16',
+  8: 'Quarterfinals',
+  4: 'Semifinals',
+  2: 'Final',
+};
+
+export function knockoutRoundName(size: number): string {
+  return KO_STAGE_NAMES[size] ?? `Round of ${size}`;
+}
+
+export type KnockoutRound = { size: number; name: string };
+
+/**
+ * Knockout rounds for a bracket-to-be, mirroring ``bracket_factory``: start at
+ * the field size (single-elim) or the advancing count (group→knockout) and
+ * halve down to the final. ``size`` is the contestant count entering the round,
+ * which the backend uses as the per-round points key.
+ */
+export function knockoutRounds(opts: {
+  structureKind: BracketStructureType;
+  numContestants: number;
+  numGroups?: number | null;
+  qualifyPerGroup?: number | null;
+}): KnockoutRound[] {
+  const { structureKind, numContestants } = opts;
+  if (!Number.isFinite(numContestants) || numContestants < 2) return [];
+  let start: number;
+  if (structureKind === 'GROUP_KNOCKOUT') {
+    const groups =
+      opts.numGroups && opts.numGroups > 0
+        ? opts.numGroups
+        : Math.floor(numContestants / 4);
+    const qualify =
+      opts.qualifyPerGroup && opts.qualifyPerGroup > 0
+        ? opts.qualifyPerGroup
+        : 2;
+    start = groups * qualify;
+  } else {
+    start = numContestants;
+  }
+  const rounds: KnockoutRound[] = [];
+  let cur = start;
+  while (cur >= 2) {
+    rounds.push({ size: cur, name: knockoutRoundName(cur) });
+    cur = Math.floor(cur / 2);
+  }
+  return rounds;
 }
 
 export function stageToAdminPatch(s: BracketStageInfo): AdminStagePatch {

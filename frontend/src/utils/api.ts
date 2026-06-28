@@ -1205,6 +1205,7 @@ export type BracketStructureConfig = {
     has_penalty_shootout?: boolean;
     points_per_correct_pick?: number;
     is_random_draw?: boolean;
+    round_points?: Record<number, number>;
   };
 };
 

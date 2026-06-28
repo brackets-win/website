@@ -204,3 +204,27 @@ def resolved_knockout_defaults(config: dict[str, Any] | None) -> dict[str, Any]:
         "is_random_draw": _bool_val(ko.get("is_random_draw"), False),
         "metadata": parse_bracket_metadata(ko.get("metadata")),
     }
+
+
+def resolved_knockout_round_points(config: dict[str, Any] | None) -> dict[int, int]:
+    """Optional per-round point overrides, keyed by the round's contestant count.
+
+    Mirrors what the edit flow allows (each knockout stage its own points). The
+    key is ``number_of_contestants`` entering that round (e.g. 32, 16, 8, 4, 2),
+    which is unique per bracket. Rounds without an entry fall back to the
+    knockout default ``points_per_correct_pick``.
+    """
+    ko = (config or {}).get("knockout") or {}
+    raw = ko.get("round_points")
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("round_points must be an object")
+    out: dict[int, int] = {}
+    for key, value in raw.items():
+        try:
+            size = int(key)
+        except (TypeError, ValueError) as e:
+            raise ValueError("round_points keys must be integers") from e
+        out[size] = _non_negative_int(value, f"round_points[{key}]")
+    return out

@@ -28,6 +28,7 @@ import { BracketSeeder } from './BracketSeeder';
 import { BracketStageEditor } from './BracketStageEditor';
 import {
   buildStructureConfig,
+  knockoutRounds,
   metadataToText,
   parseMetadataJson,
   stageToAdminPatch,
@@ -190,6 +191,9 @@ export function BracketsAdmin() {
   const [bKoET, setBKoET] = useState(true);
   const [bKoPK, setBKoPK] = useState(true);
   const [bKoPickPts, setBKoPickPts] = useState<number | null>(1);
+  const [bKoRoundPts, setBKoRoundPts] = useState<Record<number, number | null>>(
+    {},
+  );
   const [bKoRandom, setBKoRandom] = useState(false);
   const [bImage, setBImage] = useState<File | null>(null);
   const [bImagePreview, setBImagePreview] = useState<string | null>(null);
@@ -344,6 +348,25 @@ export function BracketsAdmin() {
 
   const isSingleElim = structureKind === 'SINGLE_ELIM';
 
+  const koRounds = useMemo(
+    () =>
+      knockoutRounds({
+        structureKind,
+        numContestants: bN ?? 0,
+        numGroups: bNumGroups.trim() ? parseInt(bNumGroups, 10) : null,
+        qualifyPerGroup: bQualify,
+      }),
+    [structureKind, bN, bNumGroups, bQualify],
+  );
+
+  const roundPickPts = useCallback(
+    (size: number): number | null => {
+      const v = bKoRoundPts[size];
+      return v === undefined ? bKoPickPts : v;
+    },
+    [bKoRoundPts, bKoPickPts],
+  );
+
   const contestantOptions = useMemo(
     () => filterCatalog(contestants, assignSearch, assignTagIds),
     [contestants, assignSearch, assignTagIds],
@@ -441,6 +464,7 @@ export function BracketsAdmin() {
     setAssignTagIds([]);
     setContestantsInvalid(false);
     setSeederOpen(false);
+    setBKoRoundPts({});
     setPageMsg(null);
     const first = bracketTemplates[0];
     if (first) {
@@ -548,6 +572,11 @@ export function BracketsAdmin() {
         bKoPK,
         bKoPickPts: bKoPickPts ?? 1,
         bKoRandom,
+        bKoRoundPoints: koRounds.reduce<Record<number, number>>((acc, r) => {
+          const pts = roundPickPts(r.size);
+          acc[r.size] = pts == null ? (bKoPickPts ?? 1) : pts;
+          return acc;
+        }, {}),
       });
 
       const fd = new FormData();
@@ -1129,7 +1158,9 @@ export function BracketsAdmin() {
                     />
                   </div>
                   <div className="field">
-                    <label htmlFor="b-ko-pick-pts">Points per correct pick</label>
+                    <label htmlFor="b-ko-pick-pts">
+                      Default points per team in round
+                    </label>
                     <AdminNumberInput
                       id="b-ko-pick-pts"
                       value={bKoPickPts}
@@ -1138,6 +1169,33 @@ export function BracketsAdmin() {
                     />
                   </div>
                 </div>
+                {koRounds.length > 0 ? (
+                  <>
+                    <p className="admin-details__subtitle">
+                      Points per team in each round
+                    </p>
+                    <div className="form-grid form-grid--3">
+                      {koRounds.map((r) => (
+                        <div className="field" key={r.size}>
+                          <label htmlFor={`b-ko-round-${r.size}`}>
+                            {r.name}
+                          </label>
+                          <AdminNumberInput
+                            id={`b-ko-round-${r.size}`}
+                            value={roundPickPts(r.size)}
+                            onChange={(n) =>
+                              setBKoRoundPts((prev) => ({
+                                ...prev,
+                                [r.size]: n,
+                              }))
+                            }
+                            disabled={createBusy}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
                 <label className="checkbox-row">
                   <input
                     type="checkbox"

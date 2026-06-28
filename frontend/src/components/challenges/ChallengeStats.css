@@ -160,7 +160,7 @@
 }
 
 .challenge-stats__group-points-stat-value {
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--activity-accent, var(--app-accent, #5782a8));
@@ -402,6 +402,7 @@
 .challenge-stats__ko-card-toggle {
   width: 100%;
   font: inherit;
+  color: inherit;
   text-align: left;
   background: none;
   border: none;
