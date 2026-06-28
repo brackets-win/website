@@ -1227,11 +1227,32 @@ def challenge_leaderboard(
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     omit_potential = omit_leaderboard_potential_for_bracket(bracket)
+    # Only surface Potential Rank once the enumeration gate has lifted and ranks
+    # are materialized for the current master revision (see potential_rank.py).
+    show_potential_rank = not omit_potential and (
+        master is not None
+        and UserBracket.objects.filter(
+            challenge=challenge,
+            is_master=False,
+            submitted_at__isnull=False,
+            leaderboard_scores_revision=scoring_revision,
+            leaderboard_potential_rank__isnull=False,
+        ).exists()
+    )
     columns = []
     if not omit_potential:
         columns.append(
-            serializers.leaderboard_column(key="potential", name="Potential")
+            serializers.leaderboard_column(
+                key="potential",
+                name="Potential Pts" if show_potential_rank else "Potential",
+            )
         )
+        if show_potential_rank:
+            columns.append(
+                serializers.leaderboard_column(
+                    key="potential_rank", name="Potential Rank"
+                )
+            )
     columns.append(
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS")
     )

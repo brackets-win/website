@@ -508,6 +508,7 @@ def leaderboard_entry(
     user_bracket_id: int,
     score: int | None,
     potential: int | None,
+    potential_rank: int | None,
     stage_scores: dict[str, int | None],
     top_four_picks: list[dict[str, Any] | None],
     submitted_at,
@@ -518,6 +519,7 @@ def leaderboard_entry(
         "user_bracket_id": user_bracket_id,
         "score": score,
         "potential": potential,
+        "potential_rank": potential_rank,
         "stage_scores": stage_scores,
         "top_four_picks": top_four_picks,
         "submitted_at": (

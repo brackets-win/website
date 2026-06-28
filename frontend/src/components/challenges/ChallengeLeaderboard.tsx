@@ -22,7 +22,7 @@ type Props = {
 };
 
 function defaultDirection(key: SortKey): 'asc' | 'desc' {
-  if (key === 'player' || key === 'rank') return 'asc';
+  if (key === 'player' || key === 'rank' || key === 'potential_rank') return 'asc';
   return 'desc';
 }
 
@@ -100,6 +100,9 @@ function compareEntries(
     return result;
   } else if (key === 'potential') {
     result = compareWithNullsLast(a.potential, b.potential, direction);
+    return result;
+  } else if (key === 'potential_rank') {
+    result = compareWithNullsLast(a.potential_rank, b.potential_rank, direction);
     return result;
   } else {
     result = compareWithNullsLast(
@@ -264,7 +267,9 @@ export function ChallengeLeaderboard({
               const value =
                 col.key === 'potential'
                   ? row.potential
-                  : row.stage_scores[col.key];
+                  : col.key === 'potential_rank'
+                    ? row.potential_rank
+                    : row.stage_scores[col.key];
               return (
                 <div key={col.key} className="leaderboard-card__stat">
                   <dt>{col.name}</dt>
@@ -484,7 +489,9 @@ export function ChallengeLeaderboard({
                 const value =
                   col.key === 'potential'
                     ? row.potential
-                    : row.stage_scores[col.key];
+                    : col.key === 'potential_rank'
+                      ? row.potential_rank
+                      : row.stage_scores[col.key];
                 return (
                   <td key={col.key} className="is-num">
                     {value != null ? value : '—'}

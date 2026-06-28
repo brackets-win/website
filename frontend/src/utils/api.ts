@@ -357,6 +357,7 @@ export type LeaderboardEntry = {
   user_bracket_id: number;
   score: number | null;
   potential: number | null;
+  potential_rank: number | null;
   stage_scores: Record<string, number | null>;
   top_four_picks: (TopFourPick | null)[];
   submitted_at: string | null;

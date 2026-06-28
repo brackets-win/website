@@ -90,6 +90,7 @@ class UserBracket(models.Model):
     # Materialized vs master (refreshed on submit and when master bracket changes).
     leaderboard_score = models.IntegerField(null=True, blank=True)
     leaderboard_potential = models.IntegerField(null=True, blank=True)
+    leaderboard_potential_rank = models.IntegerField(null=True, blank=True)
     leaderboard_stage_scores = models.JSONField(default=dict, blank=True)
     leaderboard_scores_revision = models.IntegerField(null=True, blank=True)
 

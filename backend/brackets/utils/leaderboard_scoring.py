@@ -37,6 +37,7 @@ class LeaderboardScoringContext:
 class LeaderboardScoreBundle:
     score: int | None
     potential: int | None
+    potential_rank: int | None
     stage_scores: dict[str, int | None]
 
 
@@ -181,6 +182,9 @@ def materialize_leaderboard_scores_batch(
     if remaining_count == 0:
         _clear_master_scoring_pending(bracket)
         pending = False
+        from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+
+        persist_potential_ranks_for_bracket(bracket)
     return {
         "updated_count": updated_count,
         "remaining_count": remaining_count,
@@ -213,6 +217,7 @@ def _read_metadata_scores(
     return LeaderboardScoreBundle(
         score=cache.get("score"),
         potential=cache.get("potential"),
+        potential_rank=None,
         stage_scores=stage_scores,
     )
 
@@ -226,6 +231,7 @@ def _bundle_from_stored_fields(ub: UserBracket) -> LeaderboardScoreBundle | None
     return LeaderboardScoreBundle(
         score=ub.leaderboard_score,
         potential=ub.leaderboard_potential,
+        potential_rank=ub.leaderboard_potential_rank,
         stage_scores=stage_scores,
     )
 
@@ -237,7 +243,9 @@ def read_stored_leaderboard_scores(
 ) -> LeaderboardScoreBundle:
     """Read materialized scores only — never computes on the request path."""
     if ub.is_master or ub.submitted_at is None:
-        return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
+        return LeaderboardScoreBundle(
+            score=None, potential=None, potential_rank=None, stage_scores={}
+        )
 
     rev = revision if revision is not None else get_master_scoring_revision(ub.bracket)
 
@@ -254,7 +262,9 @@ def read_stored_leaderboard_scores(
     if stale is not None:
         return stale
 
-    return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
+    return LeaderboardScoreBundle(
+        score=None, potential=None, potential_rank=None, stage_scores={}
+    )
 
 
 def get_leaderboard_scores(
@@ -316,7 +326,9 @@ def _compute_leaderboard_scores(
     knockout_by_id=None,
 ) -> LeaderboardScoreBundle:
     if not ctx.master:
-        return LeaderboardScoreBundle(score=None, potential=None, stage_scores={})
+        return LeaderboardScoreBundle(
+            score=None, potential=None, potential_rank=None, stage_scores={}
+        )
 
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
@@ -333,6 +345,7 @@ def _compute_leaderboard_scores(
     return LeaderboardScoreBundle(
         score=score,
         potential=potential,
+        potential_rank=None,
         stage_scores=stage_scores,
     )
 
@@ -396,6 +409,9 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
             knockout_by_id=ctx.knockout_by_id,
         )
         _write_stored_scores(ub, revision, bundle)
+    from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+
+    persist_potential_ranks_for_bracket(bracket)
     return len(ubs)
 
 

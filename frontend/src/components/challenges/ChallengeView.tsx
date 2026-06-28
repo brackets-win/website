@@ -200,7 +200,9 @@ export function ChallengeView({
 
   const leaderboardColumns = useMemo(() => {
     if (!challenge?.show_live_group_results_note) return columns;
-    return columns.filter((col) => col.key !== 'potential');
+    return columns.filter(
+      (col) => col.key !== 'potential' && col.key !== 'potential_rank',
+    );
   }, [columns, challenge?.show_live_group_results_note]);
 
   useEffect(() => {
