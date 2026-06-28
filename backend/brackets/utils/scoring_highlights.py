@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from brackets.models import BracketStage, GroupStage, KnockoutStage, UserBracket
-from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
+from brackets.utils.sync_group_knockout import (
+    _get_first_knockout_stage,
+    contestants_in_stage_for_scoring,
+)
 
 
 def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
@@ -77,11 +80,21 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
 
     group_advancers = sorted(set(group_advancers))
 
+    # Knockout-only brackets seed the first round, so those slots earn no
+    # points and must not be highlighted. Group → knockout brackets keep it:
+    # the first round reflects who the user picked to advance from groups.
+    has_group_stage = ub.bracket.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ).exists()
+    first_ko = None if has_group_stage else _get_first_knockout_stage(ub.bracket)
+
     for stage in ub.bracket.stages.filter(
         stage_type=BracketStage.StageType.KNOCKOUT
     ).order_by("order"):
         ks = KnockoutStage.objects.filter(pk=stage.pk).first()
         if ks and ks.is_third_place:
+            continue
+        if first_ko is not None and stage.pk == first_ko.pk:
             continue
         user_ids = contestants_in_stage_for_scoring(ub, stage)
         master_ids = contestants_in_stage_for_scoring(master, stage)

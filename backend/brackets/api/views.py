@@ -1235,12 +1235,31 @@ def challenge_leaderboard(
     columns.append(
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS")
     )
+    # Knockout-only brackets seed the first round, so it earns no points and
+    # gets no column. Group → knockout brackets keep it: users pick who
+    # advances from the group stage into that first knockout round.
+    has_group_stage = any(
+        stage.stage_type == BracketStage.StageType.GROUP for stage in stages
+    )
+    hidden_stage_id = None
+    if not has_group_stage:
+        first_ko = next(
+            (
+                stage
+                for stage in stages
+                if stage.stage_type == BracketStage.StageType.KNOCKOUT
+            ),
+            None,
+        )
+        if first_ko is not None:
+            hidden_stage_id = first_ko.id
     columns.extend(
         serializers.leaderboard_column(
             key=f"stage:{stage.id}",
             name=stage.name,
         )
         for stage in stages
+        if stage.id != hidden_stage_id
     )
     columns.append(
         serializers.leaderboard_column(key="champion", name="Champions")
@@ -1277,10 +1296,14 @@ def challenge_leaderboard(
             stage_scores = scores.stage_scores
             score = scores.score
             potential = None if omit_potential else scores.potential
+            potential_rank = (
+                scores.potential_rank if show_potential_rank else None
+            )
         else:
             stage_scores = {col["key"]: None for col in columns}
             score = None
             potential = None
+            potential_rank = None
         player_name = (ub.display_name or "").strip() or ub.user.username
         entries.append(
             serializers.leaderboard_entry(
@@ -1289,6 +1312,7 @@ def challenge_leaderboard(
                 user_bracket_id=ub.id,
                 score=score,
                 potential=potential,
+                potential_rank=potential_rank,
                 stage_scores=stage_scores,
                 top_four_picks=(
                     serialize_top_four_picks(ub, top_four_ctx)
