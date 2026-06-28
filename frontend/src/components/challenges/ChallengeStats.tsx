@@ -27,6 +27,14 @@ type SortState = {
   direction: 'asc' | 'desc';
 };
 
+type StatsSubtab = 'teams' | 'groups' | 'knockout';
+
+const SUBTAB_LABELS: Record<StatsSubtab, string> = {
+  teams: 'Teams',
+  groups: 'Groups',
+  knockout: 'Knockout',
+};
+
 function TeamChip({
   displayName,
   imageUrl,
@@ -308,6 +316,20 @@ export function ChallengeStats({
 }: Props) {
   const { submitted_count, group_stage, knockout, bracket } = stats;
   const bracketSlotCount = Object.keys(bracket?.slots ?? {}).length;
+  const hasTeams = knockout.columns.length > 0;
+  const hasGroups = group_stage.length > 0;
+  const hasKnockout = bracketSlotCount > 0 && bracketId != null;
+  const availableSubtabs = useMemo<StatsSubtab[]>(() => {
+    const tabs: StatsSubtab[] = [];
+    if (hasTeams) tabs.push('teams');
+    if (hasGroups) tabs.push('groups');
+    if (hasKnockout) tabs.push('knockout');
+    return tabs;
+  }, [hasTeams, hasGroups, hasKnockout]);
+  const [activeSubtab, setActiveSubtab] = useState<StatsSubtab>('teams');
+  const currentSubtab = availableSubtabs.includes(activeSubtab)
+    ? activeSubtab
+    : availableSubtabs[0];
   const [sort, setSort] = useState<SortState>({
     key: 'progression_score',
     direction: 'desc',
@@ -391,7 +413,32 @@ export function ChallengeStats({
         {submitted_count === 1 ? 'bracket' : 'brackets'}
       </p>
 
-      {group_stage.length > 0 ? (
+      {availableSubtabs.length > 1 ? (
+        <nav
+          className="challenge-stats__subtabs"
+          role="tablist"
+          aria-label="Stats sections"
+        >
+          {availableSubtabs.map((subtab) => (
+            <button
+              key={subtab}
+              type="button"
+              role="tab"
+              aria-selected={currentSubtab === subtab}
+              className={
+                currentSubtab === subtab
+                  ? 'challenge-stats__subtab challenge-stats__subtab--active'
+                  : 'challenge-stats__subtab'
+              }
+              onClick={() => setActiveSubtab(subtab)}
+            >
+              {SUBTAB_LABELS[subtab]}
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      {currentSubtab === 'groups' && hasGroups ? (
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Groups</h2>
           <p className="challenge-stats__section-note">
@@ -513,7 +560,7 @@ export function ChallengeStats({
         </section>
       ) : null}
 
-      {knockout.columns.length > 0 ? (
+      {currentSubtab === 'teams' && hasTeams ? (
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Teams</h2>
           <p className="challenge-stats__section-note">
@@ -694,21 +741,21 @@ export function ChallengeStats({
               </tbody>
             </table>
           </div>
+        </section>
+      ) : null}
 
-          {bracketSlotCount > 0 && bracketId != null ? (
-            <div className="challenge-stats__bracket">
-              <h3 className="challenge-stats__subheading">Knockout</h3>
-              <p className="challenge-stats__bracket-note">
-                Percentage of prediction entries that placed teams in each
-                knockout spot. Correct result is highlighted in green.
-              </p>
-              <BracketDistribution
-                bracketId={bracketId}
-                masterUserBracketId={masterUserBracketId ?? null}
-                slots={bracket.slots}
-              />
-            </div>
-          ) : null}
+      {currentSubtab === 'knockout' && hasKnockout && bracketId != null ? (
+        <section className="challenge-stats__section">
+          <h2 className="challenge-stats__heading">Knockout</h2>
+          <p className="challenge-stats__section-note">
+            Percentage of prediction entries that placed teams in each knockout
+            spot. Correct result is highlighted in green.
+          </p>
+          <BracketDistribution
+            bracketId={bracketId}
+            masterUserBracketId={masterUserBracketId ?? null}
+            slots={bracket.slots}
+          />
         </section>
       ) : null}
     </div>
