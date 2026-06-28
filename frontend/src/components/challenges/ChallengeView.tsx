@@ -833,6 +833,8 @@ export function ChallengeView({
             <ChallengeStatsPanel
               stats={stats}
               viewerUsername={currentUser.username}
+              bracketId={challenge.bracket_id}
+              masterUserBracketId={challenge.master_user_bracket_id ?? null}
               onSelectPlayer={
                 canViewPeerBrackets
                   ? (id, name) => {

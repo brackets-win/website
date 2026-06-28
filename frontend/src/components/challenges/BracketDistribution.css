@@ -1,0 +1,184 @@
+/*
+ * Read-only "what did everyone pick" bracket. Reuses the BracketFill board
+ * scaffolding (bf-* layout classes) so it lines up with the fillable bracket,
+ * but renders a per-slot pick distribution instead of clickable chips.
+ */
+.bd {
+  --bf-bg: #f0f2f5;
+  --bf-surface: #ffffff;
+  --bf-border: #d8dde3;
+  --bf-text: #1a1d21;
+  --bf-muted: #5c6470;
+  --bf-accent: var(--app-accent, #5782a8);
+  --bf-line: #c5cdd8;
+  --bf-line-strong: #9aa5b8;
+  --bf-radius: 10px;
+  --bf-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --bf-ko-col-width: 196px;
+  --bd-master: #16a34a;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--bf-text);
+  margin-top: 0.5rem;
+}
+
+.bd-matchup {
+  display: flex;
+  flex-direction: column;
+}
+
+.bd-matchup .bd-slot + .bd-slot {
+  border-top: 1px solid var(--bf-border);
+}
+
+.bd-matchup--single {
+  min-width: 0;
+}
+
+.bd-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.45rem 0.55rem;
+  min-height: 2.85rem;
+}
+
+.bd-slot--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--bf-muted);
+  font-size: 0.85rem;
+}
+
+.bd-slot-top {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 6px;
+  padding: 0.1rem 0.2rem;
+}
+
+.bd-slot-img {
+  width: 1.625rem;
+  height: 1.25rem;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+  flex-shrink: 0;
+}
+
+.bd-slot-img--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bf-border);
+  color: var(--bf-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.bd-slot-top-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.bd-slot-top-pct {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--bf-text);
+}
+
+.bd-slot-others {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 2.075rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.bd-slot-other {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--bf-muted);
+  border-radius: 4px;
+  padding: 0 0.2rem;
+}
+
+.bd-slot-other-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-slot-other-pct {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Master bracket result for this slot — highlight wherever it lands. */
+.bd-slot-top--master {
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 1px #86efac;
+}
+
+.bd-slot-top--master .bd-slot-top-name,
+.bd-slot-top--master .bd-slot-top-pct {
+  color: #15803d;
+}
+
+.bd-slot-other--master {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.bd-slot-other--master .bd-slot-other-pct {
+  color: #15803d;
+}
+
+/* Champion + third-place apex cells. */
+.bd-champion {
+  width: 100%;
+}
+
+.bd-champion .bf-stage-title {
+  margin-bottom: 0.3rem;
+  min-height: 0;
+}
+
+.bd-champion .bd-matchup {
+  border-style: solid;
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.06);
+}
+
+.bd-third {
+  flex-shrink: 0;
+  margin-top: 1.25rem;
+}
+
+.bd-third--stacked {
+  margin-top: 1.5rem;
+}
+
+.bd-third .bd-champion {
+  margin-bottom: 0.5rem;
+}
+
+.bd-third-match {
+  margin-top: 0.35rem;
+}

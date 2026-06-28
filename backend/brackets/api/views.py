@@ -1326,6 +1326,7 @@ def challenge_stats(request: HttpRequest, challenge_id: int) -> JsonResponse:
                 "submitted_count": 0,
                 "group_stage": [],
                 "knockout": {"columns": [], "rows": []},
+                "bracket": {"slots": {}},
             }
         )
 

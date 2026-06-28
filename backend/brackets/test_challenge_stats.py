@@ -84,6 +84,43 @@ class ChallengeStatsTests(TestCase):
         )
         self.assertEqual(row1["percentages"]["group_winner"], 0.0)
 
+    def test_bracket_slot_distribution(self):
+        ub1 = self._submit_with_groups(
+            self.u1,
+            {"A": {"1": self.teams[0].id, "2": self.teams[1].id, "3": self.teams[2].id, "4": self.teams[3].id},
+             "B": {"1": self.teams[4].id, "2": self.teams[5].id, "3": self.teams[6].id, "4": self.teams[7].id}},
+        )
+        ub2 = self._submit_with_groups(
+            self.u2,
+            {"A": {"1": self.teams[0].id, "2": self.teams[1].id, "3": self.teams[2].id, "4": self.teams[3].id},
+             "B": {"1": self.teams[4].id, "2": self.teams[5].id, "3": self.teams[6].id, "4": self.teams[7].id}},
+        )
+        final = KnockoutStage.objects.get(bracket=self.bracket, is_final=True)
+        # u1 picks T1 champion, u2 picks T5 champion (same finalists).
+        for ub, winner in ((ub1, self.teams[0]), (ub2, self.teams[4])):
+            fm = ub.matchup_set.get(stage=final, position=1)
+            fm.contestant1 = self.teams[0]
+            fm.contestant2 = self.teams[4]
+            fm.winner = winner
+            fm.save()
+
+        stats = compute_challenge_stats(self.challenge)
+        slots = stats["bracket"]["slots"]
+
+        # Both placed T1/T5 into the final's two slots.
+        top_slot = slots[f"{final.id}:1:1"]
+        self.assertEqual(top_slot[0]["bracket_contestant_id"], self.teams[0].id)
+        self.assertEqual(top_slot[0]["pct"], 100.0)
+        bot_slot = slots[f"{final.id}:1:2"]
+        self.assertEqual(bot_slot[0]["bracket_contestant_id"], self.teams[4].id)
+        self.assertEqual(bot_slot[0]["pct"], 100.0)
+
+        # Champion split 50/50 between the two finalists, most common first.
+        champ = slots["champion"]
+        self.assertEqual({e["bracket_contestant_id"] for e in champ},
+                         {self.teams[0].id, self.teams[4].id})
+        self.assertEqual([e["pct"] for e in champ], [50.0, 50.0])
+
     def test_knockout_champion_percentage(self):
         ub1 = self._submit_with_groups(
             self.u1,

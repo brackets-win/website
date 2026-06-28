@@ -793,6 +793,24 @@ export type ChallengeStatsKnockoutRow = {
   progression: ChallengeStatsProgressionBucket[];
 };
 
+export type ChallengeStatsBracketSlotEntry = {
+  bracket_contestant_id: number;
+  display_name: string;
+  image_url: string | null;
+  count: number;
+  pct: number;
+};
+
+/**
+ * Knockout pick distribution per bracket slot. Slots are keyed
+ * `"{stage_id}:{position}:{side}"` (side 1 = matchup contestant1, 2 = contestant2)
+ * plus a `champion` slot for the final winner. Each list is sorted most-picked
+ * first.
+ */
+export type ChallengeStatsBracket = {
+  slots: Record<string, ChallengeStatsBracketSlotEntry[]>;
+};
+
 export type ChallengeStats = {
   submitted_count: number;
   group_stage: ChallengeStatsGroup[];
@@ -800,6 +818,7 @@ export type ChallengeStats = {
     columns: LeaderboardColumn[];
     rows: ChallengeStatsKnockoutRow[];
   };
+  bracket: ChallengeStatsBracket;
 };
 
 export async function getChallengeStats(

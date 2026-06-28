@@ -8,12 +8,16 @@ import type {
   LeaderboardColumn,
 } from '../../utils/api';
 
+import { BracketDistribution } from './BracketDistribution';
+
 import './ChallengeStats.css';
 
 type Props = {
   stats: ChallengeStats;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
+  bracketId?: number;
+  masterUserBracketId?: number | null;
 };
 
 type KnockoutSortKey = 'team' | string;
@@ -299,8 +303,11 @@ export function ChallengeStats({
   stats,
   onSelectPlayer,
   viewerUsername,
+  bracketId,
+  masterUserBracketId,
 }: Props) {
-  const { submitted_count, group_stage, knockout } = stats;
+  const { submitted_count, group_stage, knockout, bracket } = stats;
+  const bracketSlotCount = Object.keys(bracket?.slots ?? {}).length;
   const [sort, setSort] = useState<SortState>({
     key: 'progression_score',
     direction: 'desc',
@@ -678,6 +685,21 @@ export function ChallengeStats({
               </tbody>
             </table>
           </div>
+
+          {bracketSlotCount > 0 && bracketId != null ? (
+            <div className="challenge-stats__bracket">
+              <h3 className="challenge-stats__subheading">Bracket</h3>
+              <p className="challenge-stats__bracket-note">
+                How often each team was placed in each spot. The actual result is
+                highlighted in green.
+              </p>
+              <BracketDistribution
+                bracketId={bracketId}
+                masterUserBracketId={masterUserBracketId ?? null}
+                slots={bracket.slots}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
     </div>

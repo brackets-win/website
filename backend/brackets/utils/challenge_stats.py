@@ -104,10 +104,13 @@ def _read_entries_cache(
     submitted_count = cache.get("submitted_count")
     group_teams = cache.get("group_teams")
     knockout = cache.get("knockout")
+    bracket = cache.get("bracket")
     if (
         not isinstance(submitted_count, int)
         or not isinstance(group_teams, list)
         or not isinstance(knockout, dict)
+        # Older caches predate the bracket pick-distribution block; recompute.
+        or not isinstance(bracket, dict)
     ):
         return None
     # Older caches stored the whole blob under "group_stage"; force recompute.
@@ -131,6 +134,7 @@ def _read_entries_cache(
         "submitted_count": submitted_count,
         "group_teams": group_teams,
         "knockout": knockout,
+        "bracket": bracket,
     }
 
 
@@ -165,6 +169,7 @@ def _write_entries_cache(
         "submitted_count": entries_part["submitted_count"],
         "group_teams": entries_part["group_teams"],
         "knockout": entries_part["knockout"],
+        "bracket": entries_part["bracket"],
     }
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
@@ -242,6 +247,7 @@ def _merge_stats_parts(
         "submitted_count": entries_part["submitted_count"],
         "group_stage": group_stage,
         "knockout": entries_part["knockout"],
+        "bracket": entries_part["bracket"],
     }
 
 
@@ -662,6 +668,77 @@ def _compute_points_part(challenge: BracketChallenge) -> dict[str, Any]:
     }
 
 
+def _compute_bracket_slots(
+    user_brackets: list[UserBracket],
+    *,
+    knockout_stages: list[BracketStage],
+    final_stage: KnockoutStage | None,
+    third_place_stage: BracketStage | None,
+    contestant_info: dict[int, dict[str, Any]],
+    submitted_count: int,
+) -> dict[str, Any]:
+    """Pick distribution for each knockout bracket slot across submitted entries.
+
+    Slots are keyed ``"{stage_id}:{position}:{side}"`` where ``side`` is ``1`` for
+    a matchup's first contestant and ``2`` for its second, mirroring how the
+    bracket UI splits each box. The champion (final winner) is keyed ``champion``
+    and the third-place winner ``third_place``. Depends only on submitted entries
+    (not the master), so this lives in the entries cache and recomputes when a
+    bracket is submitted or edited.
+    """
+    knockout_stage_ids = {s.id for s in knockout_stages}
+    final_stage_id = final_stage.id if final_stage is not None else None
+    third_place_stage_id = (
+        third_place_stage.id if third_place_stage is not None else None
+    )
+
+    counts: dict[str, dict[int, int]] = {}
+
+    def add(key: str, cid: int | None) -> None:
+        if cid is None:
+            return
+        bucket = counts.setdefault(key, {})
+        bucket[cid] = bucket.get(cid, 0) + 1
+
+    for ub in user_brackets:
+        for m in ub.matchup_set.all():
+            if m.stage_id not in knockout_stage_ids:
+                continue
+            add(f"{m.stage_id}:{m.position}:1", m.contestant1_id)
+            add(f"{m.stage_id}:{m.position}:2", m.contestant2_id)
+            if final_stage_id is not None and m.stage_id == final_stage_id:
+                add("champion", m.winner_id)
+            if (
+                third_place_stage_id is not None
+                and m.stage_id == third_place_stage_id
+            ):
+                add("third_place", m.winner_id)
+
+    slots: dict[str, list[dict[str, Any]]] = {}
+    for key, bucket in counts.items():
+        entries: list[dict[str, Any]] = []
+        for cid, count in bucket.items():
+            info = contestant_info.get(cid)
+            if info is None:
+                continue
+            entries.append(
+                {
+                    "bracket_contestant_id": cid,
+                    "display_name": info["display_name"],
+                    "image_url": info["image_url"],
+                    "count": count,
+                    "pct": round(100.0 * count / submitted_count, 1)
+                    if submitted_count > 0
+                    else 0.0,
+                }
+            )
+        entries.sort(key=lambda e: (-e["count"], e["display_name"].casefold()))
+        if entries:
+            slots[key] = entries
+
+    return {"slots": slots}
+
+
 def compute_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
     entries_part, points_part = _compute_stats_parts(challenge)
     return _merge_stats_parts(entries_part, points_part)
@@ -841,6 +918,7 @@ def _compute_stats_parts(
                 continue
 
     knockout_rows: list[dict[str, Any]] = []
+    contestant_info: dict[int, dict[str, Any]] = {}
     contestants = (
         BracketContestant.objects.filter(bracket=bracket)
         .select_related("contestant")
@@ -849,6 +927,10 @@ def _compute_stats_parts(
     )
     for bc in contestants:
         pub = contestant_public(bc)
+        contestant_info[pub["id"]] = {
+            "display_name": pub["display_name"],
+            "image_url": pub["image_url"],
+        }
         percentages: dict[str, float] = {}
         for col in columns:
             key = col["key"]
@@ -884,10 +966,20 @@ def _compute_stats_parts(
             }
         )
 
+    bracket_slots = _compute_bracket_slots(
+        user_brackets,
+        knockout_stages=knockout_stages,
+        final_stage=final_stage,
+        third_place_stage=third_place_stage,
+        contestant_info=contestant_info,
+        submitted_count=submitted_count,
+    )
+
     entries_part = {
         "submitted_count": submitted_count,
         "group_teams": group_teams,
         "knockout": {"columns": columns, "rows": knockout_rows},
+        "bracket": bracket_slots,
     }
     points_part = {"group_points": group_points}
     return entries_part, points_part
