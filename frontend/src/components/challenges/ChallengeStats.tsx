@@ -146,18 +146,17 @@ function formatAverage(avg: number | null): string {
   return Number(avg.toFixed(2)).toString();
 }
 
-// Green → Yellow → Orange → Red ramp for the group-row "place surprise" tint.
+// Green → Yellow → Orange → Red ramp for the avg-place "prediction surprise" pill.
 const GYOR_STOPS: [number, number, number][] = [
-  [34, 197, 94], // green  (consensus matches the slot)
+  [34, 197, 94], // green  (predicted exactly right)
   [234, 179, 8], // yellow
   [249, 115, 22], // orange
-  [239, 68, 68], // red    (average is far from the slot)
+  [239, 68, 68], // red    (predicted the opposite end of the group)
 ];
 
-// Constant tint opacity. The hue (green→red) carries the meaning, so a perfect
-// prediction still shows a clear green and the biggest miss a clear red. Tune
-// for subtlety.
-const GYOR_ALPHA = 0.2;
+// Pill background opacity. The hue carries the meaning, so a perfect prediction
+// reads clearly green and the biggest miss clearly red. Tune for subtlety.
+const GYOR_ALPHA = 0.85;
 
 function gyorRgb(t: number): [number, number, number] {
   const clamped = Math.min(1, Math.max(0, t));
@@ -175,12 +174,12 @@ function gyorRgb(t: number): [number, number, number] {
 }
 
 /**
- * Subtle row tint based on how far a team's average predicted place sits from
- * its actual (master-bracket) placement, normalized by the max possible gap
- * (teamsInGroup - 1) so groups of different sizes stay comparable. No tint
- * until the master bracket has decided the group.
+ * Pill coloring for the avg-place number, based on how far a team's average
+ * predicted place sits from its actual (master-bracket) placement, normalized
+ * by the max possible gap (teamsInGroup - 1) so groups of different sizes stay
+ * comparable. No pill until the master bracket has placed the team.
  */
-function groupRowHeatStyle(
+function groupAvgPillStyle(
   masterPosition: number | null,
   averagePosition: number | null,
   teamsInGroup: number,
@@ -196,9 +195,10 @@ function groupRowHeatStyle(
     Math.abs(masterPosition - averagePosition) / (teamsInGroup - 1),
   );
   const [r, g, b] = gyorRgb(t);
-  const tint = `rgba(${r}, ${g}, ${b}, ${GYOR_ALPHA})`;
+  const textColor = relativeLuminance(r, g, b) < 0.5 ? '#fff' : '#1f2937';
   return {
-    background: `linear-gradient(${tint}, ${tint}), var(--surface-muted, #f8fafc)`,
+    backgroundColor: `rgba(${r}, ${g}, ${b}, ${GYOR_ALPHA})`,
+    color: textColor,
   };
 }
 
@@ -531,11 +531,6 @@ export function ChallengeStats({
                       <div
                         key={team.bracket_contestant_id}
                         className="challenge-stats__group-row"
-                        style={groupRowHeatStyle(
-                          team.master_position,
-                          team.average_position,
-                          group.teams.length,
-                        )}
                       >
                         <span className="challenge-stats__group-rank">
                           {index + 1}
@@ -544,12 +539,26 @@ export function ChallengeStats({
                           displayName={team.display_name}
                           imageUrl={team.image_url}
                         />
-                        <span
-                          className="challenge-stats__group-avg"
-                          title={`${team.pick_count} picks`}
-                        >
-                          {formatAverage(team.average_position)}
-                        </span>
+                        {(() => {
+                          const pill = groupAvgPillStyle(
+                            team.master_position,
+                            team.average_position,
+                            group.teams.length,
+                          );
+                          return (
+                            <span
+                              className={
+                                pill
+                                  ? 'challenge-stats__group-avg challenge-stats__group-avg--pill'
+                                  : 'challenge-stats__group-avg'
+                              }
+                              style={pill}
+                              title={`${team.pick_count} picks`}
+                            >
+                              {formatAverage(team.average_position)}
+                            </span>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
