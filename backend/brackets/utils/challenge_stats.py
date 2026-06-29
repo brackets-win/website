@@ -217,23 +217,34 @@ def _order_teams_by_master(
     """Rank teams by the master bracket, keeping avg-place order as fallback.
 
     ``teams`` arrives pre-sorted by average placement, so unranked teams (or an
-    unfilled master group) keep that order.
+    unfilled master group) keep that order. Each team is annotated with its
+    ``master_position`` (1-indexed final placement), or ``None`` when the master
+    bracket hasn't placed it yet.
     """
-    if not master_order:
-        return teams
     rank: dict[int, int] = {}
     for idx, team_id in enumerate(master_order):
         try:
             rank[int(team_id)] = idx
         except (TypeError, ValueError):
             continue
+    annotated = [
+        {
+            **team,
+            "master_position": (
+                rank[int(team["bracket_contestant_id"])] + 1
+                if int(team["bracket_contestant_id"]) in rank
+                else None
+            ),
+        }
+        for team in teams
+    ]
     if not rank:
-        return teams
+        return annotated
     fallback = len(rank)
     return [
         team
         for _, team in sorted(
-            enumerate(teams),
+            enumerate(annotated),
             key=lambda it: (
                 rank.get(int(it[1]["bracket_contestant_id"]), fallback),
                 it[0],

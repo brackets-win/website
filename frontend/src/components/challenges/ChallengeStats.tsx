@@ -146,6 +146,62 @@ function formatAverage(avg: number | null): string {
   return Number(avg.toFixed(2)).toString();
 }
 
+// Green → Yellow → Orange → Red ramp for the group-row "place surprise" tint.
+const GYOR_STOPS: [number, number, number][] = [
+  [34, 197, 94], // green  (consensus matches the slot)
+  [234, 179, 8], // yellow
+  [249, 115, 22], // orange
+  [239, 68, 68], // red    (average is far from the slot)
+];
+
+// Constant tint opacity. The hue (green→red) carries the meaning, so a perfect
+// prediction still shows a clear green and the biggest miss a clear red. Tune
+// for subtlety.
+const GYOR_ALPHA = 0.2;
+
+function gyorRgb(t: number): [number, number, number] {
+  const clamped = Math.min(1, Math.max(0, t));
+  const segments = GYOR_STOPS.length - 1;
+  const scaled = clamped * segments;
+  const i = Math.min(segments - 1, Math.floor(scaled));
+  const f = scaled - i;
+  const [r1, g1, b1] = GYOR_STOPS[i];
+  const [r2, g2, b2] = GYOR_STOPS[i + 1];
+  return [
+    Math.round(r1 + (r2 - r1) * f),
+    Math.round(g1 + (g2 - g1) * f),
+    Math.round(b1 + (b2 - b1) * f),
+  ];
+}
+
+/**
+ * Subtle row tint based on how far a team's average predicted place sits from
+ * its actual (master-bracket) placement, normalized by the max possible gap
+ * (teamsInGroup - 1) so groups of different sizes stay comparable. No tint
+ * until the master bracket has decided the group.
+ */
+function groupRowHeatStyle(
+  masterPosition: number | null,
+  averagePosition: number | null,
+  teamsInGroup: number,
+): CSSProperties | undefined {
+  if (masterPosition == null || averagePosition == null || teamsInGroup <= 1) {
+    return undefined;
+  }
+  // Normalized [0, 1]: 0 = predicted exactly right, 1 = predicted the opposite
+  // end of the group. In a group of 4 this maps 1-vs-1→green, 1-vs-2→yellow,
+  // 1-vs-3→orange, 1-vs-4→red.
+  const t = Math.min(
+    1,
+    Math.abs(masterPosition - averagePosition) / (teamsInGroup - 1),
+  );
+  const [r, g, b] = gyorRgb(t);
+  const tint = `rgba(${r}, ${g}, ${b}, ${GYOR_ALPHA})`;
+  return {
+    background: `linear-gradient(${tint}, ${tint}), var(--surface-muted, #f8fafc)`,
+  };
+}
+
 type GroupDifficulty = {
   label: string;
   level: 'easy' | 'medium' | 'hard';
@@ -475,6 +531,11 @@ export function ChallengeStats({
                       <div
                         key={team.bracket_contestant_id}
                         className="challenge-stats__group-row"
+                        style={groupRowHeatStyle(
+                          team.master_position,
+                          team.average_position,
+                          group.teams.length,
+                        )}
                       >
                         <span className="challenge-stats__group-rank">
                           {index + 1}

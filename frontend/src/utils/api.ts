@@ -762,6 +762,8 @@ export type ChallengeStatsGroupTeam = {
   display_name: string;
   image_url: string | null;
   average_position: number | null;
+  /** Final placement from the master bracket; null until the group is decided. */
+  master_position: number | null;
   pick_count: number;
 };
 
