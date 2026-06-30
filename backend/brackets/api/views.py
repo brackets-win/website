@@ -1605,6 +1605,10 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
     from brackets.utils.challenge_stats import invalidate_challenge_stats_for_user_bracket
 
     if ub.is_master:
+        # A result on the next match means it's no longer upcoming; drop it.
+        from brackets.utils.next_match import clear_next_match_if_matchup
+
+        clear_next_match_if_matchup(ub.bracket, m.id)
         on_master_bracket_changed(ub.bracket, materialize=False)
     elif ub.submitted_at is not None:
         refresh_user_bracket_leaderboard_cache(ub)

@@ -89,6 +89,29 @@ def get_next_match_matchup(bracket):
     return m
 
 
+def clear_next_match_if_matchup(bracket, matchup_id: int) -> bool:
+    """Clear the next match when ``matchup_id`` is the one currently flagged.
+
+    Used when a master result is set on the next match: it's no longer an
+    upcoming game, so the selection (pointer, pending flag, stored picks) is
+    dropped and the column disappears. Returns True when something was cleared.
+    """
+    from brackets.models import UserBracket
+
+    if get_next_match_matchup_id(bracket.metadata) != matchup_id:
+        return False
+
+    bracket.metadata = set_next_match_on_metadata(bracket.metadata, None)
+    bracket.save(update_fields=["metadata"])
+    clear_next_match_pending(bracket)
+    UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        leaderboard_next_match_pick__isnull=False,
+    ).update(leaderboard_next_match_pick=None)
+    return True
+
+
 def show_next_match_for_bracket(bracket) -> bool:
     """True when a valid next match is set and projections aren't hidden."""
     from brackets.utils.group_results_mode import (

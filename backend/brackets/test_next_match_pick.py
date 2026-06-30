@@ -299,6 +299,55 @@ class NextMatchPickTests(TestCase):
         ub_x.refresh_from_db()
         self.assertIsNone(ub_x.leaderboard_next_match_pick_id)
 
+    def test_setting_winner_on_next_match_clears_it(self):
+        from brackets.utils.next_match import is_next_match_pending
+
+        ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
+        self._set_next_match(self._master_sf2().id)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        ub_x.refresh_from_db()
+        self.assertIsNotNone(ub_x.leaderboard_next_match_pick_id)
+
+        # Admin sets the result of the very game that is the next match.
+        sf2 = self._master_sf2()
+        self.client.login(username="host", password="x")
+        res = self.client.patch(
+            f"/brackets/api/matchups/{sf2.id}",
+            data=json.dumps({"winner_id": self.t3.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        # No game is the next match anymore: pointer, flag, and picks all clear.
+        self.bracket.refresh_from_db()
+        self.assertIsNone(get_next_match_matchup(self.bracket))
+        self.assertNotIn(
+            "next_match_matchup_id", self.bracket.metadata
+        )
+        self.assertFalse(is_next_match_pending(self.bracket))
+        ub_x.refresh_from_db()
+        self.assertIsNone(ub_x.leaderboard_next_match_pick_id)
+
+    def test_setting_winner_on_other_match_keeps_next_match(self):
+        self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
+        sf2 = self._master_sf2()
+        self._set_next_match(sf2.id)
+
+        # Decide an unrelated game (the already-played SF1): next match stays.
+        semi, _ = self._ko_stages()
+        sf1 = self.master.matchup_set.get(stage=semi, position=1)
+        self.client.login(username="host", password="x")
+        res = self.client.patch(
+            f"/brackets/api/matchups/{sf1.id}",
+            data=json.dumps({"winner_id": self.t1.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.bracket.refresh_from_db()
+        self.assertEqual(get_next_match_matchup(self.bracket).id, sf2.id)
+
     def test_endpoint_forbidden_for_non_admin(self):
         self._submit("player", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
         sf2 = self._master_sf2()
