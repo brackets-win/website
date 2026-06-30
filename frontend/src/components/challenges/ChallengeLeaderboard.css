@@ -83,11 +83,46 @@
   box-shadow: var(--app-shadow, 0 1px 2px rgba(16, 24, 40, 0.06));
 }
 
+/* Tied-rank cards sit tighter together; a new rank opens with a larger gap. */
+.leaderboard-cards--rank-grouped {
+  gap: 0;
+}
+
+.leaderboard-cards--rank-grouped .leaderboard-card {
+  margin-top: 0.25rem;
+}
+
+.leaderboard-cards--rank-grouped .leaderboard-card--group-start {
+  margin-top: 0.65rem;
+}
+
+.leaderboard-cards--rank-grouped .leaderboard-card:first-child {
+  margin-top: 0;
+}
+
 .leaderboard-card__head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.5rem 0.65rem;
   align-items: center;
+}
+
+.leaderboard-card__head--toggle {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  cursor: pointer;
+}
+
+.leaderboard-card__head--toggle:focus-visible {
+  outline: 2px solid var(--app-accent, #5782a8);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.leaderboard-card__chevron {
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--app-muted, #64748b);
+  transition: transform 0.15s ease;
 }
 
 .leaderboard-card__rank {
@@ -224,6 +259,20 @@
 .challenge-leaderboard__table .is-rank {
   width: 3.25rem;
   color: var(--text-muted, #64748b);
+}
+
+/* Group tied ranks: faint line between same-rank players, bolder line where
+   the rank changes, so a run of same-rank players reads as one block. */
+.challenge-leaderboard__table tbody .leaderboard-row--rank-group-mid td {
+  border-bottom: 1px solid rgba(100, 116, 139, 0.12);
+}
+
+.challenge-leaderboard__table tbody .leaderboard-row--rank-group-end td {
+  border-bottom: 2px solid rgba(71, 85, 105, 0.35);
+}
+
+.challenge-leaderboard__table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .leaderboard-rank-cell {
