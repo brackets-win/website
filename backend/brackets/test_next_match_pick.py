@@ -8,7 +8,10 @@ from django.utils import timezone
 
 from brackets.models import BracketChallenge, BracketContestant, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
-from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
+from brackets.utils.knockout_tree import (
+    ensure_knockout_matchup_shell,
+    ensure_knockout_structure_for_user_bracket,
+)
 from brackets.utils.leaderboard_scoring import (
     refresh_all_submitted_leaderboard_scores_for_bracket,
 )
@@ -18,6 +21,7 @@ from brackets.utils.next_match import (
 )
 from brackets.utils.next_match_pick import (
     _assign_picks,
+    _knockout_depths_by_entry,
     compute_next_match_picks_for_bracket,
     persist_next_match_picks_for_bracket,
 )
@@ -41,6 +45,51 @@ class AssignPicksTests(TestCase):
         pref = {1: None, 2: None}
         out = _assign_picks(pref, x_id=10, y_id=20)
         self.assertEqual(out, {1: None, 2: None})
+
+
+class KnockoutDepthTests(TestCase):
+    """Depth follows knockout round reached only — group placement is ignored."""
+
+    def setUp(self):
+        self.host = User.objects.create_user(username="host", password="x")
+        self.bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT", "next-match-gk", "Next Match GK", 8, self.host
+        )
+        self.teams = [
+            BracketContestant.objects.create(
+                bracket=self.bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
+            for i in range(8)
+        ]
+        self.challenge = BracketChallenge.objects.create(
+            name="Pool", bracket=self.bracket, created_by=self.host, join_code="GKNEXT01"
+        )
+
+    def _submit_with_groups(self, username, gp):
+        user = User.objects.create_user(username=username, password="x")
+        ub = UserBracket.objects.create(
+            bracket=self.bracket,
+            user=user,
+            challenge=self.challenge,
+            is_master=False,
+            submitted_at=timezone.now(),
+            metadata={"group_positions": gp},
+        )
+        ensure_knockout_matchup_shell(ub)
+        return ub
+
+    def test_same_round_different_group_placement_ties(self):
+        t = self.teams
+        # T1 finishes 1st in group A, T2 finishes 2nd — both advance to the first
+        # knockout round, so they reached the same depth despite the placement gap.
+        gp = {
+            "A": {"1": t[0].id, "2": t[1].id, "3": t[2].id, "4": t[3].id},
+            "B": {"1": t[4].id, "2": t[5].id, "3": t[6].id, "4": t[7].id},
+        }
+        ub = self._submit_with_groups("p1", gp)
+
+        depths = _knockout_depths_by_entry(self.bracket, [ub], {t[0].id, t[1].id})
+        self.assertEqual(depths[ub.id][t[0].id], depths[ub.id][t[1].id])
 
 
 class NextMatchPickTests(TestCase):
@@ -145,9 +194,9 @@ class NextMatchPickTests(TestCase):
         self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
         self.assertEqual(ub_y.leaderboard_next_match_pick_id, self.t4.id)
 
-    def test_picks_follow_progression_score(self):
-        # Each entry wants whichever of the two next-match teams they took further
-        # in their own bracket (higher progression score).
+    def test_picks_follow_knockout_depth(self):
+        # Each entry wants whichever of the two next-match teams they took deeper
+        # into the knockout rounds in their own bracket.
         ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
         ub_y = self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
         self._set_next_match(self._master_sf2().id)
