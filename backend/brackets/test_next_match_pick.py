@@ -18,7 +18,7 @@ from brackets.utils.next_match import (
 )
 from brackets.utils.next_match_pick import (
     _assign_picks,
-    _points_based_pref,
+    compute_next_match_picks_for_bracket,
     persist_next_match_picks_for_bracket,
 )
 
@@ -145,18 +145,16 @@ class NextMatchPickTests(TestCase):
         self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
         self.assertEqual(ub_y.leaderboard_next_match_pick_id, self.t4.id)
 
-    def test_points_fallback_prefers_higher_potential(self):
-        # Exercises the in-memory potential-points fallback when rank enumeration
-        # is unavailable (same tree math, no master DB writes).
+    def test_picks_follow_progression_score(self):
+        # Each entry wants whichever of the two next-match teams they took further
+        # in their own bracket (higher progression score).
         ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
         ub_y = self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
-        sf2 = self._master_sf2()
+        self._set_next_match(self._master_sf2().id)
 
-        pref = _points_based_pref(
-            self.bracket, sf2, self.t3.id, self.t4.id, [ub_x, ub_y]
-        )
-        self.assertEqual(pref[ub_x.id], "x")
-        self.assertEqual(pref[ub_y.id], "y")
+        picks = compute_next_match_picks_for_bracket(self.bracket)
+        self.assertEqual(picks[ub_x.id], self.t3.id)
+        self.assertEqual(picks[ub_y.id], self.t4.id)
 
     def test_clearing_next_match_clears_picks(self):
         ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)

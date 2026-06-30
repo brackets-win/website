@@ -370,6 +370,49 @@ def _group_exact_placement_points(
     return total
 
 
+def progression_scores_by_entry(
+    bracket: Bracket,
+    user_brackets: list[UserBracket],
+) -> dict[int, dict[int, int]]:
+    """Per submitted entry: ``{team_id: progression_score}`` (matches stats page).
+
+    This is the same per-team "how far did you take this team" score the Stats page
+    shows, computed independently of the master bracket.
+    """
+    groups_preview = bracket_groups_preview(bracket)
+
+    knockout_stages = list(
+        bracket.stages.filter(
+            stage_type=BracketStage.StageType.KNOCKOUT
+        ).order_by("order")
+    )
+    third_place_ids = {
+        ks.pk
+        for ks in KnockoutStage.objects.filter(bracket=bracket, is_third_place=True)
+    }
+    third_place_stage = next(
+        (s for s in knockout_stages if s.id in third_place_ids), None
+    )
+    main_knockout_stages = [
+        s for s in knockout_stages if s.id not in third_place_ids
+    ]
+
+    out: dict[int, dict[int, int]] = {}
+    for ub in user_brackets:
+        ub_hits: dict[str, set[int]] = {
+            f"stage:{stage.id}": contestants_in_stage_for_scoring(ub, stage)
+            for stage in knockout_stages
+        }
+        out[ub.id] = _progression_scores_for_user_bracket(
+            ub,
+            groups_preview=groups_preview,
+            main_knockout_stages=main_knockout_stages,
+            third_place_stage=third_place_stage,
+            ub_hits=ub_hits,
+        )
+    return out
+
+
 def _progression_scores_for_user_bracket(
     ub: UserBracket,
     *,

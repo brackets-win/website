@@ -1,11 +1,11 @@
 """Per-entry "who do you want to win the next match" picks for the leaderboard.
 
 For the admin-set next match (a single undecided master knockout game between two
-contestants X and Y), each submitted entry "wants" whichever outcome gives them a
-better *potential rank*. When potential rank can't be enumerated yet, we fall back
-to *potential points*. Entries that are indifferent (both outcomes reach the same
-best result) are shown the less popular of X/Y — the underdog among the players who
-do have a preference — and nothing at all when that is tied.
+contestants X and Y), each submitted entry "wants" whichever of X/Y they took
+further in their own bracket — the contestant with the higher *progression score*
+(the same per-team score shown on the Stats page). Entries that took both equally
+far (a tie, including never picking either) are shown the less popular of X/Y — the
+underdog among the players who do have a preference — and nothing when that is tied.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ def compute_next_match_picks_for_bracket(
     A value of ``None`` means show nothing for that entry. Returns ``None`` overall
     when there is no valid next match (caller should clear all stored picks).
     """
+    from brackets.utils.challenge_stats import progression_scores_by_entry
     from brackets.utils.next_match import get_next_match_matchup
 
     m = get_next_match_matchup(bracket)
@@ -40,71 +41,21 @@ def compute_next_match_picks_for_bracket(
     if not ubs:
         return {}
 
-    pref = _rank_based_pref(bracket, m, x_id, y_id, ubs)
-    if pref is None:
-        pref = _points_based_pref(bracket, m, x_id, y_id, ubs)
-    if pref is None:
-        pref = {ub.id: None for ub in ubs}
+    scores_by_entry = progression_scores_by_entry(bracket, ubs)
+
+    pref: dict[int, str | None] = {}
+    for ub in ubs:
+        scores = scores_by_entry.get(ub.id, {})
+        sx = scores.get(x_id, 0)
+        sy = scores.get(y_id, 0)
+        if sx > sy:
+            pref[ub.id] = "x"
+        elif sy > sx:
+            pref[ub.id] = "y"
+        else:
+            pref[ub.id] = None
 
     return _assign_picks(pref, x_id, y_id)
-
-
-def _rank_based_pref(
-    bracket, m, x_id: int, y_id: int, ubs: list[UserBracket]
-) -> dict[int, str | None] | None:
-    """Preference ('x'/'y'/None) by best potential rank, or None if not enumerable."""
-    from brackets.utils.potential_rank import (
-        compute_next_match_side_ranks_for_bracket,
-    )
-
-    side_ranks = compute_next_match_side_ranks_for_bracket(
-        bracket, m.stage_id, m.position, x_id
-    )
-    if side_ranks is None:
-        return None
-
-    pref: dict[int, str | None] = {}
-    for ub in ubs:
-        rx, ry = side_ranks.get(ub.id, (None, None))
-        if rx is None and ry is None:
-            pref[ub.id] = None
-        elif ry is None:
-            pref[ub.id] = "x"
-        elif rx is None:
-            pref[ub.id] = "y"
-        elif rx < ry:
-            pref[ub.id] = "x"
-        elif ry < rx:
-            pref[ub.id] = "y"
-        else:
-            pref[ub.id] = None
-    return pref
-
-
-def _points_based_pref(
-    bracket, m, x_id: int, y_id: int, ubs: list[UserBracket]
-) -> dict[int, str | None] | None:
-    """Preference ('x'/'y'/None) by best potential points (rank fallback)."""
-    from brackets.utils.potential_rank import (
-        compute_next_match_side_points_for_bracket,
-    )
-
-    side_points = compute_next_match_side_points_for_bracket(
-        bracket, m.stage_id, m.position, x_id, y_id
-    )
-    if side_points is None:
-        return None
-
-    pref: dict[int, str | None] = {}
-    for ub in ubs:
-        px, py = side_points.get(ub.id, (None, None))
-        if px is None or py is None or px == py:
-            pref[ub.id] = None
-        elif px > py:
-            pref[ub.id] = "x"
-        else:
-            pref[ub.id] = "y"
-    return pref
 
 
 def _assign_picks(
