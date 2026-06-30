@@ -136,7 +136,7 @@
 .leaderboard-card__name {
   margin: 0;
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -268,7 +268,7 @@
 }
 
 .challenge-leaderboard__table tbody .leaderboard-row--rank-group-end td {
-  border-bottom: 2px solid rgba(71, 85, 105, 0.35);
+  border-bottom: 2px solid rgba(71, 85, 105, 0.22);
 }
 
 .challenge-leaderboard__table tbody tr:last-child td {
@@ -347,7 +347,7 @@
   background: none;
   color: var(--app-accent, #5782a8);
   font: inherit;
-  font-weight: 600;
+  font-weight: 400;
   text-align: left;
   text-decoration: underline;
   text-underline-offset: 2px;
