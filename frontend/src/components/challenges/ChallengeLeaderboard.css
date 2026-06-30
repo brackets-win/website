@@ -268,14 +268,14 @@
   color: var(--text-muted, #64748b);
 }
 
-/* Group tied ranks: faint line between same-rank players, bolder line where
-   the rank changes, so a run of same-rank players reads as one block. */
+/* Band rows by the sorted column: faint hairline within a shared-value run,
+   a darker line where the value changes, so each band reads as one block. */
 .challenge-leaderboard__table tbody .leaderboard-row--rank-group-mid td {
   border-bottom: 1px solid rgba(100, 116, 139, 0.12);
 }
 
 .challenge-leaderboard__table tbody .leaderboard-row--rank-group-end td {
-  border-bottom: 2px solid rgba(71, 85, 105, 0.22);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.45);
 }
 
 .challenge-leaderboard__table tbody tr:last-child td {

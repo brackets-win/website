@@ -157,6 +157,32 @@ function playerLabel(entry: LeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
 }
 
+/**
+ * Value used to band rows together for the current sort: adjacent rows sharing
+ * this value form one divider group. Rank bands by competition rank; other
+ * columns band by their underlying value so a sort reveals shared scores.
+ */
+function groupValueOf(
+  entry: LeaderboardEntry,
+  sortKey: SortKey,
+  ranks: Map<number, number>,
+): number | string | null {
+  switch (sortKey) {
+    case 'rank':
+      return ranks.get(entry.user_bracket_id) ?? null;
+    case 'player':
+      return playerLabel(entry);
+    case 'total':
+      return entry.score;
+    case 'potential':
+      return entry.potential;
+    case 'potential_rank':
+      return entry.potential_rank;
+    default:
+      return entry.stage_scores[sortKey] ?? null;
+  }
+}
+
 /** Single contestant image (the team this player wants to win the next match). */
 function NextMatchPick({ pick }: { pick: LeaderboardEntry['next_match_pick'] }) {
   return (
@@ -385,27 +411,25 @@ export function ChallengeLeaderboard({
   }, [submittedEntries, sort, ranks, hasPotential]);
 
   /**
-   * Position of each row within its tied-rank run, based on adjacency in the
-   * current sort. Drives the dividers that bracket same-rank players together:
-   * a divider is drawn only between different ranks, not within a tie.
+   * Position of each row within its banded run, based on adjacency in the
+   * current sort. Drives the dividers that bracket together rows sharing the
+   * sorted column's value: a divider is drawn only where that value changes.
    */
-  const rankGroupFlags = useMemo(() => {
+  const rowGroupFlags = useMemo(() => {
     const flags = new Map<number, { isStart: boolean; isEnd: boolean }>();
+    const keyAt = (i: number) =>
+      groupValueOf(sortedEntries[i], sort.key, ranks);
     for (let i = 0; i < sortedEntries.length; i++) {
-      const rank = ranks.get(sortedEntries[i].user_bracket_id);
-      const prevRank =
-        i > 0 ? ranks.get(sortedEntries[i - 1].user_bracket_id) : undefined;
-      const nextRank =
-        i < sortedEntries.length - 1
-          ? ranks.get(sortedEntries[i + 1].user_bracket_id)
-          : undefined;
+      const key = keyAt(i);
+      const prevKey = i > 0 ? keyAt(i - 1) : Symbol();
+      const nextKey = i < sortedEntries.length - 1 ? keyAt(i + 1) : Symbol();
       flags.set(sortedEntries[i].user_bracket_id, {
-        isStart: i === 0 || rank !== prevRank,
-        isEnd: i === sortedEntries.length - 1 || rank !== nextRank,
+        isStart: i === 0 || key !== prevKey,
+        isEnd: i === sortedEntries.length - 1 || key !== nextKey,
       });
     }
     return flags;
-  }, [sortedEntries, ranks]);
+  }, [sortedEntries, sort.key, ranks]);
 
   if (loading) {
     return <p className="challenge-view__muted">Loading…</p>;
@@ -477,7 +501,7 @@ export function ChallengeLeaderboard({
             const rank = ranks.get(row.user_bracket_id);
             const isViewer =
               viewerUsername != null && row.username === viewerUsername;
-            const group = rankGroupFlags.get(row.user_bracket_id);
+            const group = rowGroupFlags.get(row.user_bracket_id);
             const cardGroupClass = group?.isStart
               ? 'leaderboard-card--group-start'
               : 'leaderboard-card--group-cont';
@@ -690,7 +714,7 @@ export function ChallengeLeaderboard({
             const rank = ranks.get(row.user_bracket_id);
             const isViewer =
               viewerUsername != null && row.username === viewerUsername;
-            const group = rankGroupFlags.get(row.user_bracket_id);
+            const group = rowGroupFlags.get(row.user_bracket_id);
             const groupClass = group?.isEnd
               ? 'leaderboard-row--rank-group-end'
               : 'leaderboard-row--rank-group-mid';
