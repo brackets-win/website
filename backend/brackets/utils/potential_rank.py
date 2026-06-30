@@ -294,7 +294,6 @@ def compute_next_match_side_ranks_for_bracket(
         batch_third_bonus: list[np.ndarray] = []
 
         def flush_batch() -> None:
-            nonlocal best
             if not batch_masks:
                 return
             master_mask = np.stack(batch_masks, axis=0)
@@ -306,7 +305,7 @@ def compute_next_match_side_ranks_for_bracket(
             if third_pts > 0 and batch_third_bonus:
                 totals += np.stack(batch_third_bonus, axis=0)
             ranks = _competition_ranks_batch(totals)
-            best = np.minimum(best, np.min(ranks, axis=0))
+            best[:] = np.minimum(best, np.min(ranks, axis=0))
             batch_masks.clear()
             batch_champ_bonus.clear()
             batch_third_bonus.clear()
@@ -451,7 +450,6 @@ def compute_next_match_side_points_for_bracket(
         batch_third_bonus: list[np.ndarray] = []
 
         def flush_batch() -> None:
-            nonlocal best
             if not batch_masks:
                 return
             master_mask = np.stack(batch_masks, axis=0)
@@ -462,7 +460,7 @@ def compute_next_match_side_points_for_bracket(
                 totals += np.stack(batch_champ_bonus, axis=0)
             if third_pts > 0 and batch_third_bonus:
                 totals += np.stack(batch_third_bonus, axis=0)
-            best = np.maximum(best, np.max(totals, axis=0))
+            best[:] = np.maximum(best, np.max(totals, axis=0))
             batch_masks.clear()
             batch_champ_bonus.clear()
             batch_third_bonus.clear()
