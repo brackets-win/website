@@ -10,9 +10,7 @@ do have a preference — and nothing at all when that is tied.
 
 from __future__ import annotations
 
-from django.db import transaction
-
-from brackets.models import BracketContestant, BracketStage, Matchup, UserBracket
+from brackets.models import UserBracket
 
 
 def compute_next_match_picks_for_bracket(
@@ -45,12 +43,14 @@ def compute_next_match_picks_for_bracket(
     pref = _rank_based_pref(bracket, m, x_id, y_id, ubs)
     if pref is None:
         pref = _points_based_pref(bracket, m, x_id, y_id, ubs)
+    if pref is None:
+        pref = {ub.id: None for ub in ubs}
 
     return _assign_picks(pref, x_id, y_id)
 
 
 def _rank_based_pref(
-    bracket, m: Matchup, x_id: int, y_id: int, ubs: list[UserBracket]
+    bracket, m, x_id: int, y_id: int, ubs: list[UserBracket]
 ) -> dict[int, str | None] | None:
     """Preference ('x'/'y'/None) by best potential rank, or None if not enumerable."""
     from brackets.utils.potential_rank import (
@@ -82,75 +82,29 @@ def _rank_based_pref(
 
 
 def _points_based_pref(
-    bracket, m: Matchup, x_id: int, y_id: int, ubs: list[UserBracket]
-) -> dict[int, str | None]:
+    bracket, m, x_id: int, y_id: int, ubs: list[UserBracket]
+) -> dict[int, str | None] | None:
     """Preference ('x'/'y'/None) by best potential points (rank fallback)."""
-    ub_ids = [ub.id for ub in ubs]
-    pot_x = _potential_with_winner(bracket, m.id, x_id, ub_ids)
-    pot_y = _potential_with_winner(bracket, m.id, y_id, ub_ids)
+    from brackets.utils.potential_rank import (
+        compute_next_match_side_points_for_bracket,
+    )
+
+    side_points = compute_next_match_side_points_for_bracket(
+        bracket, m.stage_id, m.position, x_id, y_id
+    )
+    if side_points is None:
+        return None
 
     pref: dict[int, str | None] = {}
-    for ub_id in ub_ids:
-        px = pot_x.get(ub_id)
-        py = pot_y.get(ub_id)
+    for ub in ubs:
+        px, py = side_points.get(ub.id, (None, None))
         if px is None or py is None or px == py:
-            pref[ub_id] = None
+            pref[ub.id] = None
         elif px > py:
-            pref[ub_id] = "x"
+            pref[ub.id] = "x"
         else:
-            pref[ub_id] = "y"
+            pref[ub.id] = "y"
     return pref
-
-
-class _Rollback(Exception):
-    def __init__(self, value):
-        self.value = value
-
-
-def _potential_with_winner(
-    bracket, matchup_id: int, winner_contestant_id: int, ub_ids: list[int]
-) -> dict[int, int | None]:
-    """Potential points per entry with the next match hypothetically decided.
-
-    Applies the winner (propagating downstream on the master in a transaction that
-    is always rolled back) and recomputes each entry's potential score.
-    """
-    from brackets.api.serializers import bracket_groups_preview
-    from brackets.utils.leaderboard_scoring import (
-        load_leaderboard_scoring_context,
-    )
-    from brackets.utils.potential_score import calculate_potential_score
-
-    try:
-        with transaction.atomic():
-            m = Matchup.objects.get(pk=matchup_id)
-            m.winner = BracketContestant.objects.get(pk=winner_contestant_id)
-            m.save()
-
-            ctx = load_leaderboard_scoring_context(bracket)
-            master = ctx.master
-            main_ko_stages = [
-                s
-                for s in ctx.stages
-                if s.stage_type == BracketStage.StageType.KNOCKOUT
-                and not ctx.knockout_by_id[s.pk].is_third_place
-            ]
-            groups_preview = bracket_groups_preview(bracket)
-
-            out: dict[int, int | None] = {}
-            for ub in UserBracket.objects.filter(pk__in=ub_ids).prefetch_related(
-                "matchup_set"
-            ):
-                out[ub.id] = calculate_potential_score(
-                    ub,
-                    master=master,
-                    main_ko_stages=main_ko_stages,
-                    groups_preview=groups_preview,
-                    knockout_by_id=ctx.knockout_by_id,
-                )
-            raise _Rollback(out)
-    except _Rollback as rollback:
-        return rollback.value
 
 
 def _assign_picks(
@@ -200,8 +154,11 @@ def persist_next_match_picks_for_bracket(bracket) -> None:
         )
         return
 
+    to_update: list[UserBracket] = []
     for ub in qs:
         pick = picks.get(ub.id)
         if ub.leaderboard_next_match_pick_id != pick:
             ub.leaderboard_next_match_pick_id = pick
-            ub.save(update_fields=["leaderboard_next_match_pick"])
+            to_update.append(ub)
+    if to_update:
+        UserBracket.objects.bulk_update(to_update, ["leaderboard_next_match_pick"])

@@ -146,8 +146,8 @@ class NextMatchPickTests(TestCase):
         self.assertEqual(ub_y.leaderboard_next_match_pick_id, self.t4.id)
 
     def test_points_fallback_prefers_higher_potential(self):
-        # Exercises the potential-points fallback directly (the savepoint-rollback
-        # recompute), independent of whether rank enumeration is available.
+        # Exercises the in-memory potential-points fallback when rank enumeration
+        # is unavailable (same tree math, no master DB writes).
         ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
         ub_y = self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
         sf2 = self._master_sf2()
@@ -157,10 +157,6 @@ class NextMatchPickTests(TestCase):
         )
         self.assertEqual(pref[ub_x.id], "x")
         self.assertEqual(pref[ub_y.id], "y")
-
-        # The hypothetical winner write must have been rolled back.
-        sf2.refresh_from_db()
-        self.assertIsNone(sf2.winner_id)
 
     def test_clearing_next_match_clears_picks(self):
         ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
