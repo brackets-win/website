@@ -515,7 +515,9 @@
 
 .bf-next-match-control {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.3rem;
   padding: 0.3rem 0.4rem;
   border-top: 1px solid var(--bf-border);
   background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.04);
@@ -545,10 +547,34 @@
   cursor: not-allowed;
 }
 
-.bf-next-match-btn--active {
-  background: var(--bf-accent);
-  border-color: var(--bf-accent);
-  color: #fff;
+/* The matchup already set as the next match: a non-interactive grayed label. */
+.bf-next-match-btn--current {
+  background: var(--bf-surface-muted, #f1f5f9);
+  border-color: var(--bf-border);
+  color: var(--bf-muted);
+  cursor: default;
+}
+
+.bf-next-match-clear {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--bf-muted);
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0.2rem 0.3rem;
+  cursor: pointer;
+}
+
+.bf-next-match-clear:hover:not(:disabled) {
+  color: #c43333;
+}
+
+.bf-next-match-clear:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .bf-slot--with-clear {

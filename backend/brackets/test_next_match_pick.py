@@ -231,6 +231,74 @@ class NextMatchPickTests(TestCase):
         self.bracket.refresh_from_db()
         self.assertIsNone(get_next_match_matchup(self.bracket))
 
+    def test_endpoint_defers_compute_until_apply(self):
+        from brackets.utils.next_match import is_next_match_pending
+
+        ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        ub_y = self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        sf2 = self._master_sf2()
+
+        # Setting the next match flags pending but does NOT compute picks inline.
+        self.client.login(username="host", password="x")
+        res = self.client.patch(
+            f"/brackets/api/brackets/{self.bracket.id}/next-match",
+            data=json.dumps({"matchup_id": sf2.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.bracket.refresh_from_db()
+        self.assertTrue(is_next_match_pending(self.bracket))
+        ub_x.refresh_from_db()
+        ub_y.refresh_from_db()
+        self.assertIsNone(ub_x.leaderboard_next_match_pick_id)
+        self.assertIsNone(ub_y.leaderboard_next_match_pick_id)
+
+        # The master entry advertises a pending recompute (drives the Apply UI).
+        master_res = self.client.get(
+            f"/brackets/api/user-brackets/{self.master.id}"
+        )
+        self.assertTrue(
+            master_res.json()["user_bracket"]["leaderboard_scores_pending"]
+        )
+
+        # Applying (materialize) computes the picks and clears the flag, without
+        # needing any scores to be stale.
+        res = self.client.post(
+            f"/brackets/api/brackets/{self.bracket.id}/materialize-scores"
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["remaining_count"], 0)
+        self.assertFalse(res.json()["leaderboard_scores_pending"])
+        self.bracket.refresh_from_db()
+        self.assertFalse(is_next_match_pending(self.bracket))
+        ub_x.refresh_from_db()
+        ub_y.refresh_from_db()
+        self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
+        self.assertEqual(ub_y.leaderboard_next_match_pick_id, self.t4.id)
+
+    def test_clearing_next_match_takes_effect_without_apply(self):
+        from brackets.utils.next_match import is_next_match_pending
+
+        ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        self._submit("y", sf1=self.t1, sf2=self.t4, final_winner=self.t4)
+        self._set_next_match(self._master_sf2().id)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        ub_x.refresh_from_db()
+        self.assertIsNotNone(ub_x.leaderboard_next_match_pick_id)
+
+        self.client.login(username="host", password="x")
+        res = self.client.patch(
+            f"/brackets/api/brackets/{self.bracket.id}/next-match",
+            data=json.dumps({"matchup_id": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.bracket.refresh_from_db()
+        self.assertFalse(is_next_match_pending(self.bracket))
+        ub_x.refresh_from_db()
+        self.assertIsNone(ub_x.leaderboard_next_match_pick_id)
+
     def test_endpoint_forbidden_for_non_admin(self):
         self._submit("player", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
         sf2 = self._master_sf2()

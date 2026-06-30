@@ -279,8 +279,11 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
         out["score_vs_master"] = None
     if ub.is_master:
         from brackets.utils.leaderboard_scoring import is_master_scoring_pending
+        from brackets.utils.next_match import is_next_match_pending
 
-        out["leaderboard_scores_pending"] = is_master_scoring_pending(ub.bracket)
+        out["leaderboard_scores_pending"] = is_master_scoring_pending(
+            ub.bracket
+        ) or is_next_match_pending(ub.bracket)
     out["metadata"] = ub.metadata if isinstance(ub.metadata, dict) else {}
     if (
         viewer is not None

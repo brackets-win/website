@@ -140,6 +140,10 @@ def materialize_leaderboard_scores_batch(
         # Scores already current, but ranks may be missing (e.g. brackets
         # confirmed before potential rank shipped). Backfill on demand.
         _backfill_potential_ranks_if_missing(bracket, revision)
+        # Next-match selection doesn't change scores, so it can be pending on
+        # its own. Recompute those picks here (the enumeration cost is what the
+        # admin Apply pays for) without re-scoring every entry.
+        _apply_pending_next_match_picks(bracket)
         return {
             "updated_count": 0,
             "remaining_count": 0,
@@ -186,17 +190,34 @@ def materialize_leaderboard_scores_batch(
         _clear_master_scoring_pending(bracket)
         pending = False
         from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+        from brackets.utils.next_match import clear_next_match_pending
         from brackets.utils.next_match_pick import (
             persist_next_match_picks_for_bracket,
         )
 
         persist_potential_ranks_for_bracket(bracket)
         persist_next_match_picks_for_bracket(bracket)
+        clear_next_match_pending(bracket)
     return {
         "updated_count": updated_count,
         "remaining_count": remaining_count,
         "leaderboard_scores_pending": pending,
     }
+
+
+def _apply_pending_next_match_picks(bracket: Bracket) -> None:
+    """Recompute next-match picks if flagged pending, then clear the flag."""
+    from brackets.utils.next_match import (
+        clear_next_match_pending,
+        is_next_match_pending,
+    )
+
+    if not is_next_match_pending(bracket):
+        return
+    from brackets.utils.next_match_pick import persist_next_match_picks_for_bracket
+
+    persist_next_match_picks_for_bracket(bracket)
+    clear_next_match_pending(bracket)
 
 
 def _backfill_potential_ranks_if_missing(bracket: Bracket, revision: int) -> None:
@@ -437,10 +458,12 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
         )
         _write_stored_scores(ub, revision, bundle)
     from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+    from brackets.utils.next_match import clear_next_match_pending
     from brackets.utils.next_match_pick import persist_next_match_picks_for_bracket
 
     persist_potential_ranks_for_bracket(bracket)
     persist_next_match_picks_for_bracket(bracket)
+    clear_next_match_pending(bracket)
     return len(ubs)
 
 

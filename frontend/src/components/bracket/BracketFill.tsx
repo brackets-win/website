@@ -91,20 +91,37 @@ function NextMatchToggle({ matchup }: { matchup: MatchupInfo }) {
     matchup.winner == null;
   const isCurrent = control.nextMatchMatchupId === matchup.id;
   if (!isCurrent && !eligible) return null;
+  if (isCurrent) {
+    return (
+      <div className="bf-next-match-control">
+        <span
+          className="bf-next-match-btn bf-next-match-btn--current"
+          aria-label="Current Next Match"
+        >
+          Next Match
+        </span>
+        <button
+          type="button"
+          className="bf-next-match-clear"
+          disabled={control.busy}
+          onClick={() => void control.onSet(null)}
+          aria-label="Clear Next Match"
+        >
+          Clear
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="bf-next-match-control">
       <button
         type="button"
-        className={
-          isCurrent
-            ? 'bf-next-match-btn bf-next-match-btn--active'
-            : 'bf-next-match-btn'
-        }
+        className="bf-next-match-btn"
         disabled={control.busy}
-        onClick={() => void control.onSet(isCurrent ? null : matchup.id)}
-        aria-label={isCurrent ? 'Clear Next Match' : 'Set Next Match'}
+        onClick={() => void control.onSet(matchup.id)}
+        aria-label="Set Next Match"
       >
-        {isCurrent ? 'Next Match ✓' : 'Set Next Match'}
+        Set Next Match
       </button>
     </div>
   );
@@ -487,6 +504,9 @@ export function BracketFill({
       try {
         const { bracket } = await setBracketNextMatch(bracketDef.id, matchupId);
         setBracketDef(bracket);
+        // Reload the master entry so the "Apply" prompt reflects the pending
+        // next-match recompute (mirrors how master result edits defer scoring).
+        await load();
       } catch (e) {
         setError(
           e instanceof ApiError ? e.message : 'Could not update next match.',
@@ -495,7 +515,7 @@ export function BracketFill({
         setNextMatchBusy(false);
       }
     },
-    [bracketDef, nextMatchBusy],
+    [bracketDef, nextMatchBusy, load],
   );
 
   const nextMatchControl = useMemo<NextMatchControl | null>(() => {

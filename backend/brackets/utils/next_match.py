@@ -10,6 +10,28 @@ from __future__ import annotations
 from typing import Any
 
 NEXT_MATCH_KEY = "next_match_matchup_id"
+NEXT_MATCH_PENDING_KEY = "next_match_pending"
+
+
+def is_next_match_pending(bracket) -> bool:
+    """True when the next-match picks need an admin Apply to recompute."""
+    meta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    return bool(meta.get(NEXT_MATCH_PENDING_KEY))
+
+
+def mark_next_match_pending(bracket) -> None:
+    meta = dict(bracket.metadata) if isinstance(bracket.metadata, dict) else {}
+    meta[NEXT_MATCH_PENDING_KEY] = True
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
+
+
+def clear_next_match_pending(bracket) -> None:
+    meta = dict(bracket.metadata) if isinstance(bracket.metadata, dict) else {}
+    if not meta.pop(NEXT_MATCH_PENDING_KEY, None):
+        return
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
 
 
 def get_next_match_matchup_id(metadata: Any) -> int | None:

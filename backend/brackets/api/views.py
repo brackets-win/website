@@ -655,15 +655,29 @@ def bracket_next_match(request: HttpRequest, bracket_id: int) -> JsonResponse:
             return _json_error("Next match must not have a result yet.", 400)
         matchup_id = m.id
 
-    from brackets.utils.next_match import set_next_match_on_metadata
-    from brackets.utils.next_match_pick import (
-        persist_next_match_picks_for_bracket,
+    from brackets.utils.next_match import (
+        clear_next_match_pending,
+        mark_next_match_pending,
+        set_next_match_on_metadata,
     )
 
+    # Defer the (potentially expensive) pick computation to the admin "Apply"
+    # flow rather than running it inline on every set. Clearing is cheap, so it
+    # takes effect immediately (the column simply stops rendering).
     bracket.metadata = set_next_match_on_metadata(bracket.metadata, matchup_id)
     with transaction.atomic():
         bracket.save(update_fields=["metadata"])
-        persist_next_match_picks_for_bracket(bracket)
+        if matchup_id is None:
+            clear_next_match_pending(bracket)
+        else:
+            mark_next_match_pending(bracket)
+        # Wipe stored picks on any selection change so the column never shows
+        # stale images (empty cells until Apply, or hidden when cleared).
+        UserBracket.objects.filter(
+            bracket=bracket,
+            is_master=False,
+            leaderboard_next_match_pick__isnull=False,
+        ).update(leaderboard_next_match_pick=None)
 
     return JsonResponse(
         {"bracket": serializers.bracket_detail(bracket, request=request)}
@@ -687,11 +701,16 @@ def bracket_materialize_scores(
         is_master_scoring_pending,
         materialize_leaderboard_scores_batch,
     )
+    from brackets.utils.next_match import is_next_match_pending
     from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
 
     bracket.refresh_from_db(fields=["metadata"])
     stale_count = count_stale_submitted_leaderboard_scores(bracket)
-    if not is_master_scoring_pending(bracket) and stale_count == 0:
+    if (
+        not is_master_scoring_pending(bracket)
+        and not is_next_match_pending(bracket)
+        and stale_count == 0
+    ):
         return JsonResponse(
             {
                 "updated_count": 0,
