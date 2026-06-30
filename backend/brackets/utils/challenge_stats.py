@@ -759,6 +759,7 @@ def _compute_bracket_slots(
     third_place_stage: BracketStage | None,
     contestant_info: dict[int, dict[str, Any]],
     submitted_count: int,
+    skip_stage_id: int | None = None,
 ) -> dict[str, Any]:
     """Pick distribution for each knockout bracket slot across submitted entries.
 
@@ -768,8 +769,13 @@ def _compute_bracket_slots(
     and the third-place winner ``third_place``. Depends only on submitted entries
     (not the master), so this lives in the entries cache and recomputes when a
     bracket is submitted or edited.
+
+    ``skip_stage_id`` drops a stage entirely (used for the admin-seeded first
+    round of knockout-only brackets, which carries no prediction signal).
     """
-    knockout_stage_ids = {s.id for s in knockout_stages}
+    knockout_stage_ids = {
+        s.id for s in knockout_stages if s.id != skip_stage_id
+    }
     final_stage_id = final_stage.id if final_stage is not None else None
     third_place_stage_id = (
         third_place_stage.id if third_place_stage is not None else None
@@ -1070,6 +1076,7 @@ def _compute_stats_parts(
         final_stage=final_stage,
         third_place_stage=third_place_stage,
         contestant_info=contestant_info,
+        skip_stage_id=hidden_stage_id,
         submitted_count=submitted_count,
     )
 

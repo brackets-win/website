@@ -661,10 +661,19 @@ export function BracketDistribution({
     () => sortedStages.filter((s) => s.stage_type === 'KNOCKOUT'),
     [sortedStages],
   );
-  const knockoutStagesMain = useMemo(
-    () => knockoutStages.filter((s) => !s.knockout?.is_third_place),
-    [knockoutStages],
+  const hasGroupStage = useMemo(
+    () => sortedStages.some((s) => s.stage_type === 'GROUP'),
+    [sortedStages],
   );
+  const knockoutStagesMain = useMemo(() => {
+    const main = knockoutStages.filter((s) => !s.knockout?.is_third_place);
+    // Knockout-only brackets seed the opening round, so its picks carry no
+    // prediction signal (every entry is identical). Drop it from the board.
+    if (!hasGroupStage && main.length > 1) {
+      return main.slice(1);
+    }
+    return main;
+  }, [knockoutStages, hasGroupStage]);
   const thirdStage = useMemo(
     () =>
       bracketDef?.has_third_place_match
