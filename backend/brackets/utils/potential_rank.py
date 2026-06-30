@@ -176,6 +176,175 @@ def compute_potential_ranks_for_bracket(
     return out
 
 
+def compute_next_match_side_ranks_for_bracket(
+    bracket: Bracket,
+    next_stage_id: int,
+    next_position: int,
+    side1_contestant_id: int,
+    *,
+    cap: int = MAX_UNDECIDED_MATCHUPS,
+) -> dict[int, tuple[int | None, int | None]] | None:
+    """Best achievable rank per submitted entry split by the next match outcome.
+
+    Returns ``{ub_id: (best_rank_if_side1_wins, best_rank_if_side2_wins)}`` where
+    each rank may be ``None`` when that side never occurs. Returns ``None`` when
+    the master knockout tree cannot be enumerated (same gate as
+    :func:`compute_potential_ranks_for_bracket`).
+    """
+    ctx = load_leaderboard_scoring_context(bracket)
+    master = ctx.master
+    if master is None:
+        return None
+
+    ubs = list(
+        UserBracket.objects.filter(
+            bracket=bracket,
+            is_master=False,
+            submitted_at__isnull=False,
+        ).prefetch_related("matchup_set")
+    )
+    if not ubs:
+        return {}
+
+    ko_stages = [
+        s
+        for s in ctx.stages
+        if s.stage_type == BracketStage.StageType.KNOCKOUT
+    ]
+    if not ko_stages:
+        return None
+
+    main_ko_stages = [
+        s
+        for s in ko_stages
+        if not ctx.knockout_by_id[s.pk].is_third_place
+    ]
+    third_stage = next(
+        (s for s in ko_stages if ctx.knockout_by_id[s.pk].is_third_place),
+        None,
+    )
+    final_stage = next(
+        (s for s in ko_stages if ctx.knockout_by_id[s.pk].is_final),
+        None,
+    )
+
+    if main_ko_stages and not _first_knockout_fully_seeded(master, main_ko_stages[0]):
+        return None
+
+    tree = _build_master_tree(master, ko_stages)
+    undecided = _count_undecided_matchups(tree)
+    if undecided > cap:
+        return None
+
+    next_m_idx = _tree_matchup_index(tree, ko_stages, next_stage_id, next_position)
+    if next_m_idx is None:
+        return None
+
+    team_ids = _collect_team_ids(ubs, master, ko_stages, ctx)
+    team_to_idx = {tid: i for i, tid in enumerate(sorted(team_ids))}
+    if not team_to_idx:
+        return None
+
+    n_players = len(ubs)
+    base = _base_group_scores(ubs, ctx)
+    stage_pts = np.array(
+        [
+            float(ctx.knockout_by_id[s.pk].points_per_correct_pick)
+            for s in main_ko_stages
+        ],
+        dtype=np.float64,
+    )
+    user_mask = _user_knockout_mask(ubs, main_ko_stages, team_to_idx)
+    champ_pts = float(bracket.points_champion or 0)
+    third_pts = float(bracket.points_third_place_winner or 0)
+    user_champ = _user_winner_matrix(ubs, final_stage, team_to_idx, champ_pts)
+    user_third = _user_winner_matrix(ubs, third_stage, team_to_idx, third_pts)
+
+    final_m_idx = _final_matchup_index(tree, ko_stages, final_stage)
+    third_m_idx = _final_matchup_index(tree, ko_stages, third_stage)
+
+    n_stages = len(main_ko_stages)
+    n_teams = len(team_to_idx)
+    batch_size = _completion_batch_size(n_players, n_stages, n_teams)
+
+    best_side1 = np.full(n_players, n_players + 1, dtype=np.int32)
+    best_side2 = np.full(n_players, n_players + 1, dtype=np.int32)
+    batch_masks: list[np.ndarray] = []
+    batch_champ_bonus: list[np.ndarray] = []
+    batch_third_bonus: list[np.ndarray] = []
+    batch_sides: list[int] = []
+
+    def flush_batch() -> None:
+        nonlocal best_side1, best_side2
+        if not batch_masks:
+            return
+        master_mask = np.stack(batch_masks, axis=0)
+        weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
+        ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
+        totals = base[np.newaxis, :] + ko
+        if champ_pts > 0 and batch_champ_bonus:
+            totals += np.stack(batch_champ_bonus, axis=0)
+        if third_pts > 0 and batch_third_bonus:
+            totals += np.stack(batch_third_bonus, axis=0)
+        ranks = _competition_ranks_batch(totals)
+        sides = np.array(batch_sides, dtype=np.int8)
+        side1_rows = ranks[sides == 0]
+        if side1_rows.size:
+            best_side1 = np.minimum(best_side1, np.min(side1_rows, axis=0))
+        side2_rows = ranks[sides == 1]
+        if side2_rows.size:
+            best_side2 = np.minimum(best_side2, np.min(side2_rows, axis=0))
+        batch_masks.clear()
+        batch_champ_bonus.clear()
+        batch_third_bonus.clear()
+        batch_sides.clear()
+
+    def record_completion(state: _TreeState) -> None:
+        winner = state.matchups[next_m_idx].winner
+        batch_sides.append(0 if winner == side1_contestant_id else 1)
+        batch_masks.append(
+            _master_stage_mask(state, main_ko_stages, ko_stages, team_to_idx)
+        )
+        batch_champ_bonus.append(
+            _winner_bonus(state, final_m_idx, user_champ, team_to_idx)
+        )
+        batch_third_bonus.append(
+            _winner_bonus(state, third_m_idx, user_third, team_to_idx)
+        )
+        if len(batch_masks) >= batch_size:
+            flush_batch()
+
+    _enumerate_completions(tree, record_completion)
+    flush_batch()
+
+    out: dict[int, tuple[int | None, int | None]] = {}
+    for i, ub in enumerate(ubs):
+        r1 = int(best_side1[i])
+        r2 = int(best_side2[i])
+        out[ub.id] = (
+            r1 if r1 <= n_players else None,
+            r2 if r2 <= n_players else None,
+        )
+    return out
+
+
+def _tree_matchup_index(
+    tree: _TreeState,
+    ko_stages: list,
+    stage_id: int,
+    position: int,
+) -> int | None:
+    stage_idx = next(
+        (i for i, s in enumerate(ko_stages) if s.pk == stage_id), None
+    )
+    if stage_idx is None:
+        return None
+    for idx in tree.stage_matchup_indices[stage_idx]:
+        if tree.matchups[idx].position == position:
+            return idx
+    return None
+
+
 def _completion_batch_size(n_players: int, n_stages: int, n_teams: int) -> int:
     """Size completion batches from player count and mask width."""
     # master_mask (S×T float64) + totals/rank workspace (~5×N float64/int).

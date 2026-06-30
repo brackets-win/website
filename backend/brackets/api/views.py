@@ -613,6 +613,63 @@ def bracket_group_results_mode(
     )
 
 
+@require_http_methods(["PATCH"])
+def bracket_next_match(request: HttpRequest, bracket_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    bracket = get_object_or_404(
+        Bracket.objects.prefetch_related("stages"), pk=bracket_id
+    )
+    master = UserBracket.objects.filter(bracket=bracket, is_master=True).first()
+    if master is None:
+        return _json_error("This bracket has no master bracket.", 404)
+    if not _user_can_edit_master_bracket(user, master):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    raw_matchup_id = body.get("matchup_id")
+    matchup_id: int | None
+    if raw_matchup_id is None:
+        matchup_id = None
+    else:
+        m = (
+            Matchup.objects.filter(pk=raw_matchup_id, user_bracket=master)
+            .select_related("stage")
+            .first()
+        )
+        if m is None:
+            return _json_error("Matchup is not on this master bracket.", 400)
+        if m.stage.stage_type != BracketStage.StageType.KNOCKOUT:
+            return _json_error("Next match must be a knockout matchup.", 400)
+        if m.contestant1_id is None or m.contestant2_id is None:
+            return _json_error(
+                "Next match must have both contestants set.", 400
+            )
+        if m.winner_id is not None:
+            return _json_error("Next match must not have a result yet.", 400)
+        matchup_id = m.id
+
+    from brackets.utils.next_match import set_next_match_on_metadata
+    from brackets.utils.next_match_pick import (
+        persist_next_match_picks_for_bracket,
+    )
+
+    bracket.metadata = set_next_match_on_metadata(bracket.metadata, matchup_id)
+    with transaction.atomic():
+        bracket.save(update_fields=["metadata"])
+        persist_next_match_picks_for_bracket(bracket)
+
+    return JsonResponse(
+        {"bracket": serializers.bracket_detail(bracket, request=request)}
+    )
+
+
 @require_http_methods(["POST"])
 def bracket_materialize_scores(
     request: HttpRequest, bracket_id: int
@@ -1254,6 +1311,13 @@ def challenge_leaderboard(
                     key="potential_rank", name="Potential Rank"
                 )
             )
+    from brackets.utils.next_match import show_next_match_for_bracket
+
+    show_next_match = show_next_match_for_bracket(bracket)
+    if show_next_match:
+        columns.append(
+            serializers.leaderboard_column(key="next_match", name="Next Match")
+        )
     columns.append(
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS")
     )
@@ -1304,7 +1368,11 @@ def challenge_leaderboard(
             is_master=False,
             submitted_at__isnull=False,
         )
-        .select_related("user", "bracket")
+        .select_related(
+            "user",
+            "bracket",
+            "leaderboard_next_match_pick__contestant",
+        )
         .prefetch_related(
             Prefetch("matchup_set", queryset=matchup_prefetch),
         )
@@ -1327,6 +1395,11 @@ def challenge_leaderboard(
             potential = None
             potential_rank = None
         player_name = (ub.display_name or "").strip() or ub.user.username
+        next_match_pick = (
+            serializers.leaderboard_next_match_pick(ub.leaderboard_next_match_pick)
+            if (show_next_match and can_view_peers)
+            else None
+        )
         entries.append(
             serializers.leaderboard_entry(
                 username=ub.user.username,
@@ -1341,6 +1414,7 @@ def challenge_leaderboard(
                     if can_view_peers
                     else hidden_top_four
                 ),
+                next_match_pick=next_match_pick,
                 submitted_at=ub.submitted_at,
             )
         )

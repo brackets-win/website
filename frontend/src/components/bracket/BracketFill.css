@@ -513,6 +513,44 @@
   min-width: 152px;
 }
 
+.bf-next-match-control {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0.4rem;
+  border-top: 1px solid var(--bf-border);
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.04);
+}
+
+.bf-next-match-btn {
+  appearance: none;
+  border: 1px solid var(--bf-border);
+  background: var(--bf-surface);
+  color: var(--bf-muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.1;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.bf-next-match-btn:hover:not(:disabled) {
+  border-color: var(--bf-accent);
+  color: var(--bf-accent);
+}
+
+.bf-next-match-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bf-next-match-btn--active {
+  background: var(--bf-accent);
+  border-color: var(--bf-accent);
+  color: #fff;
+}
+
 .bf-slot--with-clear {
   display: flex;
   align-items: center;

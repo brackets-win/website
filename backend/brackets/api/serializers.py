@@ -501,6 +501,20 @@ def leaderboard_column(*, key: str, name: str) -> dict[str, Any]:
     return {"key": key, "name": name}
 
 
+def leaderboard_next_match_pick(bc: BracketContestant | None) -> dict[str, Any] | None:
+    if bc is None:
+        return None
+    name = bc.name_override or (
+        bc.contestant.name if bc.contestant else f"Contestant {bc.id}"
+    )
+    img = resolve_contestant_image_url(bc.contestant) if bc.contestant else None
+    return {
+        "bracket_contestant_id": bc.id,
+        "image_url": img,
+        "display_name": name,
+    }
+
+
 def leaderboard_entry(
     *,
     username: str,
@@ -512,6 +526,7 @@ def leaderboard_entry(
     stage_scores: dict[str, int | None],
     top_four_picks: list[dict[str, Any] | None],
     submitted_at,
+    next_match_pick: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "username": username,
@@ -522,6 +537,7 @@ def leaderboard_entry(
         "potential_rank": potential_rank,
         "stage_scores": stage_scores,
         "top_four_picks": top_four_picks,
+        "next_match_pick": next_match_pick,
         "submitted_at": (
             submitted_at.isoformat() if submitted_at else None
         ),

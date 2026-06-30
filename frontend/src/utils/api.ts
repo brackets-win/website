@@ -366,6 +366,8 @@ export type LeaderboardEntry = {
   potential_rank: number | null;
   stage_scores: Record<string, number | null>;
   top_four_picks: (TopFourPick | null)[];
+  /** Contestant this entry wants to win the admin-set next match (or null). */
+  next_match_pick?: TopFourPick | null;
   submitted_at: string | null;
 };
 
@@ -652,6 +654,15 @@ export async function updateBracketGroupResultsMode(
 ): Promise<{ bracket: BracketDetail }> {
   return apiFetch('PATCH', `brackets/${bracketId}/group-results-mode`, {
     group_results_mode,
+  });
+}
+
+export async function setBracketNextMatch(
+  bracketId: number,
+  matchupId: number | null,
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('PATCH', `brackets/${bracketId}/next-match`, {
+    matchup_id: matchupId,
   });
 }
 

@@ -93,6 +93,14 @@ class UserBracket(models.Model):
     leaderboard_potential_rank = models.IntegerField(null=True, blank=True)
     leaderboard_stage_scores = models.JSONField(default=dict, blank=True)
     leaderboard_scores_revision = models.IntegerField(null=True, blank=True)
+    # Contestant this entry "wants" to win the admin-set next match (or null).
+    leaderboard_next_match_pick = models.ForeignKey(
+        'bracket.BracketContestant',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     class Meta:
         constraints = [

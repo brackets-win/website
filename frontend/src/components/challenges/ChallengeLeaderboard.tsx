@@ -33,19 +33,22 @@ function defaultDirection(key: SortKey): 'asc' | 'desc' {
   return 'desc';
 }
 
-/** Competition ranking by total score (1, 1, 3 — ties share rank, next rank skips). */
-function computeCompetitionRanks(
+/** Competition ranking by a score accessor (1, 1, 3 — ties share rank, next skips). */
+function computeRanksByScore(
   entries: LeaderboardEntry[],
+  scoreOf: (entry: LeaderboardEntry) => number | null,
 ): Map<number, number> {
   const byScore = [...entries].sort((a, b) => {
-    if (a.score == null && b.score == null) {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+    if (sa == null && sb == null) {
       return playerLabel(a).localeCompare(playerLabel(b), undefined, {
         sensitivity: 'base',
       });
     }
-    if (a.score == null) return 1;
-    if (b.score == null) return -1;
-    const diff = b.score - a.score;
+    if (sa == null) return 1;
+    if (sb == null) return -1;
+    const diff = sb - sa;
     if (diff !== 0) return diff;
     return playerLabel(a).localeCompare(playerLabel(b), undefined, {
       sensitivity: 'base',
@@ -63,14 +66,119 @@ function computeCompetitionRanks(
     const prevRank = ranks.get(prev.user_bracket_id)!;
     ranks.set(
       entry.user_bracket_id,
-      entry.score === prev.score ? prevRank : i + 1,
+      scoreOf(entry) === scoreOf(prev) ? prevRank : i + 1,
     );
   }
   return ranks;
 }
 
+/** Competition ranking by total score (1, 1, 3 — ties share rank, next rank skips). */
+function computeCompetitionRanks(
+  entries: LeaderboardEntry[],
+): Map<number, number> {
+  return computeRanksByScore(entries, (e) => e.score);
+}
+
+/** Scoring column keys in chronological order (stages, then champion). */
+function scoringColumnKeys(columns: LeaderboardColumn[]): string[] {
+  return columns
+    .map((col) => col.key)
+    .filter((key) => key === 'champion' || key.startsWith('stage:'));
+}
+
+/**
+ * Ranks as they stood *before* the latest scored stage, used to show each
+ * player's rank movement. Returns null when there's no meaningful prior
+ * ranking yet (nothing scored, or the current stage is the first with results).
+ */
+function computePreviousStageRanks(
+  entries: LeaderboardEntry[],
+  columns: LeaderboardColumn[],
+  denominators: LeaderboardDenominators | null,
+): Map<number, number> | null {
+  if (!denominators) return null;
+  const scoringCols = scoringColumnKeys(columns);
+  const denomOf = (key: string) => denominators.columns?.[key] ?? 0;
+
+  let latestScoredIdx = -1;
+  for (let i = 0; i < scoringCols.length; i++) {
+    if (denomOf(scoringCols[i]) > 0) latestScoredIdx = i;
+  }
+  if (latestScoredIdx < 0) return null;
+
+  const previousCols = scoringCols.slice(0, latestScoredIdx);
+  if (!previousCols.some((key) => denomOf(key) > 0)) return null;
+
+  const previousScore = (entry: LeaderboardEntry) =>
+    previousCols.reduce(
+      (sum, key) => sum + (entry.stage_scores[key] ?? 0),
+      0,
+    );
+  return computeRanksByScore(entries, previousScore);
+}
+
+/** Carat (up/down) or gray dash showing rank movement vs. the previous stage. */
+function RankDeltaIndicator({ delta }: { delta: number | null }) {
+  if (delta == null) return null;
+  if (delta > 0) {
+    return (
+      <span
+        className="leaderboard-rank-delta leaderboard-rank-delta--up"
+        title={`Up ${delta} since last stage`}
+        aria-label={`Up ${delta} since last stage`}
+      >
+        ▲
+      </span>
+    );
+  }
+  if (delta < 0) {
+    return (
+      <span
+        className="leaderboard-rank-delta leaderboard-rank-delta--down"
+        title={`Down ${-delta} since last stage`}
+        aria-label={`Down ${-delta} since last stage`}
+      >
+        ▼
+      </span>
+    );
+  }
+  return (
+    <span
+      className="leaderboard-rank-delta leaderboard-rank-delta--same"
+      title="No change since last stage"
+      aria-label="No change since last stage"
+    >
+      –
+    </span>
+  );
+}
+
 function playerLabel(entry: LeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
+}
+
+/** Single contestant image (the team this player wants to win the next match). */
+function NextMatchPick({ pick }: { pick: LeaderboardEntry['next_match_pick'] }) {
+  return (
+    <span className="challenge-leaderboard__top-four-slot">
+      {pick?.image_url ? (
+        <img
+          src={pick.image_url}
+          alt={pick.display_name}
+          className="challenge-leaderboard__top-four-img"
+        />
+      ) : pick ? (
+        <span
+          className="challenge-leaderboard__top-four-fallback"
+          title={pick.display_name}
+        >
+          {pick.display_name.slice(0, 2).toUpperCase()}
+        </span>
+      ) : (
+        <span className="challenge-leaderboard__top-four-empty" aria-hidden />
+      )}
+    </span>
+  );
 }
 
 function compareWithNullsLast(
@@ -220,6 +328,18 @@ export function ChallengeLeaderboard({
     [submittedEntries],
   );
 
+  const previousRanks = useMemo(
+    () => computePreviousStageRanks(submittedEntries, columns, denominators),
+    [submittedEntries, columns, denominators],
+  );
+
+  function rankDelta(userBracketId: number, currentRank?: number): number | null {
+    if (!previousRanks || currentRank == null) return null;
+    const prev = previousRanks.get(userBracketId);
+    if (prev == null) return null;
+    return prev - currentRank;
+  }
+
   function onSort(key: SortKey) {
     setSort((prev) => {
       if (prev.key === key) {
@@ -256,7 +376,9 @@ export function ChallengeLeaderboard({
     return <p className="challenge-view__muted">No submitted brackets yet.</p>;
   }
 
-  const sortableColumns = columns.filter((col) => col.key !== 'top_four_picks');
+  const sortableColumns = columns.filter(
+    (col) => col.key !== 'top_four_picks' && col.key !== 'next_match',
+  );
   const sortOptions: { key: SortKey; label: string }[] = [
     { key: 'rank', label: 'Rank' },
     { key: 'player', label: 'Player' },
@@ -313,7 +435,10 @@ export function ChallengeLeaderboard({
             const isViewer =
               viewerUsername != null && row.username === viewerUsername;
             const topFourCol = columns.find((c) => c.key === 'top_four_picks');
-            const statColumns = columns.filter((c) => c.key !== 'top_four_picks');
+            const nextMatchCol = columns.find((c) => c.key === 'next_match');
+            const statColumns = columns.filter(
+              (c) => c.key !== 'top_four_picks' && c.key !== 'next_match',
+            );
             const statSplitAt = Math.ceil(statColumns.length / 2);
             const statColumnsLeft = statColumns.slice(0, statSplitAt);
             const statColumnsRight = statColumns.slice(statSplitAt);
@@ -339,7 +464,12 @@ export function ChallengeLeaderboard({
                 className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
               >
                 <div className="leaderboard-card__head">
-                  <span className="leaderboard-card__rank">{rank}</span>
+                  <span className="leaderboard-card__rank">
+                    <RankDeltaIndicator
+                      delta={rankDelta(row.user_bracket_id, rank)}
+                    />
+                    {rank}
+                  </span>
                   {onSelectPlayer ? (
                     <button
                       type="button"
@@ -368,6 +498,14 @@ export function ChallengeLeaderboard({
                     <dl className="leaderboard-card__stats-col">
                       {statColumnsRight.map(renderStat)}
                     </dl>
+                  </div>
+                ) : null}
+                {nextMatchCol ? (
+                  <div className="leaderboard-card__next-match">
+                    <span className="leaderboard-card__top-four-label">
+                      {nextMatchCol.name}
+                    </span>
+                    <NextMatchPick pick={row.next_match_pick} />
                   </div>
                 ) : null}
                 {topFourCol ? (
@@ -444,7 +582,7 @@ export function ChallengeLeaderboard({
               align="center"
             />
             {columns.map((col) =>
-              col.key === 'top_four_picks' ? (
+              col.key === 'top_four_picks' || col.key === 'next_match' ? (
                 <th
                   key={col.key}
                   scope="col"
@@ -476,7 +614,12 @@ export function ChallengeLeaderboard({
               className={leaderboardRowClassName(rank, isViewer)}
             >
               <td className="is-rank is-num">
-                {ranks.get(row.user_bracket_id)}
+                <span className="leaderboard-rank-cell">
+                  <RankDeltaIndicator
+                    delta={rankDelta(row.user_bracket_id, rank)}
+                  />
+                  {rank}
+                </span>
               </td>
               <td className="is-player">
                 {onSelectPlayer ? (
@@ -538,6 +681,16 @@ export function ChallengeLeaderboard({
                           );
                         })}
                       </div>
+                    </td>
+                  );
+                }
+                if (col.key === 'next_match') {
+                  return (
+                    <td
+                      key={col.key}
+                      className="is-num challenge-leaderboard__next-match"
+                    >
+                      <NextMatchPick pick={row.next_match_pick} />
                     </td>
                   );
                 }

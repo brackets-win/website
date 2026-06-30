@@ -1364,6 +1364,7 @@ export function BracketsAdmin() {
               userBracketId={fillMasterUbId}
               allowMasterEdit
               showGroupResultsModeControl
+              showNextMatchControl
             />
           </div>
         </section>

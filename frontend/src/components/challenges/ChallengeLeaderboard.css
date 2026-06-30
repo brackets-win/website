@@ -222,8 +222,37 @@
 }
 
 .challenge-leaderboard__table .is-rank {
-  width: 2.5rem;
+  width: 3.25rem;
   color: var(--text-muted, #64748b);
+}
+
+.leaderboard-rank-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  justify-content: center;
+}
+
+.leaderboard-rank-delta {
+  display: inline-block;
+  font-size: 0.7em;
+  line-height: 1;
+}
+
+.leaderboard-card__rank .leaderboard-rank-delta {
+  margin-right: 0.25rem;
+}
+
+.leaderboard-rank-delta--up {
+  color: var(--success, #16a34a);
+}
+
+.leaderboard-rank-delta--down {
+  color: var(--danger, #dc2626);
+}
+
+.leaderboard-rank-delta--same {
+  color: var(--text-muted, #94a3b8);
 }
 
 .challenge-leaderboard__th-btn {
@@ -290,8 +319,22 @@
   white-space: nowrap;
 }
 
-.challenge-leaderboard__top-four {
+.challenge-leaderboard__top-four,
+.challenge-leaderboard__next-match {
   vertical-align: middle;
+}
+
+.challenge-leaderboard__next-match {
+  text-align: center;
+}
+
+.leaderboard-card__next-match {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.65rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--app-border, #e2e8f0);
 }
 
 .challenge-leaderboard__top-four-row {

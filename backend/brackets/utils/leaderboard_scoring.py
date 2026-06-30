@@ -186,8 +186,12 @@ def materialize_leaderboard_scores_batch(
         _clear_master_scoring_pending(bracket)
         pending = False
         from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+        from brackets.utils.next_match_pick import (
+            persist_next_match_picks_for_bracket,
+        )
 
         persist_potential_ranks_for_bracket(bracket)
+        persist_next_match_picks_for_bracket(bracket)
     return {
         "updated_count": updated_count,
         "remaining_count": remaining_count,
@@ -433,8 +437,10 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
         )
         _write_stored_scores(ub, revision, bundle)
     from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+    from brackets.utils.next_match_pick import persist_next_match_picks_for_bracket
 
     persist_potential_ranks_for_bracket(bracket)
+    persist_next_match_picks_for_bracket(bracket)
     return len(ubs)
 
 

@@ -20,6 +20,7 @@ import {
   getUserBracket,
   materializeBracketScores,
   patchMatchupWinner,
+  setBracketNextMatch,
   submitUserBracket,
   updateBracketGroupResultsMode,
 } from '../../utils/api';
@@ -27,6 +28,7 @@ import {
   getGroupResultsMode,
   type GroupResultsMode,
 } from '../../utils/groupResultsMode';
+import { getNextMatchMatchupId } from '../../utils/nextMatch';
 import {
   invalidateHome,
   invalidateHomeForUserBracket,
@@ -68,6 +70,44 @@ const ScoringHighlightContext = createContext<ScoringHighlightLookup | null>(
 
 function useScoringHighlight() {
   return useContext(ScoringHighlightContext);
+}
+
+type NextMatchControl = {
+  /** Matchup currently flagged as the next match (or null). */
+  nextMatchMatchupId: number | null;
+  busy: boolean;
+  onSet: (matchupId: number | null) => void | Promise<void>;
+};
+
+const NextMatchContext = createContext<NextMatchControl | null>(null);
+
+/** Master-edit control: flag an undecided matchup as the leaderboard "Next Match". */
+function NextMatchToggle({ matchup }: { matchup: MatchupInfo }) {
+  const control = useContext(NextMatchContext);
+  if (!control) return null;
+  const eligible =
+    matchup.contestant1 != null &&
+    matchup.contestant2 != null &&
+    matchup.winner == null;
+  const isCurrent = control.nextMatchMatchupId === matchup.id;
+  if (!isCurrent && !eligible) return null;
+  return (
+    <div className="bf-next-match-control">
+      <button
+        type="button"
+        className={
+          isCurrent
+            ? 'bf-next-match-btn bf-next-match-btn--active'
+            : 'bf-next-match-btn'
+        }
+        disabled={control.busy}
+        onClick={() => void control.onSet(isCurrent ? null : matchup.id)}
+        aria-label={isCurrent ? 'Clear Next Match' : 'Set Next Match'}
+      >
+        {isCurrent ? 'Next Match ✓' : 'Set Next Match'}
+      </button>
+    </div>
+  );
 }
 
 function buildScoringLookup(
@@ -291,6 +331,8 @@ type Props = {
   allowMasterView?: boolean;
   /** Admin master fill only: Live / Confirmed group results control. */
   showGroupResultsModeControl?: boolean;
+  /** Admin master fill only: per-matchup "Set as Next Match" control. */
+  showNextMatchControl?: boolean;
   showSubmit?: boolean;
   showScoringHighlights?: boolean;
   onSubmitted?: () => void;
@@ -302,6 +344,7 @@ export function BracketFill({
   allowMasterEdit = false,
   allowMasterView = false,
   showGroupResultsModeControl = false,
+  showNextMatchControl = false,
   showSubmit = false,
   showScoringHighlights = false,
   onSubmitted,
@@ -318,6 +361,7 @@ export function BracketFill({
   const [groupResultsMode, setGroupResultsMode] =
     useState<GroupResultsMode>('confirmed');
   const [groupResultsModeBusy, setGroupResultsModeBusy] = useState(false);
+  const [nextMatchBusy, setNextMatchBusy] = useState(false);
   const [phase, setPhase] = useState<'groups' | 'knockout'>('knockout');
   const phaseInitForUb = useRef<number | null>(null);
 
@@ -434,6 +478,40 @@ export function BracketFill({
     },
     [bracketDef, groupResultsMode, groupResultsModeBusy, load],
   );
+
+  const handleSetNextMatch = useCallback(
+    async (matchupId: number | null) => {
+      if (!bracketDef || nextMatchBusy) return;
+      setNextMatchBusy(true);
+      setError(null);
+      try {
+        const { bracket } = await setBracketNextMatch(bracketDef.id, matchupId);
+        setBracketDef(bracket);
+      } catch (e) {
+        setError(
+          e instanceof ApiError ? e.message : 'Could not update next match.',
+        );
+      } finally {
+        setNextMatchBusy(false);
+      }
+    },
+    [bracketDef, nextMatchBusy],
+  );
+
+  const nextMatchControl = useMemo<NextMatchControl | null>(() => {
+    if (!showNextMatchControl || detail?.is_master !== true) return null;
+    return {
+      nextMatchMatchupId: getNextMatchMatchupId(bracketDef?.metadata),
+      busy: nextMatchBusy,
+      onSet: handleSetNextMatch,
+    };
+  }, [
+    showNextMatchControl,
+    detail?.is_master,
+    bracketDef?.metadata,
+    nextMatchBusy,
+    handleSetNextMatch,
+  ]);
 
   useEffect(() => {
     if (!hasGroupUi) return;
@@ -814,6 +892,7 @@ export function BracketFill({
 
   return (
     <ScoringHighlightContext.Provider value={scoringLookup}>
+    <NextMatchContext.Provider value={nextMatchControl}>
     <section
       className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
       aria-busy={!deferLeaderboardScoring && busy}
@@ -1009,6 +1088,7 @@ export function BracketFill({
       )}
 
     </section>
+    </NextMatchContext.Provider>
     </ScoringHighlightContext.Provider>
   );
 }
@@ -1916,6 +1996,8 @@ function MatchupCard({
           />
         </>
       ) : null}
+
+      <NextMatchToggle matchup={m} />
     </div>
   );
 }
