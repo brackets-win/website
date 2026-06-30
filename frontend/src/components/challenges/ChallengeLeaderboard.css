@@ -2,6 +2,13 @@
   font-weight: 700;
 }
 
+/* Names set their own weight directly, which beats the row's inherited bold,
+   so re-bold the viewer's own name. */
+.leaderboard-row--viewer .challenge-leaderboard__player-btn,
+.leaderboard-row--viewer .leaderboard-card__name {
+  font-weight: 700;
+}
+
 .leaderboard-row--gold {
   background: rgba(255, 193, 7, 0.14);
 }
