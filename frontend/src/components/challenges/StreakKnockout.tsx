@@ -26,9 +26,16 @@ function MatchCard({
   match: StreakKnockoutMatch;
   onSelectPlayer: (userId: number, displayName: string) => void;
 }) {
+  function formatScore(correct: number, bonus: number, bonusEnabled: boolean) {
+    if (!bonusEnabled) return String(correct);
+    return `${correct} (+${bonus})`;
+  }
+
   function renderSlot(
     player: StreakKnockoutMatch['player_a'],
-    score: number,
+    correct: number,
+    bonus: number,
+    bonusEnabled: boolean,
     seed: number,
   ) {
     if (!player) {
@@ -50,7 +57,9 @@ function MatchCard({
         >
           {player.display_name}
         </button>
-        <span className="streak-knockout__score">{score}</span>
+        <span className="streak-knockout__score">
+          {formatScore(correct, bonus, bonusEnabled)}
+        </span>
       </div>
     );
   }
@@ -69,8 +78,20 @@ function MatchCard({
           Live
         </span>
       ) : null}
-      {renderSlot(match.player_a, match.score_a, match.seed_a)}
-      {renderSlot(match.player_b, match.score_b, match.seed_b)}
+      {renderSlot(
+        match.player_a,
+        match.score_a_correct,
+        match.score_a_bonus,
+        match.score_bonus_enabled,
+        match.seed_a,
+      )}
+      {renderSlot(
+        match.player_b,
+        match.score_b_correct,
+        match.score_b_bonus,
+        match.score_bonus_enabled,
+        match.seed_b,
+      )}
     </div>
   );
 }

@@ -97,6 +97,19 @@ def _match_score(
     return headstart + correct
 
 
+def _score_breakdown_from_total(
+    participant: StreakParticipant | None,
+    total_score: int,
+    *,
+    bonus_enabled: bool,
+) -> tuple[int, int]:
+    if participant is None:
+        return 0, 0
+    bonus = participant.frozen_best_win_streak if bonus_enabled else 0
+    correct = max(0, total_score - bonus)
+    return correct, bonus
+
+
 def _pick_winner(
     match: StreakKnockoutMatch,
     score_a: int,
@@ -487,65 +500,151 @@ def _round_window_end(
     return min(now, next_start)
 
 
-def _live_match_scores(
+def _match_score_display_payload(
     knockout: StreakKnockout,
     match: StreakKnockoutMatch,
-) -> tuple[int, int]:
-    if match.finalized:
-        return match.score_a or 0, match.score_b or 0
-
+) -> dict[str, int | bool]:
     challenge = knockout.streak_challenge
+
+    if match.finalized:
+        bonus_enabled = headstart_for_round(challenge, match.round_index)
+        score_a = match.score_a or 0
+        score_b = match.score_b or 0
+        score_a_correct, score_a_bonus = _score_breakdown_from_total(
+            match.player_a,
+            score_a,
+            bonus_enabled=bonus_enabled,
+        )
+        score_b_correct, score_b_bonus = _score_breakdown_from_total(
+            match.player_b,
+            score_b,
+            bonus_enabled=bonus_enabled,
+        )
+        return {
+            "score_a": score_a,
+            "score_b": score_b,
+            "score_a_correct": score_a_correct,
+            "score_b_correct": score_b_correct,
+            "score_a_bonus": score_a_bonus,
+            "score_b_bonus": score_b_bonus,
+            "score_bonus_enabled": bonus_enabled,
+        }
+
     now = timezone.now()
 
     if knockout.status == StreakKnockout.Status.SETUP:
         if match.round_index != 1:
-            return 0, 0
+            return {
+                "score_a": 0,
+                "score_b": 0,
+                "score_a_correct": 0,
+                "score_b_correct": 0,
+                "score_a_bonus": 0,
+                "score_b_bonus": 0,
+                "score_bonus_enabled": False,
+            }
         window_start = round_start_at(challenge, 1)
         if window_start is None:
-            return 0, 0
+            return {
+                "score_a": 0,
+                "score_b": 0,
+                "score_a_correct": 0,
+                "score_b_correct": 0,
+                "score_a_bonus": 0,
+                "score_b_bonus": 0,
+                "score_bonus_enabled": False,
+            }
         if timezone.is_naive(window_start):
             window_start = timezone.make_aware(window_start)
         if now < window_start:
-            return 0, 0
+            return {
+                "score_a": 0,
+                "score_b": 0,
+                "score_a_correct": 0,
+                "score_b_correct": 0,
+                "score_a_bonus": 0,
+                "score_b_bonus": 0,
+                "score_bonus_enabled": False,
+            }
         window_end = _round_window_end(challenge, 1, now)
-        headstart = headstart_for_round(challenge, 1)
-        score_a = _match_score(
-            match.player_a,
-            challenge_id=knockout.streak_challenge_id,
-            window_start=window_start,
-            window_end=window_end,
-            headstart_enabled=headstart,
+        bonus_enabled = headstart_for_round(challenge, 1)
+        score_a_correct = _correct_picks_in_window(
+            knockout.streak_challenge_id,
+            match.player_a.user_id,
+            window_start,
+            window_end,
+        ) if match.player_a else 0
+        score_b_correct = _correct_picks_in_window(
+            knockout.streak_challenge_id,
+            match.player_b.user_id,
+            window_start,
+            window_end,
+        ) if match.player_b else 0
+        score_a_bonus = (
+            match.player_a.frozen_best_win_streak
+            if match.player_a and bonus_enabled
+            else 0
         )
-        score_b = _match_score(
-            match.player_b,
-            challenge_id=knockout.streak_challenge_id,
-            window_start=window_start,
-            window_end=window_end,
-            headstart_enabled=headstart,
+        score_b_bonus = (
+            match.player_b.frozen_best_win_streak
+            if match.player_b and bonus_enabled
+            else 0
         )
-        return score_a, score_b
+        return {
+            "score_a": score_a_correct + score_a_bonus,
+            "score_b": score_b_correct + score_b_bonus,
+            "score_a_correct": score_a_correct,
+            "score_b_correct": score_b_correct,
+            "score_a_bonus": score_a_bonus,
+            "score_b_bonus": score_b_bonus,
+            "score_bonus_enabled": bonus_enabled,
+        }
 
     if knockout.round_started_at is None:
-        return 0, 0
+        return {
+            "score_a": 0,
+            "score_b": 0,
+            "score_a_correct": 0,
+            "score_b_correct": 0,
+            "score_a_bonus": 0,
+            "score_b_bonus": 0,
+            "score_bonus_enabled": False,
+        }
     window_start = knockout.round_started_at
     if timezone.is_naive(window_start):
         window_start = timezone.make_aware(window_start)
     window_end = _round_window_end(challenge, knockout.current_round, now)
-    score_a = _match_score(
-        match.player_a,
-        challenge_id=knockout.streak_challenge_id,
-        window_start=window_start,
-        window_end=window_end,
-        headstart_enabled=knockout.headstart_enabled,
+    score_a_correct = _correct_picks_in_window(
+        knockout.streak_challenge_id,
+        match.player_a.user_id,
+        window_start,
+        window_end,
+    ) if match.player_a else 0
+    score_b_correct = _correct_picks_in_window(
+        knockout.streak_challenge_id,
+        match.player_b.user_id,
+        window_start,
+        window_end,
+    ) if match.player_b else 0
+    score_a_bonus = (
+        match.player_a.frozen_best_win_streak
+        if match.player_a and knockout.headstart_enabled
+        else 0
     )
-    score_b = _match_score(
-        match.player_b,
-        challenge_id=knockout.streak_challenge_id,
-        window_start=window_start,
-        window_end=window_end,
-        headstart_enabled=knockout.headstart_enabled,
+    score_b_bonus = (
+        match.player_b.frozen_best_win_streak
+        if match.player_b and knockout.headstart_enabled
+        else 0
     )
-    return score_a, score_b
+    return {
+        "score_a": score_a_correct + score_a_bonus,
+        "score_b": score_b_correct + score_b_bonus,
+        "score_a_correct": score_a_correct,
+        "score_b_correct": score_b_correct,
+        "score_a_bonus": score_a_bonus,
+        "score_b_bonus": score_b_bonus,
+        "score_bonus_enabled": knockout.headstart_enabled,
+    }
 
 
 def _participant_slot(match: StreakKnockoutMatch, p: StreakParticipant) -> dict[str, Any]:
@@ -557,7 +656,7 @@ def _participant_slot(match: StreakKnockoutMatch, p: StreakParticipant) -> dict[
 
 
 def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict[str, Any]:
-    score_a, score_b = _live_match_scores(knockout, match)
+    scores = _match_score_display_payload(knockout, match)
     challenge = knockout.streak_challenge
     now = timezone.now()
     round_one_start = round_start_at(challenge, 1)
@@ -587,8 +686,13 @@ def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict
         else None,
         "seed_a": match.seed_a,
         "seed_b": match.seed_b,
-        "score_a": score_a,
-        "score_b": score_b,
+        "score_a": scores["score_a"],
+        "score_b": scores["score_b"],
+        "score_a_correct": scores["score_a_correct"],
+        "score_b_correct": scores["score_b_correct"],
+        "score_a_bonus": scores["score_a_bonus"],
+        "score_b_bonus": scores["score_b_bonus"],
+        "score_bonus_enabled": scores["score_bonus_enabled"],
         "winner_user_id": match.winner.user_id if match.winner else None,
         "finalized": match.finalized,
         "is_live": is_live,

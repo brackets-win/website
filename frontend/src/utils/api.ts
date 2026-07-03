@@ -282,6 +282,11 @@ export type StreakKnockoutMatch = {
   seed_b: number;
   score_a: number;
   score_b: number;
+  score_a_correct: number;
+  score_b_correct: number;
+  score_a_bonus: number;
+  score_b_bonus: number;
+  score_bonus_enabled: boolean;
   winner_user_id: number | null;
   finalized: boolean;
   is_live: boolean;

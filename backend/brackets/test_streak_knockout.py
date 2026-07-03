@@ -169,3 +169,69 @@ class StreakKnockoutTests(TestCase):
         )
         self.assertEqual(res.status_code, 200)
         self.assertIn("rounds", res.json()["knockout"])
+
+    def test_knockout_scores_include_correct_and_bonus_breakdown(self):
+        now = timezone.now()
+        self.challenge.knockout_transition_at = now - timedelta(days=2)
+        self.challenge.knockout_round_starts = {
+            "2": (now + timedelta(days=1)).isoformat()
+        }
+        self.challenge.knockout_round_headstart = {"1": True}
+        self.challenge.save(
+            update_fields=[
+                "knockout_transition_at",
+                "knockout_round_starts",
+                "knockout_round_headstart",
+            ]
+        )
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+
+        q1 = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Round 1 Q",
+            closes_at=now - timedelta(days=1),
+            resolved_at=now - timedelta(hours=1),
+            order=0,
+        )
+        right = StreakQuestionChoice.objects.create(question=q1, label="Yes", order=0)
+        StreakQuestionChoice.objects.create(question=q1, label="No", order=1)
+        q1.correct_choice = right
+        q1.save(update_fields=["correct_choice"])
+
+        wrong = q1.choices.exclude(pk=right.pk).first()
+        self.assertIsNotNone(wrong)
+
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=q1,
+            user=self.alice,
+            choice=right,
+        )
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=q1,
+            user=self.dave,
+            choice=wrong,
+        )
+
+        res = self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data="{}",
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        rounds = res.json()["knockout"]["rounds"]
+        first_match = rounds[0]["matches"][0]
+        self.assertTrue(first_match["score_bonus_enabled"])
+        self.assertEqual(first_match["score_a_correct"], 1)
+        self.assertEqual(first_match["score_a_bonus"], 4)
+        self.assertEqual(first_match["score_a"], 5)
+        self.assertEqual(first_match["score_b_correct"], 0)
+        self.assertEqual(first_match["score_b_bonus"], 2)
+        self.assertEqual(first_match["score_b"], 2)
