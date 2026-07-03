@@ -16,6 +16,7 @@ from brackets.utils.leaderboard_scoring import (
 from brackets.utils.potential_rank import (
     MAX_UNDECIDED_MATCHUPS,
     compute_potential_ranks_for_bracket,
+    compute_potential_scores_for_bracket,
 )
 
 User = get_user_model()
@@ -216,15 +217,20 @@ class PotentialRankTests(TestCase):
 
     def test_cap_exceeded_returns_none(self):
         t1, t2, t3, t4 = self.teams
-        self._submit("solo", sf1=t1, sf2=t3, final_winner=t1)
+        ub = self._submit("solo", sf1=t1, sf2=t3, final_winner=t1)
 
         result = compute_potential_ranks_for_bracket(
             self.bracket, cap=MAX_UNDECIDED_MATCHUPS
         )
         self.assertIsNotNone(result)
 
+        # Rank cap exceeded: ranks are omitted, but scores still compute.
         result = compute_potential_ranks_for_bracket(self.bracket, cap=0)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIsNone(result[ub.id])
+        scores = compute_potential_scores_for_bracket(self.bracket, cap=0)
+        self.assertIsNotNone(scores)
+        self.assertIsNotNone(scores[ub.id])
 
     def test_confirmed_mode_leaderboard_includes_potential_rank(self):
         t1, t2, t3, t4 = self.teams

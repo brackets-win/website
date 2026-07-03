@@ -140,9 +140,11 @@ def _enumerate_potential_outcomes_for_users(
         return None
 
     tree = _build_master_tree(master, ko_stages)
-    undecided = _count_undecided_matchups(tree)
-    if undecided > cap:
-        return None
+    branchable = _count_branchable_undecided_matchups(tree)
+    # Potential rank needs every completion; potential points only needs the max.
+    # The cap applies to rank only — empty downstream shells (no teams yet) must
+    # not block scoring (they are never branched on during enumeration).
+    compute_ranks = branchable <= cap
 
     team_ids = _collect_team_ids(ubs, master, ko_stages, ctx)
     team_to_idx = {tid: i for i, tid in enumerate(sorted(team_ids))}
@@ -206,9 +208,10 @@ def _enumerate_potential_outcomes_for_users(
         if third_pts > 0 and batch_third_bonus:
             completion_marginal = completion_marginal + np.stack(batch_third_bonus, axis=0)
         totals = current_totals[np.newaxis, :] + completion_marginal - current_ko_bonus
-        ranks = _competition_ranks_batch(totals)
-        best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
         best_scores = np.maximum(best_scores, np.max(totals, axis=0))
+        if compute_ranks:
+            ranks = _competition_ranks_batch(totals)
+            best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
         batch_masks.clear()
         batch_champ_bonus.clear()
         batch_third_bonus.clear()
@@ -229,15 +232,18 @@ def _enumerate_potential_outcomes_for_users(
     _enumerate_completions(tree, record_completion)
     flush_batch()
 
-    if np.all(best_ranks > n_players):
+    if compute_ranks and np.all(best_ranks > n_players):
         return None
 
     scores_out: dict[int, int | None] = {}
     ranks_out: dict[int, int | None] = {}
     for i, ub in enumerate(ubs):
         scores_out[ub.id] = int(best_scores[i]) if best_scores[i] >= 0 else None
-        rank = int(best_ranks[i])
-        ranks_out[ub.id] = rank if rank <= n_players else None
+        if compute_ranks:
+            rank = int(best_ranks[i])
+            ranks_out[ub.id] = rank if rank <= n_players else None
+        else:
+            ranks_out[ub.id] = None
     return scores_out, ranks_out
 
 
@@ -364,8 +370,13 @@ def _build_master_tree(master: UserBracket, ko_stages: list) -> _TreeState:
     return _TreeState(matchups=mem, stage_matchup_indices=stage_indices)
 
 
-def _count_undecided_matchups(tree: _TreeState) -> int:
-    return sum(1 for m in tree.matchups if m.winner is None)
+def _count_branchable_undecided_matchups(tree: _TreeState) -> int:
+    """Undecided matchups with both teams set — the ones enumeration branches on."""
+    return sum(
+        1
+        for m in tree.matchups
+        if m.winner is None and m.c1 is not None and m.c2 is not None
+    )
 
 
 def _collect_team_ids(
@@ -709,6 +720,10 @@ def persist_potential_ranks_for_bracket(bracket: Bracket) -> None:
         return
 
     scores, ranks = outcomes
+    if not scores:
+        qs.update(leaderboard_potential_rank=None)
+        return
+
     for ub in qs:
         update_fields: list[str] = []
         score = scores.get(ub.id)

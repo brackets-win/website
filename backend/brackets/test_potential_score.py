@@ -373,3 +373,19 @@ class PotentialScoreTests(TestCase):
             calculate_potential_score(self.ub),
             self.ub.leaderboard_score,
         )
+
+    def test_scores_compute_when_downstream_shells_empty(self):
+        """Empty QF/SF/F slots must not block potential points."""
+        t1, t2, t3, t4 = self.teams
+        semi, final = self._ko_stages()
+        mm = self.master.matchup_set.get(stage=semi, position=2)
+        mm.contestant1, mm.contestant2 = t3, t4
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        self.ub.leaderboard_score = self.ub.calculate_score(master=self.master)
+        self.ub.save(update_fields=["leaderboard_score"])
+
+        potential = calculate_potential_score(self.ub)
+        self.assertIsNotNone(potential)
+        self.assertGreaterEqual(potential, self.ub.leaderboard_score)
