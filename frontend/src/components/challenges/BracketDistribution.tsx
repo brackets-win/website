@@ -129,12 +129,26 @@ function displayEntries(
   masterPickId: number | null,
   maxOthers: number,
 ): ChallengeStatsBracketSlotEntry[] {
-  const display = entries.slice(0, 1 + maxOthers);
+  const ordered = entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => {
+      const pctDiff = b.entry.pct - a.entry.pct;
+      if (pctDiff !== 0) return pctDiff;
+      const aIsMaster =
+        masterPickId != null && a.entry.bracket_contestant_id === masterPickId;
+      const bIsMaster =
+        masterPickId != null && b.entry.bracket_contestant_id === masterPickId;
+      if (aIsMaster !== bIsMaster) return aIsMaster ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ entry }) => entry);
+
+  const display = ordered.slice(0, 1 + maxOthers);
   if (
     masterPickId != null &&
     !display.some((e) => e.bracket_contestant_id === masterPickId)
   ) {
-    const master = entries.find(
+    const master = ordered.find(
       (e) => e.bracket_contestant_id === masterPickId,
     );
     if (master) display.push(master);
