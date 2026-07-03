@@ -71,7 +71,9 @@ class PotentialScoreTests(TestCase):
         fm.save(update_fields=["contestant1", "contestant2", "winner"])
 
         potential = calculate_potential_score(self.ub)
-        expected = (4 + 2) * ko_pts + self.bracket.points_champion
+        # Single-elim without groups: first-round matchup overlap is not scored;
+        # only later rounds (here, the final) earn knockout pick points.
+        expected = 2 * ko_pts + self.bracket.points_champion
         self.assertEqual(potential, expected)
 
     def test_master_r32_elimination_lowers_potential(self):
@@ -211,3 +213,69 @@ class PotentialScoreTests(TestCase):
         potential = calculate_potential_score(ub)
         self.assertGreater(actual, 0)
         self.assertGreaterEqual(potential, actual)
+
+    def test_conflicting_teams_only_one_counts_past_master_meeting(self):
+        """Teams that meet in the master cannot both earn later knockout potential."""
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "pot-conflict-8",
+            "Pot conflict 8",
+            8,
+            self.user,
+            has_third_place=True,
+            structure_config={
+                "points_champion": 10,
+                "points_third_place_winner": 5,
+                "knockout": {"points_per_correct_pick": 2},
+            },
+        )
+        teams = [
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=name, seed=i + 1
+            )
+            for i, name in enumerate(
+                ["Portugal", "Spain", "T3", "T4", "T5", "T6", "T7", "T8"]
+            )
+        ]
+        por, esp = teams[0], teams[1]
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.user, is_master=False
+        )
+        ensure_knockout_structure_for_user_bracket(master)
+        ensure_knockout_structure_for_user_bracket(ub)
+
+        ko_stages = list(
+            bracket.stages.filter(stage_type="KNOCKOUT").order_by("order")
+        )
+        qf, sf, final = ko_stages[0], ko_stages[1], ko_stages[2]
+        third = ko_stages[3]
+
+        def fill_match(ub_obj, stage, position, c1, c2, winner):
+            m = ub_obj.matchup_set.get(stage=stage, position=position)
+            m.contestant1, m.contestant2, m.winner = c1, c2, winner
+            m.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        t = teams
+        fill_match(ub, qf, 1, por, t[2], por)
+        fill_match(ub, qf, 2, t[3], t[4], t[3])
+        fill_match(ub, qf, 3, esp, t[5], esp)
+        fill_match(ub, qf, 4, t[6], t[7], t[6])
+        fill_match(ub, sf, 1, por, t[3], t[3])
+        fill_match(ub, sf, 2, esp, t[6], t[6])
+        fill_match(ub, final, 1, t[3], t[6], t[3])
+        fill_match(ub, third, 1, por, esp, esp)
+
+        mm = master.matchup_set.get(stage=qf, position=1)
+        mm.contestant1, mm.contestant2 = por, esp
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        potential_open = calculate_potential_score(ub)
+
+        mm.winner = por
+        mm.save(update_fields=["winner"])
+        potential_if_portugal_wins = calculate_potential_score(ub)
+
+        self.assertGreater(potential_open, potential_if_portugal_wins)
+        self.assertGreaterEqual(potential_open, ub.calculate_score(master=master))

@@ -339,7 +339,7 @@ def _write_stored_scores(
 
     omit_potential = omit_leaderboard_potential_for_bracket(ub.bracket)
     ub.leaderboard_score = bundle.score
-    if not omit_potential:
+    if not omit_potential and bundle.potential is not None:
         ub.leaderboard_potential = bundle.potential
     ub.leaderboard_stage_scores = bundle.stage_scores
     ub.leaderboard_scores_revision = revision
@@ -350,7 +350,7 @@ def _write_stored_scores(
         "score": bundle.score,
         "stage_scores": bundle.stage_scores,
     }
-    if not omit_potential:
+    if not omit_potential and bundle.potential is not None:
         cache["potential"] = bundle.potential
     meta[LEADERBOARD_SCORES_KEY] = cache
     ub.metadata = meta
@@ -360,7 +360,7 @@ def _write_stored_scores(
         "leaderboard_scores_revision",
         "metadata",
     ]
-    if not omit_potential:
+    if not omit_potential and bundle.potential is not None:
         update_fields.insert(1, "leaderboard_potential")
     ub.save(update_fields=update_fields)
 
@@ -380,19 +380,13 @@ def _compute_leaderboard_scores(
 
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
+    del main_ko_stages, groups_preview, knockout_by_id, omit_leaderboard_potential_for_bracket
+
     stage_scores = stage_scores_for_user_bracket(ub, ctx)
     score = sum(v for v in stage_scores.values() if v is not None)
-    potential = None
-    if not omit_leaderboard_potential_for_bracket(ub.bracket):
-        potential = ub.calculate_potential_score(
-            master=ctx.master,
-            main_ko_stages=main_ko_stages,
-            groups_preview=groups_preview,
-            knockout_by_id=knockout_by_id or ctx.knockout_by_id,
-        )
     return LeaderboardScoreBundle(
         score=score,
-        potential=potential,
+        potential=None,
         potential_rank=None,
         stage_scores=stage_scores,
     )
@@ -431,6 +425,19 @@ def refresh_user_bracket_leaderboard_cache(ub: UserBracket) -> None:
         groups_preview=extras.groups_preview,
         knockout_by_id=ctx.knockout_by_id,
     )
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
+    if not omit_leaderboard_potential_for_bracket(ub.bracket):
+        potential = ub.calculate_potential_score(
+            master=ctx.master,
+            groups_preview=extras.groups_preview,
+        )
+        bundle = LeaderboardScoreBundle(
+            score=bundle.score,
+            potential=potential,
+            potential_rank=bundle.potential_rank,
+            stage_scores=bundle.stage_scores,
+        )
     _write_stored_scores(ub, revision, bundle)
 
 
@@ -480,7 +487,8 @@ def compute_leaderboard_denominators(
 
     The potential denominator is the score of the *fully completed* perfect
     bracket — a structural constant from the scoring rules, independent of
-    current results — matching what ``calculate_potential_score`` upper-bounds.
+    current results — matching the structural upper bound used for potential
+    points (group achievables plus full knockout tree).
     """
     columns: dict[str, int] = {}
     result: dict[str, object] = {"total": 0, "potential": 0, "columns": columns}

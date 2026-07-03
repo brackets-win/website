@@ -1,16 +1,16 @@
 """
 Maximum achievable score for a user bracket vs a (possibly partial) master bracket.
 
-Uses backward reachability on knockout tree positions — not enumeration of all
-master completions.
+Knockout potential is the best total score across all valid completions of the
+master knockout tree (same engine as potential rank). Group-stage potential still
+credits finish/advancer picks the master has not ruled out.
 """
 
 from __future__ import annotations
 
 from brackets.api.serializers import bracket_groups_preview
-from brackets.models import BracketStage, GroupStage, KnockoutStage, Matchup, UserBracket
+from brackets.models import BracketStage, GroupStage, UserBracket
 from brackets.utils.group_stage_config import group_stage_pick_requirements
-from brackets.utils.sync_group_knockout import contestants_in_stage_for_scoring
 
 
 def _slots_per_group(gs: GroupStage) -> int:
@@ -26,7 +26,9 @@ def calculate_potential_score(
     groups_preview=None,
     knockout_by_id=None,
 ) -> int | None:
-    """Upper bound on total points if every remaining outcome goes the player's way."""
+    """Upper bound on total points if the master finishes in the player's favor."""
+    del main_ko_stages, knockout_by_id
+
     if user_bracket.is_master:
         return None
 
@@ -35,143 +37,58 @@ def calculate_potential_score(
     if master is None:
         return user_bracket.calculate_score()
 
-    bracket = user_bracket.bracket
-    if main_ko_stages is None:
-        main_ko_stages = _main_knockout_stages(bracket)
+    from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+    from brackets.utils.potential_rank import (
+        MAX_UNDECIDED_MATCHUPS,
+        _enumerate_potential_outcomes_for_users,
+    )
 
+    ctx = load_leaderboard_scoring_context(user_bracket.bracket)
+    if ctx.master is None:
+        return user_bracket.calculate_score()
+
+    outcomes = _enumerate_potential_outcomes_for_users(
+        ctx,
+        [user_bracket],
+        cap=MAX_UNDECIDED_MATCHUPS,
+    )
+    if outcomes is not None:
+        score = outcomes[0].get(user_bracket.id)
+        if score is not None:
+            return score
+
+    return _fallback_potential_score(
+        user_bracket,
+        master,
+        groups_preview=groups_preview,
+    )
+
+
+def _fallback_potential_score(
+    user_bracket: UserBracket,
+    master: UserBracket,
+    *,
+    groups_preview=None,
+) -> int:
+    """When knockout enumeration is unavailable, use group potential + current score."""
     total = 0
-    for stage in bracket.stages.filter(stage_type=BracketStage.StageType.GROUP):
+    for stage in user_bracket.bracket.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ):
         gs = GroupStage.objects.get(pk=stage.pk)
-        total += _group_stage_potential(
+        total += group_stage_potential(
             user_bracket,
             master,
             gs,
             groups_preview=groups_preview,
         )
-
-    for stage in main_ko_stages:
-        if knockout_by_id is not None:
-            ks = knockout_by_id.get(stage.pk)
-        else:
-            ks = KnockoutStage.objects.get(pk=stage.pk)
-        if ks is None:
-            continue
-        pts = ks.points_per_correct_pick
-        user_ids = contestants_in_stage_for_scoring(user_bracket, stage)
-        master_ids = contestants_in_stage_for_scoring(master, stage)
-        for team_id in user_ids:
-            if team_id in master_ids:
-                total += pts
-            elif _team_can_reach_knockout_stage(
-                user_bracket, master, team_id, stage, main_ko_stages=main_ko_stages
-            ):
-                total += pts
-
-    total += _champion_potential(
-        user_bracket, master, main_ko_stages=main_ko_stages, knockout_by_id=knockout_by_id
-    )
-    total += _third_place_potential(
-        user_bracket, master, knockout_by_id=knockout_by_id
-    )
+    current = user_bracket.calculate_score(master=master)
+    if current is not None and current > total:
+        return current
     return total
 
 
-def _main_knockout_stages(bracket) -> list:
-    out = []
-    for stage in bracket.stages.filter(
-        stage_type=BracketStage.StageType.KNOCKOUT
-    ).order_by("order"):
-        ks = KnockoutStage.objects.filter(pk=stage.pk).first()
-        if ks and ks.is_third_place:
-            continue
-        out.append(stage)
-    return out
-
-
-def _knockout_stage_index(bracket, stage) -> int:
-    stages = _main_knockout_stages(bracket)
-    for i, s in enumerate(stages):
-        if s.pk == stage.pk:
-            return i
-    return -1
-
-
-def _matchups_index(ub: UserBracket) -> dict[tuple[int, int], Matchup]:
-    cached = getattr(ub, "_matchups_index", None)
-    if cached is not None:
-        return cached
-    index = {(m.stage_id, m.position): m for m in ub.matchup_set.all()}
-    ub._matchups_index = index
-    return index
-
-
-def _matchup_at(ub: UserBracket, stage, position: int) -> Matchup | None:
-    return _matchups_index(ub).get((stage.pk, position))
-
-
-def _feeder_position(position: int, *, team_is_contestant1: bool) -> int:
-    return 2 * position - 1 if team_is_contestant1 else 2 * position
-
-
-def _team_can_still_win_matchup(team_id: int, matchup: Matchup | None) -> bool:
-    if matchup is None:
-        return False
-    if matchup.winner_id is not None:
-        return matchup.winner_id == team_id
-    # Undecided — master lineup may still change; user side can still win.
-    return True
-
-
-def _team_can_reach_knockout_stage(
-    user_ub: UserBracket,
-    master_ub: UserBracket,
-    team_id: int,
-    target_stage,
-    *,
-    main_ko_stages=None,
-) -> bool:
-    user_matchup = None
-    for m in user_ub.matchup_set.filter(stage=target_stage):
-        if team_id == m.contestant1_id:
-            user_matchup = m
-            team_is_c1 = True
-            break
-        if team_id == m.contestant2_id:
-            user_matchup = m
-            team_is_c1 = False
-            break
-    if user_matchup is None:
-        return False
-
-    bracket = user_ub.bracket
-    ko_stages = main_ko_stages if main_ko_stages is not None else _main_knockout_stages(bracket)
-    if not ko_stages:
-        return False
-
-    stage = target_stage
-    position = user_matchup.position
-    team_is_c1 = team_id == user_matchup.contestant1_id
-
-    while True:
-        master_m = _matchup_at(master_ub, stage, position)
-        if not _team_can_still_win_matchup(team_id, master_m):
-            return False
-        if stage.pk == ko_stages[0].pk:
-            return True
-
-        idx = _knockout_stage_index(bracket, stage)
-        if idx <= 0:
-            return False
-        prev_stage = ko_stages[idx - 1]
-        position = _feeder_position(position, team_is_contestant1=team_is_c1)
-        user_m = _matchup_at(user_ub, prev_stage, position)
-        if user_m is None or team_id not in (user_m.contestant1_id, user_m.contestant2_id):
-            return False
-        team_is_c1 = team_id == user_m.contestant1_id
-        stage = prev_stage
-
-
-def _group_stage_potential(
+def group_stage_potential(
     user_ub: UserBracket,
     master_ub: UserBracket,
     gs: GroupStage,
@@ -189,7 +106,11 @@ def _group_stage_potential(
     total = 0
 
     if gs.points_per_exact_position > 0:
-        preview = groups_preview if groups_preview is not None else bracket_groups_preview(user_ub.bracket)
+        preview = (
+            groups_preview
+            if groups_preview is not None
+            else bracket_groups_preview(user_ub.bracket)
+        )
         group_codes = [g["code"] for g in preview] or list(user_gp.keys())
         for code in group_codes:
             user_row = user_gp.get(code)
@@ -210,9 +131,7 @@ def _group_stage_potential(
         for code in user_gp:
             if not isinstance(user_gp.get(code), dict):
                 continue
-            user_adv = UserBracket._advancing_ids_from_positions(
-                user_gp, code, q
-            )
+            user_adv = UserBracket._advancing_ids_from_positions(user_gp, code, q)
             master_row = master_gp.get(code)
             master_adv = (
                 UserBracket._advancing_ids_from_positions(master_gp, code, q)
@@ -264,100 +183,3 @@ def _advancer_still_possible(
         master_gp, group_code, qualifying
     )
     return contestant_id in advancing
-
-
-def _champion_potential(
-    user_ub: UserBracket,
-    master_ub: UserBracket,
-    *,
-    main_ko_stages=None,
-    knockout_by_id=None,
-) -> int:
-    pts = user_ub.bracket.points_champion
-    if pts <= 0:
-        return 0
-
-    if knockout_by_id is not None:
-        final_ks = next((ks for ks in knockout_by_id.values() if ks.is_final), None)
-        final_stage = (
-            BracketStage.objects.get(pk=final_ks.pk) if final_ks is not None else None
-        )
-    else:
-        final_ks = KnockoutStage.objects.filter(
-            bracket=user_ub.bracket, is_final=True
-        ).first()
-        final_stage = BracketStage.objects.get(pk=final_ks.pk) if final_ks else None
-    if not final_stage:
-        return 0
-
-    user_final = user_ub.matchup_set.filter(stage=final_stage).first()
-    master_final = master_ub.matchup_set.filter(stage=final_stage).first()
-    if not user_final:
-        return 0
-
-    if master_final and master_final.winner_id is not None:
-        if user_final.winner_id is None:
-            return 0
-        return pts if master_final.winner_id == user_final.winner_id else 0
-
-    if user_final.winner_id is not None:
-        team_id = user_final.winner_id
-        if _team_can_reach_knockout_stage(
-            user_ub,
-            master_ub,
-            team_id,
-            final_stage,
-            main_ko_stages=main_ko_stages,
-        ) and _team_can_still_win_matchup(team_id, master_final):
-            return pts
-        return 0
-
-    if user_final.contestant1_id and user_final.contestant2_id:
-        return pts
-    return 0
-
-
-def _third_place_potential(
-    user_ub: UserBracket,
-    master_ub: UserBracket,
-    *,
-    knockout_by_id=None,
-) -> int:
-    pts = user_ub.bracket.points_third_place_winner
-    if pts <= 0:
-        return 0
-
-    if knockout_by_id is not None:
-        tp_ks = next((ks for ks in knockout_by_id.values() if ks.is_third_place), None)
-        tp_stage = BracketStage.objects.get(pk=tp_ks.pk) if tp_ks is not None else None
-    else:
-        tp_ks = KnockoutStage.objects.filter(
-            bracket=user_ub.bracket, is_third_place=True
-        ).first()
-        tp_stage = BracketStage.objects.get(pk=tp_ks.pk) if tp_ks else None
-    if not tp_stage:
-        return 0
-
-    user_m = user_ub.matchup_set.filter(stage=tp_stage).first()
-    master_m = master_ub.matchup_set.filter(stage=tp_stage).first()
-    if not user_m:
-        return 0
-
-    if master_m and master_m.winner_id is not None:
-        if user_m.winner_id is None:
-            return 0
-        return pts if master_m.winner_id == user_m.winner_id else 0
-
-    if user_m.winner_id is not None:
-        team_id = user_m.winner_id
-        if master_m:
-            c1, c2 = master_m.contestant1_id, master_m.contestant2_id
-            if c1 is None and c2 is None:
-                return pts
-            if team_id in (c1, c2):
-                return pts
-        return pts
-
-    if user_m.contestant1_id and user_m.contestant2_id:
-        return pts
-    return 0

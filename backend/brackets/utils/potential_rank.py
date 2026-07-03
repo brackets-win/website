@@ -1,9 +1,10 @@
 """
-Best achievable leaderboard rank across all completions of the master knockout tree.
+Best achievable leaderboard rank and max total score across all completions of
+the master knockout tree.
 
-Group points are fixed (Confirmed mode). Remaining master knockout winners are
-enumerated exactly; for each completion every submitted bracket is scored vs
-that master state and competition ranks are tracked.
+Group points use achievable group potential for max score; rank uses confirmed
+group score only. Remaining master knockout winners are enumerated exactly; for
+each completion every submitted bracket is scored vs that master state.
 """
 
 from __future__ import annotations
@@ -13,7 +14,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from brackets.models import Bracket, BracketStage, KnockoutStage, UserBracket
-from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+from brackets.utils.leaderboard_scoring import (
+    LEADERBOARD_SCORES_KEY,
+    load_leaderboard_scoring_context,
+)
 from brackets.utils.sync_group_knockout import (
     contestants_credited_for_knockout_score,
     projected_first_knockout_contestant_ids,
@@ -55,11 +59,30 @@ def compute_potential_ranks_for_bracket(
     Returns ``None`` when the bracket cannot be enumerated (e.g. too many
     undecided matchups or first knockout round not fully seeded).
     """
-    ctx = load_leaderboard_scoring_context(bracket)
-    master = ctx.master
-    if master is None:
-        return {}
+    outcomes = _enumerate_potential_outcomes_for_bracket(bracket, cap=cap)
+    if outcomes is None:
+        return None
+    return outcomes[1]
 
+
+def compute_potential_scores_for_bracket(
+    bracket: Bracket,
+    *,
+    cap: int = MAX_UNDECIDED_MATCHUPS,
+) -> dict[int, int | None] | None:
+    """Return max achievable total score per submitted user bracket id."""
+    outcomes = _enumerate_potential_outcomes_for_bracket(bracket, cap=cap)
+    if outcomes is None:
+        return None
+    return outcomes[0]
+
+
+def _enumerate_potential_outcomes_for_bracket(
+    bracket: Bracket,
+    *,
+    cap: int = MAX_UNDECIDED_MATCHUPS,
+) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
+    ctx = load_leaderboard_scoring_context(bracket)
     ubs = list(
         UserBracket.objects.filter(
             bracket=bracket,
@@ -67,8 +90,27 @@ def compute_potential_ranks_for_bracket(
             submitted_at__isnull=False,
         ).prefetch_related("matchup_set")
     )
+    return _enumerate_potential_outcomes_for_users(ctx, ubs, cap=cap)
+
+
+def _enumerate_potential_outcomes_for_users(
+    ctx,
+    ubs: list[UserBracket],
+    *,
+    cap: int = MAX_UNDECIDED_MATCHUPS,
+) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
+    """
+    Enumerate master knockout completions once.
+
+    Returns ``(best_scores, best_ranks)`` keyed by user-bracket id, or ``None``
+    when the bracket cannot be enumerated.
+    """
+    master = ctx.master
+    if master is None:
+        return {}, {}
+
     if not ubs:
-        return {}
+        return {}, {}
 
     ko_stages = [
         s
@@ -76,7 +118,10 @@ def compute_potential_ranks_for_bracket(
         if s.stage_type == BracketStage.StageType.KNOCKOUT
     ]
     if not ko_stages:
-        return {ub.id: 1 for ub in ubs}
+        scores = {
+            ub.id: int(_base_group_potential_scores([ub], ctx)[0]) for ub in ubs
+        }
+        return scores, {ub.id: 1 for ub in ubs}
 
     main_ko_stages = [
         s
@@ -103,10 +148,12 @@ def compute_potential_ranks_for_bracket(
     team_ids = _collect_team_ids(ubs, master, ko_stages, ctx)
     team_to_idx = {tid: i for i, tid in enumerate(sorted(team_ids))}
     if not team_to_idx:
-        return {ub.id: 1 for ub in ubs}
+        scores = {ub.id: int(_base_group_potential_scores([ub], ctx)[0]) for ub in ubs}
+        return scores, {ub.id: 1 for ub in ubs}
 
     n_players = len(ubs)
-    base = _base_group_scores(ubs, ctx)
+    rank_base = _base_group_scores(ubs, ctx)
+    score_base = _base_group_potential_scores(ubs, ctx)
     stage_pts = np.array(
         [
             float(ctx.knockout_by_id[s.pk].points_per_correct_pick)
@@ -115,6 +162,7 @@ def compute_potential_ranks_for_bracket(
         dtype=np.float64,
     )
     user_mask = _user_knockout_mask(ubs, main_ko_stages, team_to_idx)
+    bracket = master.bracket
     champ_pts = float(bracket.points_champion or 0)
     third_pts = float(bracket.points_third_place_winner or 0)
     user_champ = _user_winner_matrix(ubs, final_stage, team_to_idx, champ_pts)
@@ -128,24 +176,31 @@ def compute_potential_ranks_for_bracket(
     batch_size = _completion_batch_size(n_players, n_stages, n_teams)
 
     best_ranks = np.full(n_players, n_players + 1, dtype=np.int32)
+    best_scores = np.full(n_players, -1.0, dtype=np.float64)
     batch_masks: list[np.ndarray] = []
     batch_champ_bonus: list[np.ndarray] = []
     batch_third_bonus: list[np.ndarray] = []
 
     def flush_batch() -> None:
-        nonlocal best_ranks
+        nonlocal best_ranks, best_scores
         if not batch_masks:
             return
         master_mask = np.stack(batch_masks, axis=0)
         weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
         ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
-        totals = base[np.newaxis, :] + ko
+        rank_totals = rank_base[np.newaxis, :] + ko
+        score_totals = score_base[np.newaxis, :] + ko
         if champ_pts > 0 and batch_champ_bonus:
-            totals += np.stack(batch_champ_bonus, axis=0)
+            champ = np.stack(batch_champ_bonus, axis=0)
+            rank_totals += champ
+            score_totals += champ
         if third_pts > 0 and batch_third_bonus:
-            totals += np.stack(batch_third_bonus, axis=0)
-        ranks = _competition_ranks_batch(totals)
+            third = np.stack(batch_third_bonus, axis=0)
+            rank_totals += third
+            score_totals += third
+        ranks = _competition_ranks_batch(rank_totals)
         best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
+        best_scores = np.maximum(best_scores, np.max(score_totals, axis=0))
         batch_masks.clear()
         batch_champ_bonus.clear()
         batch_third_bonus.clear()
@@ -169,11 +224,13 @@ def compute_potential_ranks_for_bracket(
     if np.all(best_ranks > n_players):
         return None
 
-    out: dict[int, int | None] = {}
+    scores_out: dict[int, int | None] = {}
+    ranks_out: dict[int, int | None] = {}
     for i, ub in enumerate(ubs):
+        scores_out[ub.id] = int(best_scores[i]) if best_scores[i] >= 0 else None
         rank = int(best_ranks[i])
-        out[ub.id] = rank if rank <= n_players else None
-    return out
+        ranks_out[ub.id] = rank if rank <= n_players else None
+    return scores_out, ranks_out
 
 
 def _completion_batch_size(n_players: int, n_stages: int, n_teams: int) -> int:
@@ -352,6 +409,30 @@ def _base_group_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
     return scores
 
 
+def _base_group_potential_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
+    from brackets.api.serializers import bracket_groups_preview
+    from brackets.utils.potential_score import group_stage_potential
+
+    groups_preview = bracket_groups_preview(ctx.master.bracket)
+    scores = np.zeros(len(ubs), dtype=np.float64)
+    for i, ub in enumerate(ubs):
+        total = 0.0
+        for stage in ctx.stages:
+            if stage.stage_type != BracketStage.StageType.GROUP:
+                continue
+            gs = ctx.group_by_id.get(stage.pk)
+            if gs is None:
+                continue
+            total += group_stage_potential(
+                ub,
+                ctx.master,
+                gs,
+                groups_preview=groups_preview,
+            )
+        scores[i] = total
+    return scores
+
+
 def _user_knockout_mask(
     ubs: list[UserBracket],
     main_ko_stages: list,
@@ -517,7 +598,7 @@ def _enumerate_completions(
 
 
 def persist_potential_ranks_for_bracket(bracket: Bracket) -> None:
-    """Compute and store potential ranks on all submitted entries."""
+    """Compute and store potential scores and ranks on all submitted entries."""
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     qs = UserBracket.objects.filter(
@@ -528,13 +609,30 @@ def persist_potential_ranks_for_bracket(bracket: Bracket) -> None:
     if omit_leaderboard_potential_for_bracket(bracket):
         return
 
-    ranks = compute_potential_ranks_for_bracket(bracket)
-    if ranks is None:
+    outcomes = _enumerate_potential_outcomes_for_bracket(bracket)
+    if outcomes is None:
         qs.update(leaderboard_potential_rank=None)
         return
 
+    scores, ranks = outcomes
     for ub in qs:
+        update_fields: list[str] = []
+        score = scores.get(ub.id)
         rank = ranks.get(ub.id)
+        if ub.leaderboard_potential != score:
+            ub.leaderboard_potential = score
+            update_fields.append("leaderboard_potential")
         if ub.leaderboard_potential_rank != rank:
             ub.leaderboard_potential_rank = rank
-            ub.save(update_fields=["leaderboard_potential_rank"])
+            update_fields.append("leaderboard_potential_rank")
+        meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
+        cache = meta.get(LEADERBOARD_SCORES_KEY)
+        if isinstance(cache, dict):
+            cache = dict(cache)
+            if cache.get("potential") != score:
+                cache["potential"] = score
+                meta[LEADERBOARD_SCORES_KEY] = cache
+                ub.metadata = meta
+                update_fields.append("metadata")
+        if update_fields:
+            ub.save(update_fields=update_fields)
