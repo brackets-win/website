@@ -2,11 +2,13 @@
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from brackets.models import BracketContestant, GroupStage, KnockoutStage, UserBracket
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 from brackets.api.serializers import bracket_groups_preview
+from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
 from brackets.utils.potential_score import calculate_potential_score
 from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
 
@@ -174,10 +176,10 @@ class PotentialScoreTests(TestCase):
         mm.save(update_fields=["contestant1", "contestant2", "winner"])
 
         from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
-        from brackets.utils.potential_rank import _group_base_for_potential_scores
+        from brackets.utils.potential_score import group_base_for_potential_scores
 
         ctx = load_leaderboard_scoring_context(bracket)
-        group_base = int(_group_base_for_potential_scores([ub], ctx, master)[0])
+        group_base = int(group_base_for_potential_scores([ub], ctx, master)[0])
         self.assertEqual(group_base, 0)
         # Open group slots (positions 2–4) would inflate to 3 before any KO result.
         self.assertNotEqual(calculate_potential_score(ub), 3)
@@ -389,3 +391,83 @@ class PotentialScoreTests(TestCase):
         potential = calculate_potential_score(self.ub)
         self.assertIsNotNone(potential)
         self.assertGreaterEqual(potential, self.ub.leaderboard_score)
+
+    def test_potential_scores_persist_without_rank_cap(self):
+        """Potential points persist even when rank enumeration is capped out."""
+        from brackets.utils.potential_knockout import prepare_knockout_potential
+        from brackets.utils.potential_rank import (
+            MAX_UNDECIDED_MATCHUPS,
+            compute_potential_ranks_for_bracket,
+        )
+        from brackets.utils.potential_score import (
+            compute_potential_scores_for_bracket,
+            persist_potential_scores_for_bracket,
+        )
+
+        t1, t2, t3, t4 = self.teams
+        semi, final = self._ko_stages()
+        mm = self.master.matchup_set.get(stage=semi, position=2)
+        mm.contestant1, mm.contestant2 = t3, t4
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        self.ub.submitted_at = timezone.now()
+        self.ub.save(update_fields=["submitted_at"])
+
+        scores = compute_potential_scores_for_bracket(self.bracket)
+        self.assertIsNotNone(scores)
+        self.assertIn(self.ub.id, scores)
+
+        ranks = compute_potential_ranks_for_bracket(
+            self.bracket, cap=MAX_UNDECIDED_MATCHUPS
+        )
+        self.assertIsNotNone(ranks)
+
+        persist_potential_scores_for_bracket(self.bracket)
+        self.ub.refresh_from_db()
+        self.assertEqual(self.ub.leaderboard_potential, scores[self.ub.id])
+
+        ctx = load_leaderboard_scoring_context(self.bracket)
+        prepared = prepare_knockout_potential(ctx, [self.ub])
+        self.assertIsNotNone(prepared)
+        if prepared.branchable > 0:
+            capped_ranks = compute_potential_ranks_for_bracket(self.bracket, cap=0)
+            self.assertIsNotNone(capped_ranks)
+            self.assertIsNone(capped_ranks[self.ub.id])
+            scores_after_cap = compute_potential_scores_for_bracket(self.bracket)
+            self.assertEqual(scores_after_cap[self.ub.id], scores[self.ub.id])
+
+    def test_backtrack_agrees_with_exhaustive_max(self):
+        """Potential points backtrack must match max over all master completions."""
+        import numpy as np
+
+        from brackets.utils.potential_knockout import (
+            completion_totals_vector,
+            enumerate_completions,
+            max_potential_scores_backtrack,
+            prepare_knockout_potential,
+        )
+
+        t1, t2, t3, t4 = self.teams
+        semi, final = self._ko_stages()
+        mm = self.master.matchup_set.get(stage=semi, position=2)
+        mm.contestant1, mm.contestant2 = t3, t4
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        ctx = load_leaderboard_scoring_context(self.bracket)
+        prepared = prepare_knockout_potential(ctx, [self.ub])
+        self.assertIsNotNone(prepared)
+
+        backtrack = max_potential_scores_backtrack(prepared.tree, prepared.scoring)
+        exhaustive = np.full(len(prepared.scoring.current_totals), -1.0, dtype=np.float64)
+
+        def on_completion(state):
+            np.maximum(
+                exhaustive,
+                completion_totals_vector(state, prepared.scoring),
+                out=exhaustive,
+            )
+
+        enumerate_completions(prepared.tree, on_completion)
+        np.testing.assert_allclose(backtrack, exhaustive)

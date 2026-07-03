@@ -1,53 +1,31 @@
 """
-Best achievable leaderboard rank and max total score across completions of the
-master knockout tree from its *current* state forward.
+Best achievable leaderboard rank across all master knockout completions.
 
-Potential points: stored current score plus the best marginal gain from
-undecided master matchups (decided group/knockout results are not re-modeled).
-
-Potential rank: enumerates every completion of undecided matchups (not just the
+Potential rank enumerates every completion of undecided matchups (not just the
 highest-scoring branch) and tracks the best achievable rank per entry.
+
+Potential points live in potential_score.py — this module never writes them.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 import numpy as np
 
-from brackets.models import Bracket, BracketStage, KnockoutStage, UserBracket
-from brackets.utils.leaderboard_scoring import (
-    LEADERBOARD_SCORES_KEY,
-    load_leaderboard_scoring_context,
-)
-from brackets.utils.sync_group_knockout import (
-    contestants_credited_for_knockout_score,
-    projected_first_knockout_contestant_ids,
+from brackets.models import Bracket, BracketStage, UserBracket
+from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+from brackets.utils.potential_knockout import (
+    KnockoutScoringParams,
+    TreeState,
+    enumerate_completions,
+    master_stage_mask,
+    prepare_knockout_potential,
+    winner_bonus,
 )
 
 MAX_UNDECIDED_MATCHUPS = 16
 MAX_BATCH_SIZE = 4096
 MIN_BATCH_SIZE = 32
-# Soft cap on transient batch arrays (master masks + totals + rank workspace).
 MAX_BATCH_MEMORY_BYTES = 64 * 1024 * 1024
-
-
-@dataclass
-class _MemMatchup:
-    stage_idx: int
-    position: int
-    c1: int | None = None
-    c2: int | None = None
-    winner: int | None = None
-    next_idx: int | None = None
-    is_team_a: bool = False
-    feeds: list[tuple[int, str, bool]] = field(default_factory=list)
-
-
-@dataclass
-class _TreeState:
-    matchups: list[_MemMatchup]
-    stage_matchup_indices: list[list[int]]
 
 
 def compute_potential_ranks_for_bracket(
@@ -58,32 +36,9 @@ def compute_potential_ranks_for_bracket(
     """
     Return best achievable rank per submitted user bracket id.
 
-    Returns ``None`` when the bracket cannot be enumerated (e.g. too many
-    undecided matchups or first knockout round not fully seeded).
+    Returns ``None`` when rank cannot be enumerated (too many branchable games
+    or first knockout round not fully seeded).
     """
-    outcomes = _enumerate_potential_outcomes_for_bracket(bracket, cap=cap)
-    if outcomes is None:
-        return None
-    return outcomes[1]
-
-
-def compute_potential_scores_for_bracket(
-    bracket: Bracket,
-    *,
-    cap: int = MAX_UNDECIDED_MATCHUPS,
-) -> dict[int, int | None] | None:
-    """Return max achievable total score per submitted user bracket id."""
-    outcomes = _enumerate_potential_outcomes_for_bracket(bracket, cap=cap)
-    if outcomes is None:
-        return None
-    return outcomes[0]
-
-
-def _enumerate_potential_outcomes_for_bracket(
-    bracket: Bracket,
-    *,
-    cap: int = MAX_UNDECIDED_MATCHUPS,
-) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
     ctx = load_leaderboard_scoring_context(bracket)
     ubs = list(
         UserBracket.objects.filter(
@@ -92,176 +47,158 @@ def _enumerate_potential_outcomes_for_bracket(
             submitted_at__isnull=False,
         ).prefetch_related("matchup_set")
     )
-    return _enumerate_potential_outcomes_for_users(ctx, ubs, cap=cap)
+    return compute_potential_ranks_for_users(ctx, ubs, cap=cap)
 
 
-def _enumerate_potential_outcomes_for_users(
+def compute_potential_ranks_for_users(
     ctx,
     ubs: list[UserBracket],
     *,
     cap: int = MAX_UNDECIDED_MATCHUPS,
-) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
-    """
-    Enumerate master knockout completions once.
+) -> dict[int, int | None] | None:
+    if ctx.master is None or not ubs:
+        return {}
 
-    Returns ``(best_scores, best_ranks)`` keyed by user-bracket id, or ``None``
-    when the bracket cannot be enumerated.
-    """
-    master = ctx.master
-    if master is None:
-        return {}, {}
-
-    if not ubs:
-        return {}, {}
-
-    ko_stages = [
-        s
-        for s in ctx.stages
-        if s.stage_type == BracketStage.StageType.KNOCKOUT
-    ]
-    if not ko_stages:
-        return _outcomes_without_knockout(ubs, ctx, master)
-
-    main_ko_stages = [
-        s
-        for s in ko_stages
-        if not ctx.knockout_by_id[s.pk].is_third_place
-    ]
-    third_stage = next(
-        (s for s in ko_stages if ctx.knockout_by_id[s.pk].is_third_place),
-        None,
+    has_knockout = any(
+        s.stage_type == BracketStage.StageType.KNOCKOUT for s in ctx.stages
     )
-    final_stage = next(
-        (s for s in ko_stages if ctx.knockout_by_id[s.pk].is_final),
-        None,
-    )
+    if not has_knockout:
+        return {ub.id: 1 for ub in ubs}
 
-    if main_ko_stages and not _first_knockout_fully_seeded(master, main_ko_stages[0]):
+    prepared = prepare_knockout_potential(ctx, ubs)
+    if prepared is None:
         return None
 
-    tree = _build_master_tree(master, ko_stages)
-    branchable = _count_branchable_undecided_matchups(tree)
-    # Potential rank needs every completion; potential points only needs the max.
-    # The cap applies to rank only — empty downstream shells (no teams yet) must
-    # not block scoring (they are never branched on during enumeration).
-    compute_ranks = branchable <= cap
-
-    team_ids = _collect_team_ids(ubs, master, ko_stages, ctx)
-    team_to_idx = {tid: i for i, tid in enumerate(sorted(team_ids))}
-    if not team_to_idx:
-        return _outcomes_without_knockout(ubs, ctx, master)
+    if prepared.branchable > cap:
+        return {ub.id: None for ub in ubs}
 
     n_players = len(ubs)
-    current_totals = _current_totals_for_users(ubs, ctx)
-    stage_pts = np.array(
-        [
-            float(ctx.knockout_by_id[s.pk].points_per_correct_pick)
-            for s in main_ko_stages
-        ],
-        dtype=np.float64,
+    ranks_by_idx = _best_ranks_via_batch_enum(
+        prepared.tree,
+        prepared.scoring,
+        n_players=n_players,
+        champ_pts=prepared.champ_pts,
+        third_pts=prepared.third_pts,
     )
-    user_mask = _user_knockout_mask(ubs, main_ko_stages, team_to_idx)
-    bracket = master.bracket
-    champ_pts = float(bracket.points_champion or 0)
-    third_pts = float(bracket.points_third_place_winner or 0)
-    user_champ = _user_winner_matrix(ubs, final_stage, team_to_idx, champ_pts)
-    user_third = _user_winner_matrix(ubs, third_stage, team_to_idx, third_pts)
+    if ranks_by_idx is None:
+        return {ub.id: None for ub in ubs}
 
-    final_m_idx = _final_matchup_index(tree, ko_stages, final_stage)
-    third_m_idx = _final_matchup_index(tree, ko_stages, third_stage)
+    return {
+        ub.id: ranks_by_idx[i] if ranks_by_idx[i] <= n_players else None
+        for i, ub in enumerate(ubs)
+    }
 
-    current_state = _copy_state(tree)
-    current_ko_bonus = _marginal_ko_bonus(
-        current_state,
-        ubs,
-        user_mask=user_mask,
-        stage_pts=stage_pts,
-        user_champ=user_champ,
-        user_third=user_third,
-        final_m_idx=final_m_idx,
-        third_m_idx=third_m_idx,
-        team_to_idx=team_to_idx,
-        main_ko_stages=main_ko_stages,
-        ko_stages=ko_stages,
+
+def persist_potential_ranks_for_bracket(bracket: Bracket) -> None:
+    """Compute and store potential rank on all submitted entries."""
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+
+    qs = UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
     )
+    if omit_leaderboard_potential_for_bracket(bracket):
+        return
 
-    n_stages = len(main_ko_stages)
-    n_teams = len(team_to_idx)
+    ranks = compute_potential_ranks_for_bracket(bracket)
+    if ranks is None:
+        qs.update(leaderboard_potential_rank=None)
+        return
+
+    for ub in qs:
+        rank = ranks.get(ub.id)
+        if ub.leaderboard_potential_rank != rank:
+            ub.leaderboard_potential_rank = rank
+            ub.save(update_fields=["leaderboard_potential_rank"])
+
+
+def _best_ranks_via_batch_enum(
+    tree: TreeState,
+    scoring: KnockoutScoringParams,
+    *,
+    n_players: int,
+    champ_pts: float,
+    third_pts: float,
+) -> dict[int, int] | None:
+    n_stages = len(scoring.main_ko_stages)
+    n_teams = len(scoring.team_to_idx)
     batch_size = _completion_batch_size(n_players, n_stages, n_teams)
 
     best_ranks = np.full(n_players, n_players + 1, dtype=np.int32)
-    best_scores = np.full(n_players, -1.0, dtype=np.float64)
     batch_masks: list[np.ndarray] = []
     batch_champ_bonus: list[np.ndarray] = []
     batch_third_bonus: list[np.ndarray] = []
 
     def flush_batch() -> None:
-        nonlocal best_ranks, best_scores
+        nonlocal best_ranks
         if not batch_masks:
             return
         master_mask = np.stack(batch_masks, axis=0)
-        weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
+        weighted_user = scoring.user_mask * scoring.stage_pts[np.newaxis, :, np.newaxis]
         completion_ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
         completion_marginal = completion_ko
         if champ_pts > 0 and batch_champ_bonus:
             completion_marginal = completion_marginal + np.stack(batch_champ_bonus, axis=0)
         if third_pts > 0 and batch_third_bonus:
             completion_marginal = completion_marginal + np.stack(batch_third_bonus, axis=0)
-        totals = current_totals[np.newaxis, :] + completion_marginal - current_ko_bonus
-        best_scores = np.maximum(best_scores, np.max(totals, axis=0))
-        if compute_ranks:
-            ranks = _competition_ranks_batch(totals)
-            best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
+        totals = (
+            scoring.current_totals[np.newaxis, :]
+            + completion_marginal
+            - scoring.current_ko_bonus
+        )
+        ranks = competition_ranks_batch(totals)
+        best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
         batch_masks.clear()
         batch_champ_bonus.clear()
         batch_third_bonus.clear()
 
-    def record_completion(state: _TreeState) -> None:
+    def record_completion(state: TreeState) -> None:
         batch_masks.append(
-            _master_stage_mask(state, main_ko_stages, ko_stages, team_to_idx)
+            master_stage_mask(
+                state,
+                scoring.main_ko_stages,
+                scoring.ko_stages,
+                scoring.team_to_idx,
+            )
         )
         batch_champ_bonus.append(
-            _winner_bonus(state, final_m_idx, user_champ, team_to_idx)
+            winner_bonus(
+                state,
+                scoring.final_m_idx,
+                scoring.user_champ,
+                scoring.team_to_idx,
+            )
         )
         batch_third_bonus.append(
-            _winner_bonus(state, third_m_idx, user_third, team_to_idx)
+            winner_bonus(
+                state,
+                scoring.third_m_idx,
+                scoring.user_third,
+                scoring.team_to_idx,
+            )
         )
         if len(batch_masks) >= batch_size:
             flush_batch()
 
-    _enumerate_completions(tree, record_completion)
+    enumerate_completions(tree, record_completion)
     flush_batch()
 
-    if compute_ranks and np.all(best_ranks > n_players):
+    if np.all(best_ranks > n_players):
         return None
 
-    scores_out: dict[int, int | None] = {}
-    ranks_out: dict[int, int | None] = {}
-    for i, ub in enumerate(ubs):
-        scores_out[ub.id] = int(best_scores[i]) if best_scores[i] >= 0 else None
-        if compute_ranks:
-            rank = int(best_ranks[i])
-            ranks_out[ub.id] = rank if rank <= n_players else None
-        else:
-            ranks_out[ub.id] = None
-    return scores_out, ranks_out
+    return {i: int(best_ranks[i]) for i in range(n_players)}
 
 
 def _completion_batch_size(n_players: int, n_stages: int, n_teams: int) -> int:
-    """Size completion batches from player count and mask width."""
-    # master_mask (S×T float64) + totals/rank workspace (~5×N float64/int).
     per_completion = n_stages * n_teams * 8 + 40 * n_players
     per_completion = max(per_completion, 1)
     batch = MAX_BATCH_MEMORY_BYTES // per_completion
     return int(max(MIN_BATCH_SIZE, min(MAX_BATCH_SIZE, batch)))
 
 
-def _competition_ranks_batch(totals: np.ndarray) -> np.ndarray:
-    """
-    Competition ranks for each completion row in ``totals`` (B, N).
-
-    Ties share rank; O(B × N log N) via sort — not O(B × N²) pairwise compare.
-    """
+def competition_ranks_batch(totals: np.ndarray) -> np.ndarray:
+    """Competition ranks for each completion row in ``totals`` (B, N)."""
     if totals.ndim != 2:
         raise ValueError("totals must be a 2-D array")
     batch_size, n_players = totals.shape
@@ -282,466 +219,3 @@ def _competition_ranks_batch(totals: np.ndarray) -> np.ndarray:
     ranks = np.empty((batch_size, n_players), dtype=np.int32)
     np.put_along_axis(ranks, order, ranks_sorted, axis=1)
     return ranks
-
-
-def _knockout_is_third_place(stage) -> bool:
-    try:
-        return KnockoutStage.objects.get(pk=stage.pk).is_third_place
-    except KnockoutStage.DoesNotExist:
-        return False
-
-
-def _first_knockout_fully_seeded(master: UserBracket, first_ko) -> bool:
-    if first_ko is None:
-        return True
-    has_group = master.bracket.stages.filter(
-        stage_type=BracketStage.StageType.GROUP
-    ).exists()
-    if has_group:
-        projected = projected_first_knockout_contestant_ids(master)
-        if not projected:
-            return False
-    for m in master.matchup_set.filter(stage=first_ko).order_by("position"):
-        if m.contestant1_id is None or m.contestant2_id is None:
-            return False
-    return True
-
-
-def _build_master_tree(master: UserBracket, ko_stages: list) -> _TreeState:
-    db_matchups = list(
-        master.matchup_set.filter(stage__in=ko_stages).select_related(
-            "stage",
-            "source_a_matchup__stage",
-            "source_b_matchup__stage",
-        )
-    )
-    db_matchups.sort(key=lambda m: (m.stage.order, m.position))
-    key_to_idx: dict[tuple[int, int], int] = {}
-    mem: list[_MemMatchup] = []
-    stage_indices: list[list[int]] = [[] for _ in ko_stages]
-    stage_id_to_idx = {s.pk: i for i, s in enumerate(ko_stages)}
-
-    for m in db_matchups:
-        stage_idx = stage_id_to_idx[m.stage_id]
-        mm = _MemMatchup(
-            stage_idx=stage_idx,
-            position=m.position,
-            c1=m.contestant1_id,
-            c2=m.contestant2_id,
-            winner=m.winner_id,
-            is_team_a=m.position % 2 == 1,
-        )
-        idx = len(mem)
-        mem.append(mm)
-        key_to_idx[(m.stage_id, m.position)] = idx
-        stage_indices[stage_idx].append(idx)
-
-    for m in db_matchups:
-        idx = key_to_idx[(m.stage_id, m.position)]
-        mm = mem[idx]
-        ks = None
-        try:
-            ks = KnockoutStage.objects.get(pk=m.stage_id)
-        except KnockoutStage.DoesNotExist:
-            pass
-        if ks and not ks.is_final and not ks.is_third_place:
-            next_pos = (m.position + 1) // 2
-            next_stages = [
-                s
-                for s in ko_stages
-                if s.order > m.stage.order and not _knockout_is_third_place(s)
-            ]
-            if next_stages:
-                next_idx = key_to_idx.get((next_stages[0].pk, next_pos))
-                mm.next_idx = next_idx
-        if m.source_a_matchup_id is not None and m.source_a_matchup is not None:
-            src = key_to_idx.get(
-                (m.source_a_matchup.stage_id, m.source_a_matchup.position)
-            )
-            if src is not None:
-                mem[src].feeds.append((idx, "a", m.source_a_uses_winner))
-        if m.source_b_matchup_id is not None and m.source_b_matchup is not None:
-            src = key_to_idx.get(
-                (m.source_b_matchup.stage_id, m.source_b_matchup.position)
-            )
-            if src is not None:
-                mem[src].feeds.append((idx, "b", m.source_b_uses_winner))
-
-    return _TreeState(matchups=mem, stage_matchup_indices=stage_indices)
-
-
-def _count_branchable_undecided_matchups(tree: _TreeState) -> int:
-    """Undecided matchups with both teams set — the ones enumeration branches on."""
-    return sum(
-        1
-        for m in tree.matchups
-        if m.winner is None and m.c1 is not None and m.c2 is not None
-    )
-
-
-def _collect_team_ids(
-    ubs: list[UserBracket],
-    master: UserBracket,
-    ko_stages: list,
-    ctx,
-) -> set[int]:
-    ids: set[int] = set()
-    for ub in ubs + [master]:
-        for stage in ko_stages:
-            ids |= contestants_credited_for_knockout_score(ub, stage)
-        w = ub.get_final_matchup_winner()
-        if w is not None:
-            ids.add(w.id)
-        tp = next(
-            (s for s in ko_stages if ctx.knockout_by_id[s.pk].is_third_place),
-            None,
-        )
-        if tp is not None:
-            m = ub.matchup_set.filter(stage=tp).first()
-            if m:
-                for cid in (m.winner_id, m.contestant1_id, m.contestant2_id):
-                    if cid is not None:
-                        ids.add(cid)
-    for m in master.matchup_set.filter(stage__in=ko_stages):
-        for cid in (m.contestant1_id, m.contestant2_id, m.winner_id):
-            if cid is not None:
-                ids.add(cid)
-    return ids
-
-
-def _outcomes_without_knockout(
-    ubs: list[UserBracket],
-    ctx,
-    master: UserBracket,
-) -> tuple[dict[int, int | None], dict[int, int | None]]:
-    """Group-only brackets, or before knockout seeding is scoreable."""
-    scores_arr = _group_base_for_potential_scores(ubs, ctx, master)
-    scores = {ub.id: int(scores_arr[i]) for i, ub in enumerate(ubs)}
-    return scores, {ub.id: 1 for ub in ubs}
-
-
-def _current_totals_for_users(ubs: list[UserBracket], ctx) -> np.ndarray:
-    """Materialized total score per entry — the same number shown on the leaderboard."""
-    master = ctx.master
-    scores = np.zeros(len(ubs), dtype=np.float64)
-    for i, ub in enumerate(ubs):
-        if ub.leaderboard_score is not None:
-            scores[i] = float(ub.leaderboard_score)
-            continue
-        total = 0.0
-        for stage in ctx.stages:
-            stage_score = ub.calculate_stage_score(
-                stage,
-                master=master,
-                knockout_stage=ctx.knockout_by_id.get(stage.pk),
-                group_stage=ctx.group_by_id.get(stage.pk),
-            )
-            if stage_score is not None:
-                total += stage_score
-        champion = ub.calculate_champion_score(master=master)
-        if champion is not None:
-            total += champion
-        scores[i] = total
-    return scores
-
-
-def _marginal_ko_bonus(
-    state: _TreeState,
-    ubs: list[UserBracket],
-    *,
-    user_mask: np.ndarray,
-    stage_pts: np.ndarray,
-    user_champ: np.ndarray,
-    user_third: np.ndarray,
-    final_m_idx: int | None,
-    third_m_idx: int | None,
-    team_to_idx: dict[int, int],
-    main_ko_stages: list,
-    ko_stages: list,
-) -> np.ndarray:
-    """Knockout stage points plus champion / third bonuses for one master state."""
-    master_mask = _master_stage_mask(
-        state, main_ko_stages, ko_stages, team_to_idx
-    )
-    weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
-    totals = np.einsum("bst,st->b", weighted_user, master_mask)
-    if final_m_idx is not None:
-        totals += _winner_bonus(state, final_m_idx, user_champ, team_to_idx)
-    if third_m_idx is not None:
-        totals += _winner_bonus(state, third_m_idx, user_third, team_to_idx)
-    return totals
-
-
-def _base_group_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
-    scores = np.zeros(len(ubs), dtype=np.float64)
-    for i, ub in enumerate(ubs):
-        total = 0
-        for stage in ctx.stages:
-            if stage.stage_type != BracketStage.StageType.GROUP:
-                continue
-            stage_score = ub.calculate_stage_score(
-                stage,
-                master=ctx.master,
-                knockout_stage=ctx.knockout_by_id.get(stage.pk),
-                group_stage=ctx.group_by_id.get(stage.pk),
-            )
-            if stage_score is not None:
-                total += stage_score
-        scores[i] = total
-    return scores
-
-
-def _base_group_potential_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
-    from brackets.api.serializers import bracket_groups_preview
-    from brackets.utils.potential_score import group_stage_potential
-
-    groups_preview = bracket_groups_preview(ctx.master.bracket)
-    scores = np.zeros(len(ubs), dtype=np.float64)
-    for i, ub in enumerate(ubs):
-        total = 0.0
-        for stage in ctx.stages:
-            if stage.stage_type != BracketStage.StageType.GROUP:
-                continue
-            gs = ctx.group_by_id.get(stage.pk)
-            if gs is None:
-                continue
-            total += group_stage_potential(
-                ub,
-                ctx.master,
-                gs,
-                groups_preview=groups_preview,
-            )
-        scores[i] = total
-    return scores
-
-
-def _master_knockout_has_results(master: UserBracket) -> bool:
-    """True once any master knockout matchup has a recorded winner."""
-    return master.matchup_set.filter(winner_id__isnull=False).exists()
-
-
-def _group_base_for_potential_scores(
-    ubs: list[UserBracket],
-    ctx,
-    master: UserBracket,
-) -> np.ndarray:
-    """Group points for max-score potential.
-
-    While the group stage is still the only scored phase, credit achievable
-    group picks the master has not ruled out. Once knockout results exist on
-    the master, group points are locked to what is already confirmed — matching
-    ``current score + best knockout completion`` rather than inflating with
-    open group slots that can no longer be awarded.
-    """
-    if _master_knockout_has_results(master):
-        return _base_group_scores(ubs, ctx)
-    return _base_group_potential_scores(ubs, ctx)
-
-
-def _user_knockout_mask(
-    ubs: list[UserBracket],
-    main_ko_stages: list,
-    team_to_idx: dict[int, int],
-) -> np.ndarray:
-    n = len(ubs)
-    s = len(main_ko_stages)
-    t = len(team_to_idx)
-    mask = np.zeros((n, s, t), dtype=np.float64)
-    for pi, ub in enumerate(ubs):
-        for si, stage in enumerate(main_ko_stages):
-            for tid in contestants_credited_for_knockout_score(ub, stage):
-                ti = team_to_idx.get(tid)
-                if ti is not None:
-                    mask[pi, si, ti] = 1.0
-    return mask
-
-
-def _user_winner_matrix(
-    ubs: list[UserBracket],
-    stage,
-    team_to_idx: dict[int, int],
-    points: float,
-) -> np.ndarray:
-    n = len(ubs)
-    t = len(team_to_idx)
-    mat = np.zeros((n, t), dtype=np.float64)
-    if stage is None or points <= 0:
-        return mat
-    for pi, ub in enumerate(ubs):
-        if _knockout_is_third_place(stage):
-            m = ub.matchup_set.filter(stage=stage).first()
-            wid = m.winner_id if m else None
-        else:
-            w = ub.get_final_matchup_winner()
-            wid = w.id if w else None
-        if wid is not None:
-            ti = team_to_idx.get(wid)
-            if ti is not None:
-                mat[pi, ti] = points
-    return mat
-
-
-def _final_matchup_index(
-    tree: _TreeState,
-    ko_stages: list,
-    stage,
-) -> int | None:
-    if stage is None:
-        return None
-    stage_idx = next(i for i, s in enumerate(ko_stages) if s.pk == stage.pk)
-    indices = tree.stage_matchup_indices[stage_idx]
-    return indices[0] if indices else None
-
-
-def _winner_bonus(
-    state: _TreeState,
-    m_idx: int | None,
-    user_matrix: np.ndarray,
-    team_to_idx: dict[int, int],
-) -> np.ndarray:
-    n = user_matrix.shape[0]
-    if m_idx is None:
-        return np.zeros(n, dtype=np.float64)
-    wid = state.matchups[m_idx].winner
-    if wid is None:
-        return np.zeros(n, dtype=np.float64)
-    ti = team_to_idx.get(wid)
-    if ti is None:
-        return np.zeros(n, dtype=np.float64)
-    return user_matrix[:, ti].copy()
-
-
-def _master_stage_mask(
-    state: _TreeState,
-    main_ko_stages: list,
-    ko_stages: list,
-    team_to_idx: dict[int, int],
-) -> np.ndarray:
-    stage_id_to_idx = {s.pk: i for i, s in enumerate(ko_stages)}
-    s = len(main_ko_stages)
-    t = len(team_to_idx)
-    mask = np.zeros((s, t), dtype=np.float64)
-    for si, stage in enumerate(main_ko_stages):
-        ko_si = stage_id_to_idx[stage.pk]
-        for m_idx in state.stage_matchup_indices[ko_si]:
-            m = state.matchups[m_idx]
-            for tid in (m.c1, m.c2):
-                if tid is not None:
-                    ti = team_to_idx.get(tid)
-                    if ti is not None:
-                        mask[si, ti] = 1.0
-    return mask
-
-
-def _copy_state(state: _TreeState) -> _TreeState:
-    return _TreeState(
-        matchups=[
-            _MemMatchup(
-                stage_idx=m.stage_idx,
-                position=m.position,
-                c1=m.c1,
-                c2=m.c2,
-                winner=m.winner,
-                next_idx=m.next_idx,
-                is_team_a=m.is_team_a,
-                feeds=list(m.feeds),
-            )
-            for m in state.matchups
-        ],
-        stage_matchup_indices=[list(indices) for indices in state.stage_matchup_indices],
-    )
-
-
-def _apply_winner(state: _TreeState, m_idx: int, winner_id: int) -> None:
-    m = state.matchups[m_idx]
-    if m.c1 is None or m.c2 is None:
-        return
-    m.winner = winner_id
-    loser_id = m.c2 if winner_id == m.c1 else m.c1
-
-    if m.next_idx is not None:
-        nxt = state.matchups[m.next_idx]
-        if m.is_team_a:
-            nxt.c1 = winner_id
-        else:
-            nxt.c2 = winner_id
-
-    for feed_idx, slot, uses_winner in m.feeds:
-        fm = state.matchups[feed_idx]
-        val = winner_id if uses_winner else loser_id
-        if slot == "a":
-            fm.c1 = val
-        else:
-            fm.c2 = val
-
-
-def _find_undecided(state: _TreeState) -> int | None:
-    for i, m in enumerate(state.matchups):
-        if m.winner is None and m.c1 is not None and m.c2 is not None:
-            return i
-    return None
-
-
-def _enumerate_completions(
-    tree: _TreeState,
-    on_completion,
-    *,
-    state: _TreeState | None = None,
-) -> None:
-    state = state or _copy_state(tree)
-    idx = _find_undecided(state)
-    if idx is None:
-        on_completion(state)
-        return
-    m = state.matchups[idx]
-    for winner_id in (m.c1, m.c2):
-        if winner_id is None:
-            continue
-        child = _copy_state(state)
-        _apply_winner(child, idx, winner_id)
-        _enumerate_completions(tree, on_completion, state=child)
-
-
-def persist_potential_ranks_for_bracket(bracket: Bracket) -> None:
-    """Compute and store potential scores and ranks on all submitted entries."""
-    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
-
-    qs = UserBracket.objects.filter(
-        bracket=bracket,
-        is_master=False,
-        submitted_at__isnull=False,
-    )
-    if omit_leaderboard_potential_for_bracket(bracket):
-        return
-
-    outcomes = _enumerate_potential_outcomes_for_bracket(bracket)
-    if outcomes is None:
-        qs.update(leaderboard_potential_rank=None)
-        return
-
-    scores, ranks = outcomes
-    if not scores:
-        qs.update(leaderboard_potential_rank=None)
-        return
-
-    for ub in qs:
-        update_fields: list[str] = []
-        score = scores.get(ub.id)
-        rank = ranks.get(ub.id)
-        if ub.leaderboard_potential != score:
-            ub.leaderboard_potential = score
-            update_fields.append("leaderboard_potential")
-        if ub.leaderboard_potential_rank != rank:
-            ub.leaderboard_potential_rank = rank
-            update_fields.append("leaderboard_potential_rank")
-        meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
-        cache = meta.get(LEADERBOARD_SCORES_KEY)
-        if isinstance(cache, dict):
-            cache = dict(cache)
-            if cache.get("potential") != score:
-                cache["potential"] = score
-                meta[LEADERBOARD_SCORES_KEY] = cache
-                ub.metadata = meta
-                update_fields.append("metadata")
-        if update_fields:
-            ub.save(update_fields=update_fields)

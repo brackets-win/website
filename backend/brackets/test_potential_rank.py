@@ -15,9 +15,10 @@ from brackets.utils.leaderboard_scoring import (
 )
 from brackets.utils.potential_rank import (
     MAX_UNDECIDED_MATCHUPS,
+    competition_ranks_batch,
     compute_potential_ranks_for_bracket,
-    compute_potential_scores_for_bracket,
 )
+from brackets.utils.potential_score import compute_potential_scores_for_bracket
 
 User = get_user_model()
 
@@ -228,7 +229,7 @@ class PotentialRankTests(TestCase):
         result = compute_potential_ranks_for_bracket(self.bracket, cap=0)
         self.assertIsNotNone(result)
         self.assertIsNone(result[ub.id])
-        scores = compute_potential_scores_for_bracket(self.bracket, cap=0)
+        scores = compute_potential_scores_for_bracket(self.bracket)
         self.assertIsNotNone(scores)
         self.assertIsNotNone(scores[ub.id])
 
@@ -299,27 +300,28 @@ class PotentialRankBatchHelpersTests(TestCase):
     def test_competition_ranks_batch_matches_pairwise_reference(self):
         import numpy as np
 
-        from brackets.utils.potential_rank import _competition_ranks_batch
+        from brackets.utils.potential_rank import competition_ranks_batch
 
         rng = np.random.default_rng(7)
         totals = rng.integers(0, 100, size=(64, 250)).astype(np.float64)
         expected = self._pairwise_competition_ranks(totals)
-        actual = _competition_ranks_batch(totals)
+        actual = competition_ranks_batch(totals)
         np.testing.assert_array_equal(actual, expected)
 
     def test_competition_ranks_batch_handles_ties(self):
         import numpy as np
 
-        from brackets.utils.potential_rank import _competition_ranks_batch
+        from brackets.utils.potential_rank import competition_ranks_batch
 
         totals = np.array([[100.0, 100.0, 90.0, 80.0]], dtype=np.float64)
-        ranks = _competition_ranks_batch(totals)
+        ranks = competition_ranks_batch(totals)
         np.testing.assert_array_equal(ranks, np.array([[1, 1, 3, 4]], dtype=np.int32))
 
     def test_completion_batch_size_shrinks_with_player_count(self):
         from brackets.utils.potential_rank import (
             MAX_BATCH_SIZE,
             _completion_batch_size,
+            competition_ranks_batch,
         )
 
         small_field = _completion_batch_size(50, 4, 32)
