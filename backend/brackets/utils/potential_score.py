@@ -228,6 +228,18 @@ def _write_potential_scores(
         UserBracket.objects.bulk_update(
             score_updates, ["leaderboard_potential"], batch_size=500
         )
+        for ub in score_updates:
+            score = scores.get(ub.id)
+            if score is None:
+                continue
+            meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
+            cache = meta.get(LEADERBOARD_SCORES_KEY)
+            if isinstance(cache, dict) and cache.get("potential") != score:
+                cache = dict(cache)
+                cache["potential"] = score
+                meta[LEADERBOARD_SCORES_KEY] = cache
+                ub.metadata = meta
+                ub.save(update_fields=["metadata"])
 
 
 def _write_potential_ranks(

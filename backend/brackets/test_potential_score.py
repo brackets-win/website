@@ -336,6 +336,33 @@ class PotentialScoreTests(TestCase):
         self.assertGreater(potential_open, potential_if_portugal_wins)
         self.assertGreaterEqual(potential_open, ub.calculate_score(master=master))
 
+    def test_potential_is_max_score_over_master_paths(self):
+        """Potential = best total if the master walks in the player's favor."""
+        t1, t2, t3, t4 = self.teams
+        semi, final = self._ko_stages()
+        mm = self.master.matchup_set.get(stage=semi, position=2)
+        mm.contestant1, mm.contestant2 = t3, t4
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        current = self.ub.calculate_score(master=self.master)
+        self.ub.leaderboard_score = current
+        self.ub.save(update_fields=["leaderboard_score"])
+        potential = calculate_potential_score(self.ub)
+        self.assertIsNotNone(potential)
+        self.assertGreaterEqual(potential, current)
+
+        mm.winner = t3
+        mm.save(update_fields=["winner"])
+        if t3.id in {t1.id, t2.id}:
+            path_a = self.ub.calculate_score(master=self.master)
+        else:
+            path_a = current
+        mm.winner = t4
+        mm.save(update_fields=["winner"])
+        path_b = self.ub.calculate_score(master=self.master)
+        self.assertEqual(potential, max(path_a, path_b))
+
     def test_group_first_ko_points_not_reenumerated(self):
         """R32 points are fixed from group projections — undecided R32 must not inflate potential."""
         bracket = create_bracket_with_structure(

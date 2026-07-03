@@ -38,8 +38,10 @@ class TreeState:
 
 @dataclass
 class KnockoutScoringParams:
+    """Arrays for scoring each master completion like ``calculate_score``."""
+
+    group_totals: np.ndarray
     current_totals: np.ndarray
-    current_ko_bonus: np.ndarray
     user_mask: np.ndarray
     stage_pts: np.ndarray
     user_champ: np.ndarray
@@ -49,6 +51,8 @@ class KnockoutScoringParams:
     team_to_idx: dict[int, int]
     main_ko_stages: list
     ko_stages: list
+    has_group: bool
+    first_ko_master_mask: np.ndarray | None
 
 
 @dataclass
@@ -191,6 +195,41 @@ def collect_team_ids(
     return ids
 
 
+def group_totals_for_users(
+    ubs: list[UserBracket], ctx, master: UserBracket
+) -> np.ndarray:
+    """Locked group-stage points — identical on every master completion."""
+    scores = np.zeros(len(ubs), dtype=np.float64)
+    for i, ub in enumerate(ubs):
+        for stage in ctx.stages:
+            if stage.stage_type != BracketStage.StageType.GROUP:
+                continue
+            stage_score = ub.calculate_stage_score(
+                stage,
+                master=master,
+                knockout_stage=ctx.knockout_by_id.get(stage.pk),
+                group_stage=ctx.group_by_id.get(stage.pk),
+            )
+            if stage_score is not None:
+                scores[i] += stage_score
+    return scores
+
+
+def first_knockout_master_mask(
+    master: UserBracket,
+    first_ko_stage,
+    team_to_idx: dict[int, int],
+) -> np.ndarray:
+    """Master R32 credits from group projections — fixed across completions."""
+    t = len(team_to_idx)
+    mask = np.zeros(t, dtype=np.float64)
+    for tid in contestants_credited_for_knockout_score(master, first_ko_stage):
+        ti = team_to_idx.get(tid)
+        if ti is not None:
+            mask[ti] = 1.0
+    return mask
+
+
 def current_totals_for_users(ubs: list[UserBracket], ctx) -> np.ndarray:
     """Materialized total score per entry — same as the leaderboard Score column."""
     master = ctx.master
@@ -286,15 +325,14 @@ def prepare_knockout_potential(
         ],
         dtype=np.float64,
     )
-    # Group → knockout: first-round points come from group projections (fixed in
-    # the Score column). Do not re-score R32 in the marginal enumeration — only
-    # later rounds gain/lose points as the master tree completes.
     has_group = any(
         s.stage_type == BracketStage.StageType.GROUP for s in ctx.stages
     )
-    if has_group and len(stage_pts) > 0:
-        stage_pts = stage_pts.copy()
-        stage_pts[0] = 0.0
+    first_ko_master_mask = None
+    if has_group and main_ko_stages:
+        first_ko_master_mask = first_knockout_master_mask(
+            master, main_ko_stages[0], team_to_idx
+        )
     user_mask = user_knockout_mask(ubs, main_ko_stages, team_to_idx)
     bracket = master.bracket
     champ_pts = float(bracket.points_champion or 0)
@@ -304,23 +342,9 @@ def prepare_knockout_potential(
     final_m_idx = final_matchup_index(tree, ko_stages, final_stage)
     third_m_idx = final_matchup_index(tree, ko_stages, third_stage)
 
-    current_state = copy_tree_state(tree)
-    current_ko_bonus = marginal_ko_bonus(
-        current_state,
-        user_mask=user_mask,
-        stage_pts=stage_pts,
-        user_champ=user_champ,
-        user_third=user_third,
-        final_m_idx=final_m_idx,
-        third_m_idx=third_m_idx,
-        team_to_idx=team_to_idx,
-        main_ko_stages=main_ko_stages,
-        ko_stages=ko_stages,
-    )
-
     scoring = KnockoutScoringParams(
+        group_totals=group_totals_for_users(ubs, ctx, master),
         current_totals=current_totals_for_users(ubs, ctx),
-        current_ko_bonus=current_ko_bonus,
         user_mask=user_mask,
         stage_pts=stage_pts,
         user_champ=user_champ,
@@ -330,6 +354,8 @@ def prepare_knockout_potential(
         team_to_idx=team_to_idx,
         main_ko_stages=main_ko_stages,
         ko_stages=ko_stages,
+        has_group=has_group,
+        first_ko_master_mask=first_ko_master_mask,
     )
     return KnockoutPotentialContext(
         tree=tree,
@@ -412,15 +438,25 @@ def winner_bonus(
 
 def master_stage_mask(
     state: TreeState,
-    main_ko_stages: list,
-    ko_stages: list,
-    team_to_idx: dict[int, int],
+    scoring: KnockoutScoringParams,
 ) -> np.ndarray:
+    """
+    Teams the master credits at each knockout stage on this completion.
+
+    Group → knockout: R32 follows group projections (fixed). Later rounds follow
+    the walked master tree — only one side of Portugal/Spain survives past R16.
+    """
+    ko_stages = scoring.ko_stages
+    main_ko_stages = scoring.main_ko_stages
+    team_to_idx = scoring.team_to_idx
     stage_id_to_idx = {s.pk: i for i, s in enumerate(ko_stages)}
     s = len(main_ko_stages)
     t = len(team_to_idx)
     mask = np.zeros((s, t), dtype=np.float64)
     for si, stage in enumerate(main_ko_stages):
+        if scoring.has_group and si == 0 and scoring.first_ko_master_mask is not None:
+            mask[si, :] = scoring.first_ko_master_mask
+            continue
         ko_si = stage_id_to_idx[stage.pk]
         for m_idx in state.stage_matchup_indices[ko_si]:
             m = state.matchups[m_idx]
@@ -432,55 +468,40 @@ def master_stage_mask(
     return mask
 
 
-def marginal_ko_bonus(
-    state: TreeState,
-    *,
-    user_mask: np.ndarray,
-    stage_pts: np.ndarray,
-    user_champ: np.ndarray,
-    user_third: np.ndarray,
-    final_m_idx: int | None,
-    third_m_idx: int | None,
-    team_to_idx: dict[int, int],
-    main_ko_stages: list,
-    ko_stages: list,
-) -> np.ndarray:
-    master_mask = master_stage_mask(state, main_ko_stages, ko_stages, team_to_idx)
-    weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
-    totals = np.einsum("bst,st->b", weighted_user, master_mask)
-    if final_m_idx is not None:
-        totals += winner_bonus(state, final_m_idx, user_champ, team_to_idx)
-    if third_m_idx is not None:
-        totals += winner_bonus(state, third_m_idx, user_third, team_to_idx)
-    return totals
-
-
-def completion_totals_vector(
+def knockout_champ_third_scores_vs_tree(
     state: TreeState, scoring: KnockoutScoringParams
 ) -> np.ndarray:
-    master_mask = master_stage_mask(
-        state,
-        scoring.main_ko_stages,
-        scoring.ko_stages,
-        scoring.team_to_idx,
-    )
+    """Knockout + champion + third on this master completion (``calculate_score`` rules)."""
+    master_mask = master_stage_mask(state, scoring)
     weighted_user = scoring.user_mask * scoring.stage_pts[:, np.newaxis]
-    completion_marginal = np.einsum("bst,st->b", weighted_user, master_mask)
+    totals = np.einsum("bst,st->b", weighted_user, master_mask)
     if scoring.final_m_idx is not None:
-        completion_marginal = completion_marginal + winner_bonus(
+        totals += winner_bonus(
             state,
             scoring.final_m_idx,
             scoring.user_champ,
             scoring.team_to_idx,
         )
     if scoring.third_m_idx is not None:
-        completion_marginal = completion_marginal + winner_bonus(
+        totals += winner_bonus(
             state,
             scoring.third_m_idx,
             scoring.user_third,
             scoring.team_to_idx,
         )
-    return scoring.current_totals + completion_marginal - scoring.current_ko_bonus
+    return totals
+
+
+def completion_totals_vector(
+    state: TreeState, scoring: KnockoutScoringParams
+) -> np.ndarray:
+    """
+    Full score if the master finishes along this walked path.
+
+    ``group_totals`` (actual group score) + knockout/champion/third scored vs the
+    completed master tree — then take the max across all paths.
+    """
+    return scoring.group_totals + knockout_champ_third_scores_vs_tree(state, scoring)
 
 
 MAX_BATCH_SIZE = 4096
@@ -552,16 +573,12 @@ def enumerate_potential_outcomes(
             return
         master_mask = np.stack(batch_masks, axis=0)
         weighted_user = scoring.user_mask * scoring.stage_pts[np.newaxis, :, np.newaxis]
-        completion_marginal = np.einsum("pst,bst->bp", weighted_user, master_mask)
+        completion_ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
         if champ_pts > 0 and batch_champ_bonus:
-            completion_marginal = completion_marginal + np.stack(batch_champ_bonus, axis=0)
+            completion_ko = completion_ko + np.stack(batch_champ_bonus, axis=0)
         if third_pts > 0 and batch_third_bonus:
-            completion_marginal = completion_marginal + np.stack(batch_third_bonus, axis=0)
-        totals = (
-            scoring.current_totals[np.newaxis, :]
-            + completion_marginal
-            - scoring.current_ko_bonus
-        )
+            completion_ko = completion_ko + np.stack(batch_third_bonus, axis=0)
+        totals = scoring.group_totals[np.newaxis, :] + completion_ko
         best_scores = np.maximum(best_scores, np.max(totals, axis=0))
         if compute_ranks and best_ranks is not None:
             ranks = competition_ranks_batch(totals)
@@ -571,14 +588,7 @@ def enumerate_potential_outcomes(
         batch_third_bonus.clear()
 
     def record_completion(state: TreeState) -> None:
-        batch_masks.append(
-            master_stage_mask(
-                state,
-                scoring.main_ko_stages,
-                scoring.ko_stages,
-                scoring.team_to_idx,
-            )
-        )
+        batch_masks.append(master_stage_mask(state, scoring))
         batch_champ_bonus.append(
             winner_bonus(
                 state,
