@@ -821,10 +821,6 @@ export function StreakCompetitionsAdmin() {
                     />
                     Knockout Mode Only
                   </label>
-                  <p className="field-hint">
-                    Only shown in challenges that enter knockout before this question
-                    closes.
-                  </p>
                 </div>
                 <fieldset className="streak-add-dialog__choices">
                   <legend>Answers</legend>
@@ -934,10 +930,6 @@ export function StreakCompetitionsAdmin() {
                     />
                     Knockout Mode Only
                   </label>
-                  <p className="field-hint">
-                    Only shown in challenges that enter knockout before this question
-                    closes.
-                  </p>
                 </div>
                 <fieldset className="streak-add-dialog__choices">
                   <legend>Answers</legend>
