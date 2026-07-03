@@ -471,3 +471,33 @@ class PotentialScoreTests(TestCase):
 
         enumerate_completions(prepared.tree, on_completion)
         np.testing.assert_allclose(backtrack, exhaustive)
+
+    def test_batch_max_matches_backtrack(self):
+        """Production path (batch) must agree with backtrack on small trees."""
+        import numpy as np
+
+        from brackets.utils.potential_knockout import (
+            max_potential_scores_backtrack,
+            max_potential_scores_batch,
+            prepare_knockout_potential,
+        )
+
+        t1, t2, t3, t4 = self.teams
+        semi, final = self._ko_stages()
+        mm = self.master.matchup_set.get(stage=semi, position=2)
+        mm.contestant1, mm.contestant2 = t3, t4
+        mm.winner = None
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        ctx = load_leaderboard_scoring_context(self.bracket)
+        prepared = prepare_knockout_potential(ctx, [self.ub])
+        self.assertIsNotNone(prepared)
+
+        batch = max_potential_scores_batch(
+            prepared.tree,
+            prepared.scoring,
+            champ_pts=prepared.champ_pts,
+            third_pts=prepared.third_pts,
+        )
+        backtrack = max_potential_scores_backtrack(prepared.tree, prepared.scoring)
+        np.testing.assert_allclose(batch, backtrack)

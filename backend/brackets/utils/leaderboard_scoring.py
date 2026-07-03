@@ -195,7 +195,12 @@ def materialize_leaderboard_scores_batch(
         )
         from brackets.utils.potential_score import persist_potential_scores_for_bracket
 
-        persist_potential_scores_for_bracket(bracket)
+        try:
+            persist_potential_scores_for_bracket(bracket)
+        except Exception:
+            logger.exception(
+                "Potential score persist failed for bracket %s", bracket.pk
+            )
         try:
             from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
 
@@ -245,7 +250,12 @@ def _backfill_potential_ranks_if_missing(bracket: Bracket, revision: int) -> Non
         return
     from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
 
-    persist_potential_ranks_for_bracket(bracket)
+    try:
+        persist_potential_ranks_for_bracket(bracket)
+    except Exception:
+        logger.exception(
+            "Potential rank backfill failed for bracket %s", bracket.pk
+        )
 
 
 def on_master_bracket_changed(bracket: Bracket, *, materialize: bool = True) -> int:

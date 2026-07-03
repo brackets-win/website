@@ -453,10 +453,94 @@ def completion_totals_vector(
     return scoring.current_totals + completion_marginal - scoring.current_ko_bonus
 
 
+MAX_BATCH_SIZE = 4096
+MIN_BATCH_SIZE = 32
+MAX_BATCH_MEMORY_BYTES = 64 * 1024 * 1024
+
+
+def completion_batch_size(n_players: int, n_stages: int, n_teams: int) -> int:
+    per_completion = n_stages * n_teams * 8 + 40 * n_players
+    per_completion = max(per_completion, 1)
+    batch = MAX_BATCH_MEMORY_BYTES // per_completion
+    return int(max(MIN_BATCH_SIZE, min(MAX_BATCH_SIZE, batch)))
+
+
+def max_potential_scores_batch(
+    tree: TreeState,
+    scoring: KnockoutScoringParams,
+    *,
+    champ_pts: float,
+    third_pts: float,
+) -> np.ndarray:
+    """Best total score — vectorized batches over master completions."""
+    n_players = len(scoring.current_totals)
+    n_stages = len(scoring.main_ko_stages)
+    n_teams = len(scoring.team_to_idx)
+    batch_size = completion_batch_size(n_players, n_stages, n_teams)
+
+    best_scores = np.full(n_players, -1.0, dtype=np.float64)
+    batch_masks: list[np.ndarray] = []
+    batch_champ_bonus: list[np.ndarray] = []
+    batch_third_bonus: list[np.ndarray] = []
+
+    def flush_batch() -> None:
+        nonlocal best_scores
+        if not batch_masks:
+            return
+        master_mask = np.stack(batch_masks, axis=0)
+        weighted_user = scoring.user_mask * scoring.stage_pts[np.newaxis, :, np.newaxis]
+        completion_marginal = np.einsum("pst,bst->bp", weighted_user, master_mask)
+        if champ_pts > 0 and batch_champ_bonus:
+            completion_marginal = completion_marginal + np.stack(batch_champ_bonus, axis=0)
+        if third_pts > 0 and batch_third_bonus:
+            completion_marginal = completion_marginal + np.stack(batch_third_bonus, axis=0)
+        totals = (
+            scoring.current_totals[np.newaxis, :]
+            + completion_marginal
+            - scoring.current_ko_bonus
+        )
+        best_scores = np.maximum(best_scores, np.max(totals, axis=0))
+        batch_masks.clear()
+        batch_champ_bonus.clear()
+        batch_third_bonus.clear()
+
+    def record_completion(state: TreeState) -> None:
+        batch_masks.append(
+            master_stage_mask(
+                state,
+                scoring.main_ko_stages,
+                scoring.ko_stages,
+                scoring.team_to_idx,
+            )
+        )
+        batch_champ_bonus.append(
+            winner_bonus(
+                state,
+                scoring.final_m_idx,
+                scoring.user_champ,
+                scoring.team_to_idx,
+            )
+        )
+        batch_third_bonus.append(
+            winner_bonus(
+                state,
+                scoring.third_m_idx,
+                scoring.user_third,
+                scoring.team_to_idx,
+            )
+        )
+        if len(batch_masks) >= batch_size:
+            flush_batch()
+
+    enumerate_completions(tree, record_completion)
+    flush_batch()
+    return best_scores
+
+
 def max_potential_scores_backtrack(
     tree: TreeState, scoring: KnockoutScoringParams
 ) -> np.ndarray:
-    """Best total score — in-place backtracking, one leaf at a time."""
+    """Best total score — in-place backtracking (small pools / tests only)."""
     best_scores = np.full(len(scoring.current_totals), -1.0, dtype=np.float64)
     state = copy_tree_state(tree)
 

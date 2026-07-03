@@ -15,7 +15,7 @@ from brackets.utils.leaderboard_scoring import (
     load_leaderboard_scoring_context,
 )
 from brackets.utils.potential_knockout import (
-    max_potential_scores_backtrack,
+    max_potential_scores_batch,
     prepare_knockout_potential,
 )
 
@@ -100,7 +100,12 @@ def compute_potential_scores_for_users(
     if prepared is None:
         return None
 
-    best = max_potential_scores_backtrack(prepared.tree, prepared.scoring)
+    best = max_potential_scores_batch(
+        prepared.tree,
+        prepared.scoring,
+        champ_pts=prepared.champ_pts,
+        third_pts=prepared.third_pts,
+    )
     return {
         ub.id: int(best[i]) if best[i] >= 0 else None for i, ub in enumerate(ubs)
     }
