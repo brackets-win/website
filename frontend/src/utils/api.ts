@@ -135,6 +135,7 @@ export type KnockoutPhaseInfo = {
   round_index: number;
   label: string;
   starts_at: string;
+  headstart_enabled?: boolean;
 };
 
 export type StreakChallengeSummary = {
@@ -164,6 +165,7 @@ export type StreakChallengeSummary = {
   is_knockout?: boolean;
   knockout_transition_at?: string | null;
   knockout_round_starts?: Record<string, string>;
+  knockout_round_headstart?: Record<string, boolean>;
   knockout_total_rounds?: number;
 };
 
@@ -952,6 +954,7 @@ export async function saveStreakKnockoutSchedule(
   body: {
     knockout_transition_at: string;
     knockout_round_starts: Record<string, string>;
+    knockout_round_headstart: Record<string, boolean>;
   },
 ): Promise<{
   streak_challenge: StreakChallengeSummary;
@@ -981,15 +984,17 @@ export async function swapStreakKnockoutSetup(
 
 export async function advanceStreakKnockout(
   streakChallengeId: number,
-  headstartEnabled: boolean,
+  headstartEnabled?: boolean,
 ): Promise<{
   knockout: StreakKnockoutPayload;
   warnings: string[];
   completed: boolean;
 }> {
-  return apiFetch('POST', `streak-challenges/${streakChallengeId}/knockout/advance`, {
-    headstart_enabled: headstartEnabled,
-  });
+  return apiFetch(
+    'POST',
+    `streak-challenges/${streakChallengeId}/knockout/advance`,
+    headstartEnabled === undefined ? {} : { headstart_enabled: headstartEnabled },
+  );
 }
 
 export async function getStreakChallengeStats(

@@ -112,6 +112,9 @@ export function StreakChallengeView({
   const [scheduleRoundStarts, setScheduleRoundStarts] = useState<
     Record<string, string>
   >({});
+  const [scheduleRoundHeadstart, setScheduleRoundHeadstart] = useState<
+    Record<string, boolean>
+  >({});
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleErr, setScheduleErr] = useState('');
   const [scheduleMsg, setScheduleMsg] = useState('');
@@ -175,12 +178,18 @@ export function StreakChallengeView({
         : '',
     );
     const roundStarts: Record<string, string> = {};
+    const roundHeadstart: Record<string, boolean> = {};
     const totalRounds = summary.knockout_total_rounds ?? 0;
-    for (let round = 2; round <= totalRounds; round += 1) {
-      const raw = summary.knockout_round_starts?.[String(round)];
-      roundStarts[String(round)] = raw ? isoToEstLocalInput(raw) : '';
+    for (let round = 1; round <= totalRounds; round += 1) {
+      const key = String(round);
+      if (round >= 2) {
+        const raw = summary.knockout_round_starts?.[key];
+        roundStarts[key] = raw ? isoToEstLocalInput(raw) : '';
+      }
+      roundHeadstart[key] = summary.knockout_round_headstart?.[key] !== false;
     }
     setScheduleRoundStarts(roundStarts);
+    setScheduleRoundHeadstart(roundHeadstart);
   }, [summary, isKnockout]);
 
   useEffect(() => {
@@ -368,6 +377,8 @@ export function StreakChallengeView({
       return;
     }
     const roundStarts: Record<string, string> = {};
+    const roundHeadstart: Record<string, boolean> = {};
+    roundHeadstart['1'] = scheduleRoundHeadstart['1'] !== false;
     for (const row of scheduleRoundFields) {
       const iso = estLocalInputToIso(scheduleRoundStarts[String(row.round)] ?? '');
       if (!iso) {
@@ -375,6 +386,8 @@ export function StreakChallengeView({
         return;
       }
       roundStarts[String(row.round)] = iso;
+      roundHeadstart[String(row.round)] =
+        scheduleRoundHeadstart[String(row.round)] !== false;
     }
     setScheduleBusy(true);
     setScheduleErr('');
@@ -383,6 +396,7 @@ export function StreakChallengeView({
       const result = await saveStreakKnockoutSchedule(streakChallengeId, {
         knockout_transition_at: transitionIso,
         knockout_round_starts: roundStarts,
+        knockout_round_headstart: roundHeadstart,
       });
       setSummary(result.streak_challenge);
       setKnockoutPhases(result.knockout_phases);
@@ -717,12 +731,13 @@ export function StreakChallengeView({
                   bracket.
                 </li>
                 <li>
-                  Each round counts total correct picks plus an optional headstart from
-                  your frozen best streak.
+                  Each round counts total correct picks plus an optional best streak
+                  bonus from your frozen best streak.
                 </li>
                 <li>
-                  Ties go to the higher seed. The pool creator or staff advances each
-                  round manually.
+                  Ties go to the higher seed. Round times are set in Settings; Start
+                  Knockout locks round-one matchups and later rounds advance on
+                  schedule.
                 </li>
                 <li>
                   Eliminated and non-qualifying players can keep picking for the
@@ -782,7 +797,13 @@ export function StreakChallengeView({
                       {knockoutPhases.map((phase) => (
                         <li key={phase.round_index}>
                           <span>{phase.label}</span>
-                          <span>{formatDeadlineEst(phase.starts_at)}</span>
+                          <span className="streak-knockout-schedule-readonly__meta">
+                            <span>{formatDeadlineEst(phase.starts_at)}</span>
+                            <span>
+                              Best Streak Bonus:{' '}
+                              {phase.headstart_enabled === false ? 'Off' : 'On'}
+                            </span>
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -794,43 +815,78 @@ export function StreakChallengeView({
                   onSubmit={(e) => void handleSaveKnockoutSchedule(e)}
                 >
                   <p className="streak-view__muted">
-                    Set when this pool switches to knockout mode and when each bracket
-                    round begins. Questions after each time are knockout picks and are
-                    not limited to one per deadline.
+                    Set when each bracket round&apos;s picks begin. Questions after
+                    each time are knockout picks and are not limited to one per
+                    deadline. Start Knockout on the Knockout tab locks the bracket;
+                    later rounds advance at these times.
                   </p>
-                  <div className="field">
-                    <label htmlFor="streak-knockout-transition">
-                      {knockoutRoundLabel(1, summary.knockout_total_rounds ?? 1)} Start
-                    </label>
-                    <input
-                      id="streak-knockout-transition"
-                      className="input"
-                      type="datetime-local"
-                      value={scheduleTransition}
-                      onChange={(e) => setScheduleTransition(e.target.value)}
-                      disabled={scheduleBusy}
-                      required
-                    />
-                  </div>
-                  {scheduleRoundFields.map((row) => (
-                    <div className="field" key={row.round}>
-                      <label htmlFor={`streak-knockout-round-${row.round}`}>
-                        {row.label} Start
+                  <div className="streak-knockout-schedule-row">
+                    <div className="field">
+                      <label htmlFor="streak-knockout-transition">
+                        {knockoutRoundLabel(1, summary.knockout_total_rounds ?? 1)} Start
                       </label>
                       <input
-                        id={`streak-knockout-round-${row.round}`}
+                        id="streak-knockout-transition"
                         className="input"
                         type="datetime-local"
-                        value={scheduleRoundStarts[String(row.round)] ?? ''}
-                        onChange={(e) =>
-                          setScheduleRoundStarts((prev) => ({
-                            ...prev,
-                            [String(row.round)]: e.target.value,
-                          }))
-                        }
+                        value={scheduleTransition}
+                        onChange={(e) => setScheduleTransition(e.target.value)}
                         disabled={scheduleBusy}
                         required
                       />
+                    </div>
+                    <label className="streak-knockout-schedule-row__headstart checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={scheduleRoundHeadstart['1'] !== false}
+                        onChange={(e) =>
+                          setScheduleRoundHeadstart((prev) => ({
+                            ...prev,
+                            '1': e.target.checked,
+                          }))
+                        }
+                        disabled={scheduleBusy}
+                      />
+                      Best Streak Bonus
+                    </label>
+                  </div>
+                  {scheduleRoundFields.map((row) => (
+                    <div className="streak-knockout-schedule-row" key={row.round}>
+                      <div className="field">
+                        <label htmlFor={`streak-knockout-round-${row.round}`}>
+                          {row.label} Start
+                        </label>
+                        <input
+                          id={`streak-knockout-round-${row.round}`}
+                          className="input"
+                          type="datetime-local"
+                          value={scheduleRoundStarts[String(row.round)] ?? ''}
+                          onChange={(e) =>
+                            setScheduleRoundStarts((prev) => ({
+                              ...prev,
+                              [String(row.round)]: e.target.value,
+                            }))
+                          }
+                          disabled={scheduleBusy}
+                          required
+                        />
+                      </div>
+                      <label className="streak-knockout-schedule-row__headstart checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={
+                            scheduleRoundHeadstart[String(row.round)] !== false
+                          }
+                          onChange={(e) =>
+                            setScheduleRoundHeadstart((prev) => ({
+                              ...prev,
+                              [String(row.round)]: e.target.checked,
+                            }))
+                          }
+                          disabled={scheduleBusy}
+                        />
+                        Best Streak Bonus
+                      </label>
                     </div>
                   ))}
                   {scheduleErr ? (

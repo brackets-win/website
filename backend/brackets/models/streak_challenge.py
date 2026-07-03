@@ -52,6 +52,8 @@ class StreakChallenge(models.Model):
     knockout_transition_at = models.DateTimeField(null=True, blank=True)
     # ISO datetimes keyed by round index ("2", "3", …) when each round's picks begin.
     knockout_round_starts = models.JSONField(default=dict, blank=True)
+    # Per-round headstart from frozen best streak ("1", "2", …); default on when missing.
+    knockout_round_headstart = models.JSONField(default=dict, blank=True)
     # Cached stats revision + payload (see streak_challenge_stats.py).
     metadata = models.JSONField(default=dict, blank=True)
 

@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from brackets.models import StreakChallenge, StreakKnockout
 from brackets.utils.streak_knockout_rules import (
+    headstart_for_round,
     knockout_total_rounds,
     round_start_at,
 )
@@ -44,26 +45,25 @@ def process_scheduled_knockout(challenge: StreakChallenge) -> None:
     total_rounds = knockout_total_rounds(participant_count)
 
     if knockout.status == StreakKnockout.Status.SETUP:
-        transition = challenge.knockout_transition_at
-        if transition is not None and now >= transition:
-            try:
-                advance_knockout_round(
-                    knockout, headstart_enabled=knockout.headstart_enabled
-                )
-            except ValueError:
-                pass
         return
 
-    current = knockout.current_round
-    if current >= total_rounds:
-        return
-
-    next_round = current + 1
-    next_start = round_start_at(challenge, next_round)
-    if next_start is None or now < next_start:
-        return
-
-    try:
-        advance_knockout_round(knockout, headstart_enabled=knockout.headstart_enabled)
-    except ValueError:
-        pass
+    while True:
+        knockout.refresh_from_db()
+        if knockout.status != StreakKnockout.Status.IN_PROGRESS:
+            break
+        current = knockout.current_round
+        if current >= total_rounds:
+            break
+        next_round = current + 1
+        next_start = round_start_at(challenge, next_round)
+        if next_start is None or now < next_start:
+            break
+        try:
+            advance_knockout_round(
+                knockout, headstart_enabled=headstart_for_round(challenge, next_round)
+            )
+        except ValueError:
+            break
+        knockout.refresh_from_db()
+        if knockout.status == StreakKnockout.Status.COMPLETE:
+            break

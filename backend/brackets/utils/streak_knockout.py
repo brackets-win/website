@@ -18,6 +18,10 @@ from brackets.models import (
     StreakPick,
     StreakQuestion,
 )
+from brackets.utils.streak_knockout_rules import (
+    headstart_for_round,
+    round_start_at,
+)
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.leaderboard_preview import streak_participant_label, streak_ranked_participants
 from brackets.utils.streak_scoring import _is_correct
@@ -385,9 +389,10 @@ def advance_knockout_round(
     warnings: list[str] = []
 
     if knockout.status == StreakKnockout.Status.SETUP:
+        round_start = round_start_at(challenge, 1) or now
         knockout.status = StreakKnockout.Status.IN_PROGRESS
         knockout.current_round = 1
-        knockout.round_started_at = now
+        knockout.round_started_at = round_start
         knockout.headstart_enabled = headstart_enabled
         knockout.save(
             update_fields=[
@@ -413,10 +418,22 @@ def advance_knockout_round(
             "are not resolved yet and will not count."
         )
 
+    next_round_index = knockout.current_round + 1
+    scheduled_end = round_start_at(challenge, next_round_index)
+    if scheduled_end is not None:
+        if timezone.is_naive(scheduled_end):
+            scheduled_end = timezone.make_aware(scheduled_end)
+        if scheduled_end <= now:
+            window_end = scheduled_end
+        else:
+            window_end = now
+    else:
+        window_end = now
+
     finalized = _finalize_round(
         knockout,
         window_start=knockout.round_started_at,
-        window_end=now,
+        window_end=window_end,
     )
 
     winners = [m.winner for m in finalized if m.winner is not None]
@@ -448,12 +465,26 @@ def advance_knockout_round(
         return {"warnings": warnings, "completed": True}
 
     knockout.current_round += 1
-    knockout.round_started_at = now
+    next_round_start = round_start_at(challenge, knockout.current_round)
+    knockout.round_started_at = next_round_start or now
     knockout.headstart_enabled = headstart_enabled
     knockout.save(
         update_fields=["current_round", "round_started_at", "headstart_enabled"]
     )
     return {"warnings": warnings, "completed": False}
+
+
+def _round_window_end(
+    challenge: StreakChallenge, round_index: int, now: datetime
+) -> datetime:
+    next_start = round_start_at(challenge, round_index + 1)
+    if next_start is None:
+        return now
+    if timezone.is_naive(next_start):
+        next_start = timezone.make_aware(next_start)
+    if timezone.is_naive(now):
+        now = timezone.make_aware(now)
+    return min(now, next_start)
 
 
 def _live_match_scores(
@@ -462,21 +493,56 @@ def _live_match_scores(
 ) -> tuple[int, int]:
     if match.finalized:
         return match.score_a or 0, match.score_b or 0
+
+    challenge = knockout.streak_challenge
+    now = timezone.now()
+
+    if knockout.status == StreakKnockout.Status.SETUP:
+        if match.round_index != 1:
+            return 0, 0
+        window_start = round_start_at(challenge, 1)
+        if window_start is None:
+            return 0, 0
+        if timezone.is_naive(window_start):
+            window_start = timezone.make_aware(window_start)
+        if now < window_start:
+            return 0, 0
+        window_end = _round_window_end(challenge, 1, now)
+        headstart = headstart_for_round(challenge, 1)
+        score_a = _match_score(
+            match.player_a,
+            challenge_id=knockout.streak_challenge_id,
+            window_start=window_start,
+            window_end=window_end,
+            headstart_enabled=headstart,
+        )
+        score_b = _match_score(
+            match.player_b,
+            challenge_id=knockout.streak_challenge_id,
+            window_start=window_start,
+            window_end=window_end,
+            headstart_enabled=headstart,
+        )
+        return score_a, score_b
+
     if knockout.round_started_at is None:
         return 0, 0
-    now = timezone.now()
+    window_start = knockout.round_started_at
+    if timezone.is_naive(window_start):
+        window_start = timezone.make_aware(window_start)
+    window_end = _round_window_end(challenge, knockout.current_round, now)
     score_a = _match_score(
         match.player_a,
         challenge_id=knockout.streak_challenge_id,
-        window_start=knockout.round_started_at,
-        window_end=now,
+        window_start=window_start,
+        window_end=window_end,
         headstart_enabled=knockout.headstart_enabled,
     )
     score_b = _match_score(
         match.player_b,
         challenge_id=knockout.streak_challenge_id,
-        window_start=knockout.round_started_at,
-        window_end=now,
+        window_start=window_start,
+        window_end=window_end,
         headstart_enabled=knockout.headstart_enabled,
     )
     return score_a, score_b
@@ -492,7 +558,19 @@ def _participant_slot(match: StreakKnockoutMatch, p: StreakParticipant) -> dict[
 
 def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict[str, Any]:
     score_a, score_b = _live_match_scores(knockout, match)
-    is_live = (
+    challenge = knockout.streak_challenge
+    now = timezone.now()
+    round_one_start = round_start_at(challenge, 1)
+    if round_one_start is not None and timezone.is_naive(round_one_start):
+        round_one_start = timezone.make_aware(round_one_start)
+    setup_live = (
+        knockout.status == StreakKnockout.Status.SETUP
+        and match.round_index == 1
+        and round_one_start is not None
+        and now >= round_one_start
+        and not match.finalized
+    )
+    is_live = setup_live or (
         not match.finalized
         and knockout.status == StreakKnockout.Status.IN_PROGRESS
         and knockout.current_round == match.round_index

@@ -28,6 +28,7 @@ from brackets.api.views import (
 from brackets.models import (
     StreakChallenge,
     StreakCompetition,
+    StreakKnockout,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
@@ -148,6 +149,7 @@ def _streak_summary(
         if c.knockout_transition_at
         else None,
         "knockout_round_starts": c.knockout_round_starts or {},
+        "knockout_round_headstart": c.knockout_round_headstart or {},
         "knockout_total_rounds": knockout_total_rounds(
             StreakParticipant.objects.filter(streak_challenge=c).count()
         ),
@@ -1207,6 +1209,16 @@ def streak_challenge_knockout_schedule(
     else:
         round_starts = {str(k): str(v) for k, v in round_starts_raw.items() if v}
 
+    round_headstart_raw = body.get("knockout_round_headstart")
+    if round_headstart_raw is None:
+        round_headstart: dict[str, bool] = {}
+    elif not isinstance(round_headstart_raw, dict):
+        return _json_error("knockout_round_headstart must be an object", 400)
+    else:
+        round_headstart = {
+            str(k): bool(v) for k, v in round_headstart_raw.items()
+        }
+
     participant_count = StreakParticipant.objects.filter(
         streak_challenge=challenge
     ).count()
@@ -1221,7 +1233,14 @@ def streak_challenge_knockout_schedule(
 
     challenge.knockout_transition_at = transition_at
     challenge.knockout_round_starts = round_starts
-    challenge.save(update_fields=["knockout_transition_at", "knockout_round_starts"])
+    challenge.knockout_round_headstart = round_headstart
+    challenge.save(
+        update_fields=[
+            "knockout_transition_at",
+            "knockout_round_starts",
+            "knockout_round_headstart",
+        ]
+    )
 
     process_scheduled_knockout(challenge)
     challenge.refresh_from_db()
@@ -1391,11 +1410,19 @@ def streak_challenge_knockout_advance(
     except json.JSONDecodeError:
         body = {}
 
-    headstart_enabled = body.get("headstart_enabled", True)
-    if isinstance(headstart_enabled, str):
-        headstart_enabled = headstart_enabled.lower() in ("1", "true", "yes")
-
     from brackets.utils.streak_knockout import advance_knockout_round, knockout_payload
+    from brackets.utils.streak_knockout_rules import headstart_for_round
+
+    headstart_enabled = body.get("headstart_enabled")
+    if headstart_enabled is None:
+        if knockout.status == StreakKnockout.Status.SETUP:
+            headstart_enabled = headstart_for_round(challenge, 1)
+        else:
+            headstart_enabled = headstart_for_round(challenge, knockout.current_round + 1)
+    elif isinstance(headstart_enabled, str):
+        headstart_enabled = headstart_enabled.lower() in ("1", "true", "yes")
+    else:
+        headstart_enabled = bool(headstart_enabled)
 
     try:
         result = advance_knockout_round(
@@ -1404,6 +1431,9 @@ def streak_challenge_knockout_advance(
         )
     except ValueError as e:
         return _json_error(str(e), 400)
+
+    process_scheduled_knockout(challenge)
+    challenge.refresh_from_db()
 
     payload = knockout_payload(challenge)
     if payload is not None:

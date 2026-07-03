@@ -58,6 +58,13 @@ def round_start_at(challenge: StreakChallenge, round_index: int) -> datetime | N
     return _parse_stored_dt((challenge.knockout_round_starts or {}).get(str(round_index)))
 
 
+def headstart_for_round(challenge: StreakChallenge, round_index: int) -> bool:
+    raw = (challenge.knockout_round_headstart or {}).get(str(round_index))
+    if raw is None:
+        return True
+    return bool(raw)
+
+
 def will_be_knockout_at(challenge: StreakChallenge, when: datetime) -> bool:
     if challenge.is_knockout:
         return True
@@ -132,6 +139,7 @@ def knockout_phases_payload(
                 "round_index": round_index,
                 "label": knockout_round_label(round_index, total_rounds),
                 "starts_at": starts_at.isoformat(),
+                "headstart_enabled": headstart_for_round(challenge, round_index),
             }
         )
     return rows

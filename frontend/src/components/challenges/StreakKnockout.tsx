@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
-  advanceStreakKnockout,
   ApiError,
+  advanceStreakKnockout,
   getStreakKnockout,
   getStreakLeaderboard,
   swapStreakKnockoutSetup,
@@ -82,10 +82,8 @@ export function StreakKnockout({
   const [knockout, setKnockout] = useState<StreakKnockoutPayload | null>(null);
   const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
   const [loadErr, setLoadErr] = useState('');
-  const [advanceBusy, setAdvanceBusy] = useState(false);
-  const [advanceErr, setAdvanceErr] = useState('');
-  const [advanceWarnings, setAdvanceWarnings] = useState<string[]>([]);
-  const [headstartEnabled, setHeadstartEnabled] = useState(true);
+  const [setupErr, setSetupErr] = useState('');
+  const [startBusy, setStartBusy] = useState(false);
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -96,7 +94,6 @@ export function StreakKnockout({
       ]);
       setKnockout(data.knockout);
       setEntries(board.entries);
-      setHeadstartEnabled(data.knockout.headstart_enabled);
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load knockout bracket.',
@@ -113,6 +110,7 @@ export function StreakKnockout({
     slot: 'a' | 'b',
     userId: number,
   ) {
+    setSetupErr('');
     try {
       const result = await swapStreakKnockoutSetup(streakChallengeId, {
         match_position: matchPosition,
@@ -121,30 +119,24 @@ export function StreakKnockout({
       });
       setKnockout(result.knockout);
     } catch (e) {
-      setAdvanceErr(
+      setSetupErr(
         e instanceof ApiError ? e.message : 'Could not update bracket.',
       );
     }
   }
 
-  async function handleAdvance() {
-    setAdvanceBusy(true);
-    setAdvanceErr('');
-    setAdvanceWarnings([]);
+  async function handleStartKnockout() {
+    setSetupErr('');
+    setStartBusy(true);
     try {
-      const result = await advanceStreakKnockout(
-        streakChallengeId,
-        headstartEnabled,
-      );
+      const result = await advanceStreakKnockout(streakChallengeId);
       setKnockout(result.knockout);
-      setHeadstartEnabled(result.knockout.headstart_enabled);
-      setAdvanceWarnings(result.warnings ?? []);
     } catch (e) {
-      setAdvanceErr(
-        e instanceof ApiError ? e.message : 'Could not advance round.',
+      setSetupErr(
+        e instanceof ApiError ? e.message : 'Could not start knockout.',
       );
     } finally {
-      setAdvanceBusy(false);
+      setStartBusy(false);
     }
   }
 
@@ -157,42 +149,10 @@ export function StreakKnockout({
   }
 
   const totalRounds = knockout.rounds.length;
-  const advanceLabel =
-    knockout.status === 'SETUP'
-      ? 'Start Round 1'
-      : knockout.status === 'COMPLETE'
-        ? 'Knockout Complete'
-        : 'Advance Round';
 
   return (
     <section className="card streak-knockout">
-      {knockout.can_manage && knockout.status !== 'COMPLETE' ? (
-        <div className="streak-knockout__manage">
-          <label className="streak-knockout__headstart">
-            <input
-              type="checkbox"
-              checked={headstartEnabled}
-              onChange={(e) => setHeadstartEnabled(e.target.checked)}
-              disabled={advanceBusy}
-            />
-            Headstart from best streak
-          </label>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={advanceBusy}
-            onClick={() => void handleAdvance()}
-          >
-            {advanceBusy ? 'Working…' : advanceLabel}
-          </button>
-        </div>
-      ) : null}
-      {advanceErr ? <div className="alert alert--error">{advanceErr}</div> : null}
-      {advanceWarnings.length > 0 ? (
-        <div className="alert alert--warning" role="status">
-          {advanceWarnings.join(' ')}
-        </div>
-      ) : null}
+      {setupErr ? <div className="alert alert--error">{setupErr}</div> : null}
       {knockout.status === 'COMPLETE' && knockout.champion_user_id != null ? (
         <p className="streak-knockout__champion">
           Champion crowned.
@@ -200,10 +160,21 @@ export function StreakKnockout({
       ) : null}
 
       {knockout.status === 'SETUP' && knockout.can_manage ? (
-        <p className="streak-knockout__setup-note">
-          Adjust round-one slots below, then start round one. Swaps lock once the
-          first round begins.
-        </p>
+        <div className="streak-knockout__manage">
+          <p className="streak-knockout__setup-note">
+            Scores update from the schedule while you adjust round-one slots.
+            Start Knockout to lock the bracket; later rounds still advance on
+            their scheduled times.
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={startBusy}
+            onClick={() => void handleStartKnockout()}
+          >
+            {startBusy ? 'Starting…' : 'Start Knockout'}
+          </button>
+        </div>
       ) : null}
 
       <div className="streak-knockout__bracket">
@@ -280,42 +251,42 @@ function SetupSwapControls({
   entries: StreakLeaderboardEntry[];
   onSwap: (matchPosition: number, slot: 'a' | 'b', userId: number) => void;
 }) {
-  const options = entries.map((entry) => (
-    <option key={entry.user_id} value={entry.user_id}>
-      #{entry.rank} {entry.display_name}
-    </option>
-  ));
-
   return (
     <div className="streak-knockout__setup">
       <label className="streak-knockout__setup-row">
         <span>Slot A</span>
         <select
-          className="select"
+          className="input"
           value={match.player_a?.user_id ?? ''}
-          onChange={(e) =>
-            onSwap(match.position, 'a', Number(e.target.value))
-          }
+          onChange={(e) => {
+            const userId = Number(e.target.value);
+            if (userId) void onSwap(match.position, 'a', userId);
+          }}
         >
-          <option value="" disabled>
-            Choose player
-          </option>
-          {options}
+          <option value="">Select player</option>
+          {entries.map((entry) => (
+            <option key={entry.user_id} value={entry.user_id}>
+              {entry.display_name?.trim() || entry.username}
+            </option>
+          ))}
         </select>
       </label>
       <label className="streak-knockout__setup-row">
         <span>Slot B</span>
         <select
-          className="select"
+          className="input"
           value={match.player_b?.user_id ?? ''}
-          onChange={(e) =>
-            onSwap(match.position, 'b', Number(e.target.value))
-          }
+          onChange={(e) => {
+            const userId = Number(e.target.value);
+            if (userId) void onSwap(match.position, 'b', userId);
+          }}
         >
-          <option value="" disabled>
-            Choose player
-          </option>
-          {options}
+          <option value="">Select player</option>
+          {entries.map((entry) => (
+            <option key={entry.user_id} value={entry.user_id}>
+              {entry.display_name?.trim() || entry.username}
+            </option>
+          ))}
         </select>
       </label>
     </div>

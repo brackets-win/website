@@ -173,3 +173,7 @@ class StreakKnockoutScheduleTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.challenge.refresh_from_db()
         self.assertTrue(self.challenge.is_knockout)
+        from brackets.models import StreakKnockout
+
+        knockout = StreakKnockout.objects.get(streak_challenge=self.challenge)
+        self.assertEqual(knockout.status, StreakKnockout.Status.SETUP)

@@ -8,17 +8,9 @@
 .streak-knockout__manage {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
+  align-items: flex-end;
   justify-content: space-between;
-}
-
-.streak-knockout__headstart {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  color: var(--app-text);
+  gap: 1rem;
 }
 
 .streak-knockout__champion {
