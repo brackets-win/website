@@ -318,14 +318,13 @@ class PotentialRankBatchHelpersTests(TestCase):
         np.testing.assert_array_equal(ranks, np.array([[1, 1, 3, 4]], dtype=np.int32))
 
     def test_completion_batch_size_shrinks_with_player_count(self):
-        from brackets.utils.potential_rank import (
+        from brackets.utils.potential_knockout import (
             MAX_BATCH_SIZE,
-            _completion_batch_size,
-            competition_ranks_batch,
+            completion_batch_size,
         )
 
-        small_field = _completion_batch_size(50, 4, 32)
-        large_field = _completion_batch_size(2000, 4, 32)
+        small_field = completion_batch_size(50, 4, 32)
+        large_field = completion_batch_size(2000, 4, 32)
         self.assertGreater(small_field, large_field)
         self.assertLessEqual(small_field, MAX_BATCH_SIZE)
         self.assertLessEqual(large_field, MAX_BATCH_SIZE)

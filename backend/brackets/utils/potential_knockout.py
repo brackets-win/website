@@ -465,26 +465,59 @@ def completion_batch_size(n_players: int, n_stages: int, n_teams: int) -> int:
     return int(max(MIN_BATCH_SIZE, min(MAX_BATCH_SIZE, batch)))
 
 
-def max_potential_scores_batch(
+def competition_ranks_batch(totals: np.ndarray) -> np.ndarray:
+    """Competition ranks for each completion row in ``totals`` (B, N)."""
+    if totals.ndim != 2:
+        raise ValueError("totals must be a 2-D array")
+    batch_size, n_players = totals.shape
+    if n_players == 0:
+        return np.empty((batch_size, 0), dtype=np.int32)
+
+    order = np.argsort(-totals, axis=1, kind="mergesort")
+    sorted_scores = np.take_along_axis(totals, order, axis=1)
+    ranks_sorted = np.ones((batch_size, n_players), dtype=np.int32)
+    if n_players > 1:
+        tie = sorted_scores[:, 1:] == sorted_scores[:, :-1]
+        for i in range(1, n_players):
+            ranks_sorted[:, i] = np.where(
+                tie[:, i - 1],
+                ranks_sorted[:, i - 1],
+                i + 1,
+            )
+    ranks = np.empty((batch_size, n_players), dtype=np.int32)
+    np.put_along_axis(ranks, order, ranks_sorted, axis=1)
+    return ranks
+
+
+def enumerate_potential_outcomes(
     tree: TreeState,
     scoring: KnockoutScoringParams,
     *,
+    n_players: int,
     champ_pts: float,
     third_pts: float,
-) -> np.ndarray:
-    """Best total score — vectorized batches over master completions."""
-    n_players = len(scoring.current_totals)
+    compute_ranks: bool,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """
+    Walk all master completions once (in-place undo, no per-branch tree copies).
+
+    Returns ``(best_scores, best_ranks)``. ``best_ranks`` is ``None`` when
+    ``compute_ranks`` is false.
+    """
     n_stages = len(scoring.main_ko_stages)
     n_teams = len(scoring.team_to_idx)
     batch_size = completion_batch_size(n_players, n_stages, n_teams)
 
     best_scores = np.full(n_players, -1.0, dtype=np.float64)
+    best_ranks = (
+        np.full(n_players, n_players + 1, dtype=np.int32) if compute_ranks else None
+    )
     batch_masks: list[np.ndarray] = []
     batch_champ_bonus: list[np.ndarray] = []
     batch_third_bonus: list[np.ndarray] = []
 
     def flush_batch() -> None:
-        nonlocal best_scores
+        nonlocal best_scores, best_ranks
         if not batch_masks:
             return
         master_mask = np.stack(batch_masks, axis=0)
@@ -500,6 +533,9 @@ def max_potential_scores_batch(
             - scoring.current_ko_bonus
         )
         best_scores = np.maximum(best_scores, np.max(totals, axis=0))
+        if compute_ranks and best_ranks is not None:
+            ranks = competition_ranks_batch(totals)
+            best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
         batch_masks.clear()
         batch_champ_bonus.clear()
         batch_third_bonus.clear()
@@ -532,8 +568,43 @@ def max_potential_scores_batch(
         if len(batch_masks) >= batch_size:
             flush_batch()
 
-    enumerate_completions(tree, record_completion)
+    state = copy_tree_state(tree)
+
+    def walk() -> None:
+        idx = find_undecided(state)
+        if idx is None:
+            record_completion(state)
+            return
+        m = state.matchups[idx]
+        for winner_id in (m.c1, m.c2):
+            if winner_id is None:
+                continue
+            changes = apply_winner_with_undo(state, idx, winner_id)
+            walk()
+            restore_undo(state, changes)
+
+    walk()
     flush_batch()
+    return best_scores, best_ranks
+
+
+def max_potential_scores_batch(
+    tree: TreeState,
+    scoring: KnockoutScoringParams,
+    *,
+    champ_pts: float,
+    third_pts: float,
+) -> np.ndarray:
+    """Best total score — vectorized batches over master completions."""
+    n_players = len(scoring.current_totals)
+    best_scores, _ = enumerate_potential_outcomes(
+        tree,
+        scoring,
+        n_players=n_players,
+        champ_pts=champ_pts,
+        third_pts=third_pts,
+        compute_ranks=False,
+    )
     return best_scores
 
 
@@ -655,9 +726,11 @@ def find_undecided(state: TreeState) -> int | None:
 
 
 def enumerate_completions(tree: TreeState, on_completion) -> None:
-    """Depth-first over all master completions (used for potential rank)."""
+    """Depth-first over all master completions (in-place, for tests)."""
 
-    def walk(state: TreeState) -> None:
+    state = copy_tree_state(tree)
+
+    def walk() -> None:
         idx = find_undecided(state)
         if idx is None:
             on_completion(state)
@@ -666,8 +739,8 @@ def enumerate_completions(tree: TreeState, on_completion) -> None:
         for winner_id in (m.c1, m.c2):
             if winner_id is None:
                 continue
-            child = copy_tree_state(state)
-            apply_winner(child, idx, winner_id)
-            walk(child)
+            changes = apply_winner_with_undo(state, idx, winner_id)
+            walk()
+            restore_undo(state, changes)
 
-    walk(copy_tree_state(tree))
+    walk()

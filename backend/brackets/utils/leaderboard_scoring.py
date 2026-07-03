@@ -193,23 +193,20 @@ def materialize_leaderboard_scores_batch(
         from brackets.utils.next_match_pick import (
             persist_next_match_picks_for_bracket,
         )
-        from brackets.utils.potential_score import persist_potential_scores_for_bracket
+        from brackets.utils.potential_score import persist_all_potential_for_bracket
 
         try:
-            persist_potential_scores_for_bracket(bracket)
+            persist_all_potential_for_bracket(bracket)
         except Exception:
             logger.exception(
-                "Potential score persist failed for bracket %s", bracket.pk
+                "Potential score/rank persist failed for bracket %s", bracket.pk
             )
         try:
-            from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
-
-            persist_potential_ranks_for_bracket(bracket)
+            persist_next_match_picks_for_bracket(bracket)
         except Exception:
             logger.exception(
-                "Potential rank persist failed for bracket %s", bracket.pk
+                "Next match pick persist failed for bracket %s", bracket.pk
             )
-        persist_next_match_picks_for_bracket(bracket)
         clear_next_match_pending(bracket)
     return {
         "updated_count": updated_count,
@@ -487,11 +484,9 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
         _write_stored_scores(ub, revision, bundle)
     from brackets.utils.next_match import clear_next_match_pending
     from brackets.utils.next_match_pick import persist_next_match_picks_for_bracket
-    from brackets.utils.potential_score import persist_potential_scores_for_bracket
-    from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+    from brackets.utils.potential_score import persist_all_potential_for_bracket
 
-    persist_potential_scores_for_bracket(bracket)
-    persist_potential_ranks_for_bracket(bracket)
+    persist_all_potential_for_bracket(bracket)
     persist_next_match_picks_for_bracket(bracket)
     clear_next_match_pending(bracket)
     return len(ubs)

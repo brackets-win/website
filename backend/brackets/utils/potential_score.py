@@ -15,7 +15,7 @@ from brackets.utils.leaderboard_scoring import (
     load_leaderboard_scoring_context,
 )
 from brackets.utils.potential_knockout import (
-    max_potential_scores_batch,
+    enumerate_potential_outcomes,
     prepare_knockout_potential,
 )
 
@@ -84,31 +84,67 @@ def compute_potential_scores_for_users(
     ctx,
     ubs: list[UserBracket],
 ) -> dict[int, int | None] | None:
+    outcomes = _compute_potential_outcomes(ctx, ubs)
+    if outcomes is None:
+        return None
+    scores, _ranks = outcomes
+    return scores
+
+
+def _compute_potential_outcomes(
+    ctx,
+    ubs: list[UserBracket],
+    *,
+    rank_cap: int | None = None,
+) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
+    """Single tree walk: best scores and best ranks per submitted entry."""
+    from brackets.utils.potential_rank import MAX_UNDECIDED_MATCHUPS
+
+    if rank_cap is None:
+        rank_cap = MAX_UNDECIDED_MATCHUPS
+
     master = ctx.master
     if master is None:
-        return {}
+        return {}, {}
     if not ubs:
-        return {}
+        return {}, {}
 
     has_knockout = any(
         s.stage_type == BracketStage.StageType.KNOCKOUT for s in ctx.stages
     )
     if not has_knockout:
-        return _group_only_scores(ubs, ctx, master)
+        scores = _group_only_scores(ubs, ctx, master)
+        return scores, {ub.id: 1 for ub in ubs}
 
     prepared = prepare_knockout_potential(ctx, ubs)
     if prepared is None:
         return None
 
-    best = max_potential_scores_batch(
+    compute_ranks = prepared.branchable <= rank_cap
+    n_players = len(ubs)
+    best_scores, best_ranks = enumerate_potential_outcomes(
         prepared.tree,
         prepared.scoring,
+        n_players=n_players,
         champ_pts=prepared.champ_pts,
         third_pts=prepared.third_pts,
+        compute_ranks=compute_ranks,
     )
-    return {
-        ub.id: int(best[i]) if best[i] >= 0 else None for i, ub in enumerate(ubs)
+    scores_out = {
+        ub.id: int(best_scores[i]) if best_scores[i] >= 0 else None
+        for i, ub in enumerate(ubs)
     }
+    if not compute_ranks or best_ranks is None:
+        return scores_out, {ub.id: None for ub in ubs}
+    import numpy as np
+
+    if np.all(best_ranks > n_players):
+        return scores_out, {ub.id: None for ub in ubs}
+    ranks_out = {
+        ub.id: int(best_ranks[i]) if best_ranks[i] <= n_players else None
+        for i, ub in enumerate(ubs)
+    }
+    return scores_out, ranks_out
 
 
 def persist_potential_scores_for_bracket(bracket: Bracket) -> None:
@@ -149,11 +185,76 @@ def persist_potential_scores_for_bracket(bracket: Bracket) -> None:
 
 
 def persist_all_potential_for_bracket(bracket: Bracket) -> None:
-    """Materialize potential points, then potential rank (rank is best-effort)."""
-    persist_potential_scores_for_bracket(bracket)
-    from brackets.utils.potential_rank import persist_potential_ranks_for_bracket
+    """Compute potential points + rank in one tree walk, then store."""
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
-    persist_potential_ranks_for_bracket(bracket)
+    qs = UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
+    )
+    if omit_leaderboard_potential_for_bracket(bracket):
+        return
+
+    ubs = list(qs.prefetch_related("matchup_set"))
+    if not ubs:
+        return
+
+    ctx = load_leaderboard_scoring_context(bracket)
+    outcomes = _compute_potential_outcomes(ctx, ubs)
+    if outcomes is None:
+        return
+
+    scores, ranks = outcomes
+    _write_potential_scores(ubs, scores)
+    _write_potential_ranks(ubs, ranks)
+
+
+def _write_potential_scores(
+    ubs: list[UserBracket], scores: dict[int, int | None]
+) -> None:
+    score_updates: list[UserBracket] = []
+    for ub in ubs:
+        score = scores.get(ub.id)
+        if score is None:
+            continue
+        update_fields: list[str] = []
+        if ub.leaderboard_potential != score:
+            ub.leaderboard_potential = score
+            update_fields.append("leaderboard_potential")
+        meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
+        cache = meta.get(LEADERBOARD_SCORES_KEY)
+        if isinstance(cache, dict):
+            cache = dict(cache)
+            if cache.get("potential") != score:
+                cache["potential"] = score
+                meta[LEADERBOARD_SCORES_KEY] = cache
+                ub.metadata = meta
+                update_fields.append("metadata")
+        if update_fields:
+            if len(update_fields) == 1 and update_fields[0] == "leaderboard_potential":
+                score_updates.append(ub)
+            else:
+                ub.save(update_fields=update_fields)
+    if score_updates:
+        UserBracket.objects.bulk_update(
+            score_updates, ["leaderboard_potential"], batch_size=500
+        )
+
+
+def _write_potential_ranks(
+    ubs: list[UserBracket], ranks: dict[int, int | None]
+) -> None:
+    rank_updates: list[UserBracket] = []
+    for ub in ubs:
+        rank = ranks.get(ub.id)
+        if ub.leaderboard_potential_rank != rank:
+            ub.leaderboard_potential_rank = rank
+            rank_updates.append(ub)
+    if rank_updates:
+        UserBracket.objects.bulk_update(
+            rank_updates, ["leaderboard_potential_rank"], batch_size=500
+        )
 
 
 def _group_only_scores(
