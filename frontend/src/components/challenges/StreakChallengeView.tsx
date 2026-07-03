@@ -229,6 +229,11 @@ export function StreakChallengeView({
     () => makePickPhaseDividers(makeQuestions),
     [makeQuestions],
   );
+  const firstKnockoutStageLabel = useMemo(() => {
+    const totalRounds = summary?.knockout_total_rounds ?? 0;
+    if (totalRounds <= 0) return null;
+    return knockoutRoundLabel(1, totalRounds);
+  }, [summary?.knockout_total_rounds]);
 
   const scheduleRoundFields = useMemo(() => {
     const totalRounds = summary?.knockout_total_rounds ?? 0;
@@ -674,6 +679,11 @@ export function StreakChallengeView({
                   className="streak-make-phase"
                   aria-label={`${row.label} picks`}
                 >
+                  {row.label === firstKnockoutStageLabel ? (
+                    <span className="streak-make-phase__note">
+                      Knockout: Answer All Questions
+                    </span>
+                  ) : null}
                   <span className="streak-make-phase__line" aria-hidden />
                   <span className="streak-make-phase__label">{row.label}</span>
                 </li>

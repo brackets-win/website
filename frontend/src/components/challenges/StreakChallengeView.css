@@ -152,6 +152,13 @@
   background: var(--app-border, #cbd5e1);
 }
 
+.streak-make-phase__note {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
 .streak-make-phase__label {
   flex-shrink: 0;
   font-size: 0.8rem;
