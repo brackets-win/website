@@ -1,9 +1,8 @@
 """
 Maximum achievable score for a user bracket vs a (possibly partial) master bracket.
 
-Knockout potential is the best total score across all valid completions of the
-master knockout tree (same engine as potential rank). Group-stage potential still
-credits finish/advancer picks the master has not ruled out.
+Uses the stored current score plus the best marginal knockout/champion/third gain
+from completing undecided master matchups (see potential_rank.py).
 """
 
 from __future__ import annotations

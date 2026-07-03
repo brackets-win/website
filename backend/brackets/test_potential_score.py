@@ -128,6 +128,60 @@ class PotentialScoreTests(TestCase):
         self.assertEqual(calculate_potential_score(ub), 3)
         self.assertEqual(ub.calculate_score(), 0)
 
+    def test_group_open_slots_ignored_after_knockout_results(self):
+        """Once the master has knockout winners, group upside is locked in."""
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "pot-gk-ko",
+            "Pot GK KO",
+            8,
+            self.user,
+        )
+        gs = GroupStage.objects.get(bracket=bracket)
+        gs.points_per_exact_position = 1
+        gs.points_per_advancer = 0
+        gs.save(update_fields=["points_per_exact_position", "points_per_advancer"])
+
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"C{i + 1}", seed=i + 1
+            )
+
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.user, is_master=False
+        )
+        ub.metadata = {
+            "group_positions": {
+                "A": {"1": 1, "2": 2, "3": 3, "4": 4},
+                "B": {"1": 5, "2": 6, "3": 7, "4": 8},
+            }
+        }
+        ub.save()
+        master.metadata = {"group_positions": {"A": {"1": 99}}}
+        master.save()
+        ensure_knockout_structure_for_user_bracket(master)
+        sync_first_knockout_from_group_picks(ub)
+
+        first_ko = (
+            bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        mm = master.matchup_set.filter(stage=first_ko, position=1).first()
+        self.assertIsNotNone(mm)
+        mm.contestant1_id = 1
+        mm.contestant2_id = 2
+        mm.winner_id = 1
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+        from brackets.utils.potential_rank import _group_base_for_potential_scores
+
+        ctx = load_leaderboard_scoring_context(bracket)
+        group_base = int(_group_base_for_potential_scores([ub], ctx, master)[0])
+        self.assertEqual(group_base, 0)
+        # Open group slots (positions 2–4) would inflate to 3 before any KO result.
+        self.assertNotEqual(calculate_potential_score(ub), 3)
+
     def test_wc_style_four_group_slots_not_three(self):
         """12 groups × 4 finish slots × 1 pt = 48 (not 36 from ranks_required only)."""
         bracket = create_bracket_with_structure(
@@ -279,3 +333,43 @@ class PotentialScoreTests(TestCase):
 
         self.assertGreater(potential_open, potential_if_portugal_wins)
         self.assertGreaterEqual(potential_open, ub.calculate_score(master=master))
+
+    def test_potential_equals_current_when_master_fully_decided(self):
+        """No undecided matchups → potential is just the current score."""
+        t1, t2, t3, t4 = self.teams
+        r1, final = self._ko_stages()
+
+        for stage, pairs in [(r1, [(1, t1, t2), (2, t3, t4)])]:
+            for pos, a, b in pairs:
+                m = self.ub.matchup_set.get(stage=stage, position=pos)
+                m.contestant1, m.contestant2 = a, b
+                m.save(update_fields=["contestant1", "contestant2"])
+            for pos, winner in [(1, t1), (2, t3)]:
+                m = self.ub.matchup_set.get(stage=stage, position=pos)
+                m.winner = winner
+                m.save(update_fields=["winner"])
+
+        fm = self.ub.matchup_set.get(stage=final, position=1)
+        fm.contestant1, fm.contestant2, fm.winner = t1, t3, t1
+        fm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        for stage, pairs in [(r1, [(1, t1, t2), (2, t3, t4)])]:
+            for pos, a, b in pairs:
+                m = self.master.matchup_set.get(stage=stage, position=pos)
+                m.contestant1, m.contestant2 = a, b
+                m.save(update_fields=["contestant1", "contestant2"])
+            for pos, winner in [(1, t1), (2, t3)]:
+                m = self.master.matchup_set.get(stage=stage, position=pos)
+                m.winner = winner
+                m.save(update_fields=["winner"])
+        mm = self.master.matchup_set.get(stage=final, position=1)
+        mm.contestant1, mm.contestant2, mm.winner = t1, t3, t1
+        mm.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        self.ub.leaderboard_score = self.ub.calculate_score(master=self.master)
+        self.ub.save(update_fields=["leaderboard_score"])
+
+        self.assertEqual(
+            calculate_potential_score(self.ub),
+            self.ub.leaderboard_score,
+        )

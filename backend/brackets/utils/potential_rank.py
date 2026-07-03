@@ -1,10 +1,12 @@
 """
-Best achievable leaderboard rank and max total score across all completions of
-the master knockout tree.
+Best achievable leaderboard rank and max total score across completions of the
+master knockout tree from its *current* state forward.
 
-Group points use achievable group potential for max score; rank uses confirmed
-group score only. Remaining master knockout winners are enumerated exactly; for
-each completion every submitted bracket is scored vs that master state.
+Potential points: stored current score plus the best marginal gain from
+undecided master matchups (decided group/knockout results are not re-modeled).
+
+Potential rank: enumerates every completion of undecided matchups (not just the
+highest-scoring branch) and tracks the best achievable rank per entry.
 """
 
 from __future__ import annotations
@@ -118,10 +120,7 @@ def _enumerate_potential_outcomes_for_users(
         if s.stage_type == BracketStage.StageType.KNOCKOUT
     ]
     if not ko_stages:
-        scores = {
-            ub.id: int(_base_group_potential_scores([ub], ctx)[0]) for ub in ubs
-        }
-        return scores, {ub.id: 1 for ub in ubs}
+        return _outcomes_without_knockout(ubs, ctx, master)
 
     main_ko_stages = [
         s
@@ -148,12 +147,10 @@ def _enumerate_potential_outcomes_for_users(
     team_ids = _collect_team_ids(ubs, master, ko_stages, ctx)
     team_to_idx = {tid: i for i, tid in enumerate(sorted(team_ids))}
     if not team_to_idx:
-        scores = {ub.id: int(_base_group_potential_scores([ub], ctx)[0]) for ub in ubs}
-        return scores, {ub.id: 1 for ub in ubs}
+        return _outcomes_without_knockout(ubs, ctx, master)
 
     n_players = len(ubs)
-    rank_base = _base_group_scores(ubs, ctx)
-    score_base = _base_group_potential_scores(ubs, ctx)
+    current_totals = _current_totals_for_users(ubs, ctx)
     stage_pts = np.array(
         [
             float(ctx.knockout_by_id[s.pk].points_per_correct_pick)
@@ -171,6 +168,21 @@ def _enumerate_potential_outcomes_for_users(
     final_m_idx = _final_matchup_index(tree, ko_stages, final_stage)
     third_m_idx = _final_matchup_index(tree, ko_stages, third_stage)
 
+    current_state = _copy_state(tree)
+    current_ko_bonus = _marginal_ko_bonus(
+        current_state,
+        ubs,
+        user_mask=user_mask,
+        stage_pts=stage_pts,
+        user_champ=user_champ,
+        user_third=user_third,
+        final_m_idx=final_m_idx,
+        third_m_idx=third_m_idx,
+        team_to_idx=team_to_idx,
+        main_ko_stages=main_ko_stages,
+        ko_stages=ko_stages,
+    )
+
     n_stages = len(main_ko_stages)
     n_teams = len(team_to_idx)
     batch_size = _completion_batch_size(n_players, n_stages, n_teams)
@@ -187,20 +199,16 @@ def _enumerate_potential_outcomes_for_users(
             return
         master_mask = np.stack(batch_masks, axis=0)
         weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
-        ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
-        rank_totals = rank_base[np.newaxis, :] + ko
-        score_totals = score_base[np.newaxis, :] + ko
+        completion_ko = np.einsum("pst,bst->bp", weighted_user, master_mask)
+        completion_marginal = completion_ko
         if champ_pts > 0 and batch_champ_bonus:
-            champ = np.stack(batch_champ_bonus, axis=0)
-            rank_totals += champ
-            score_totals += champ
+            completion_marginal = completion_marginal + np.stack(batch_champ_bonus, axis=0)
         if third_pts > 0 and batch_third_bonus:
-            third = np.stack(batch_third_bonus, axis=0)
-            rank_totals += third
-            score_totals += third
-        ranks = _competition_ranks_batch(rank_totals)
+            completion_marginal = completion_marginal + np.stack(batch_third_bonus, axis=0)
+        totals = current_totals[np.newaxis, :] + completion_marginal - current_ko_bonus
+        ranks = _competition_ranks_batch(totals)
         best_ranks = np.minimum(best_ranks, np.min(ranks, axis=0))
-        best_scores = np.maximum(best_scores, np.max(score_totals, axis=0))
+        best_scores = np.maximum(best_scores, np.max(totals, axis=0))
         batch_masks.clear()
         batch_champ_bonus.clear()
         batch_third_bonus.clear()
@@ -390,6 +398,69 @@ def _collect_team_ids(
     return ids
 
 
+def _outcomes_without_knockout(
+    ubs: list[UserBracket],
+    ctx,
+    master: UserBracket,
+) -> tuple[dict[int, int | None], dict[int, int | None]]:
+    """Group-only brackets, or before knockout seeding is scoreable."""
+    scores_arr = _group_base_for_potential_scores(ubs, ctx, master)
+    scores = {ub.id: int(scores_arr[i]) for i, ub in enumerate(ubs)}
+    return scores, {ub.id: 1 for ub in ubs}
+
+
+def _current_totals_for_users(ubs: list[UserBracket], ctx) -> np.ndarray:
+    """Materialized total score per entry — the same number shown on the leaderboard."""
+    master = ctx.master
+    scores = np.zeros(len(ubs), dtype=np.float64)
+    for i, ub in enumerate(ubs):
+        if ub.leaderboard_score is not None:
+            scores[i] = float(ub.leaderboard_score)
+            continue
+        total = 0.0
+        for stage in ctx.stages:
+            stage_score = ub.calculate_stage_score(
+                stage,
+                master=master,
+                knockout_stage=ctx.knockout_by_id.get(stage.pk),
+                group_stage=ctx.group_by_id.get(stage.pk),
+            )
+            if stage_score is not None:
+                total += stage_score
+        champion = ub.calculate_champion_score(master=master)
+        if champion is not None:
+            total += champion
+        scores[i] = total
+    return scores
+
+
+def _marginal_ko_bonus(
+    state: _TreeState,
+    ubs: list[UserBracket],
+    *,
+    user_mask: np.ndarray,
+    stage_pts: np.ndarray,
+    user_champ: np.ndarray,
+    user_third: np.ndarray,
+    final_m_idx: int | None,
+    third_m_idx: int | None,
+    team_to_idx: dict[int, int],
+    main_ko_stages: list,
+    ko_stages: list,
+) -> np.ndarray:
+    """Knockout stage points plus champion / third bonuses for one master state."""
+    master_mask = _master_stage_mask(
+        state, main_ko_stages, ko_stages, team_to_idx
+    )
+    weighted_user = user_mask * stage_pts[np.newaxis, :, np.newaxis]
+    totals = np.einsum("bst,st->b", weighted_user, master_mask)
+    if final_m_idx is not None:
+        totals += _winner_bonus(state, final_m_idx, user_champ, team_to_idx)
+    if third_m_idx is not None:
+        totals += _winner_bonus(state, third_m_idx, user_third, team_to_idx)
+    return totals
+
+
 def _base_group_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
     scores = np.zeros(len(ubs), dtype=np.float64)
     for i, ub in enumerate(ubs):
@@ -431,6 +502,29 @@ def _base_group_potential_scores(ubs: list[UserBracket], ctx) -> np.ndarray:
             )
         scores[i] = total
     return scores
+
+
+def _master_knockout_has_results(master: UserBracket) -> bool:
+    """True once any master knockout matchup has a recorded winner."""
+    return master.matchup_set.filter(winner_id__isnull=False).exists()
+
+
+def _group_base_for_potential_scores(
+    ubs: list[UserBracket],
+    ctx,
+    master: UserBracket,
+) -> np.ndarray:
+    """Group points for max-score potential.
+
+    While the group stage is still the only scored phase, credit achievable
+    group picks the master has not ruled out. Once knockout results exist on
+    the master, group points are locked to what is already confirmed — matching
+    ``current score + best knockout completion`` rather than inflating with
+    open group slots that can no longer be awarded.
+    """
+    if _master_knockout_has_results(master):
+        return _base_group_scores(ubs, ctx)
+    return _base_group_potential_scores(ubs, ctx)
 
 
 def _user_knockout_mask(
