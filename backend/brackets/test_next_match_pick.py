@@ -14,6 +14,7 @@ from brackets.utils.knockout_tree import (
 )
 from brackets.utils.leaderboard_scoring import (
     refresh_all_submitted_leaderboard_scores_for_bracket,
+    refresh_user_bracket_leaderboard_cache,
 )
 from brackets.utils.next_match import (
     get_next_match_matchup,
@@ -193,6 +194,27 @@ class NextMatchPickTests(TestCase):
         # x's title hopes ride on t3 advancing; y's on t4.
         self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
         self.assertEqual(ub_y.leaderboard_next_match_pick_id, self.t4.id)
+
+    def test_submit_computes_next_match_pick_for_new_entry_only(self):
+        ub_x = self._submit("x", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        self._set_next_match(self._master_sf2().id)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        ub_x.refresh_from_db()
+        self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
+
+        ub_z = self._submit("z", sf1=self.t2, sf2=self.t4, final_winner=self.t4)
+        refresh_user_bracket_leaderboard_cache(ub_z)
+
+        ub_x.refresh_from_db()
+        ub_z.refresh_from_db()
+        self.assertEqual(ub_x.leaderboard_next_match_pick_id, self.t3.id)
+        self.assertEqual(ub_z.leaderboard_next_match_pick_id, self.t4.id)
+
+    def test_submit_skips_next_match_pick_when_column_inactive(self):
+        ub = self._submit("solo", sf1=self.t1, sf2=self.t3, final_winner=self.t3)
+        refresh_user_bracket_leaderboard_cache(ub)
+        ub.refresh_from_db()
+        self.assertIsNone(ub.leaderboard_next_match_pick_id)
 
     def test_picks_follow_knockout_depth(self):
         # Each entry wants whichever of the two next-match teams they took deeper

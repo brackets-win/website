@@ -439,6 +439,9 @@ def refresh_user_bracket_leaderboard_cache(ub: UserBracket) -> None:
             stage_scores=bundle.stage_scores,
         )
     _write_stored_scores(ub, revision, bundle)
+    from brackets.utils.next_match_pick import persist_next_match_pick_for_user_bracket
+
+    persist_next_match_pick_for_user_bracket(ub)
 
 
 def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> int:

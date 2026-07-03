@@ -165,3 +165,38 @@ def persist_next_match_picks_for_bracket(bracket) -> None:
             to_update.append(ub)
     if to_update:
         UserBracket.objects.bulk_update(to_update, ["leaderboard_next_match_pick"])
+
+
+def persist_next_match_pick_for_user_bracket(ub: UserBracket) -> None:
+    """Compute and store the next-match pick for one submitted entry.
+
+    Uses preferences across all submitted entries for tie-breaking but only
+    writes ``leaderboard_next_match_pick`` on ``ub``. No-op when the next-match
+    column is not active for this bracket.
+    """
+    if ub.is_master or ub.submitted_at is None:
+        return
+
+    bracket = ub.bracket
+    from brackets.utils.next_match import show_next_match_for_bracket
+
+    if not show_next_match_for_bracket(bracket):
+        if ub.leaderboard_next_match_pick_id is not None:
+            UserBracket.objects.filter(pk=ub.pk).update(
+                leaderboard_next_match_pick=None
+            )
+        return
+
+    picks = compute_next_match_picks_for_bracket(bracket)
+    if picks is None:
+        if ub.leaderboard_next_match_pick_id is not None:
+            UserBracket.objects.filter(pk=ub.pk).update(
+                leaderboard_next_match_pick=None
+            )
+        return
+
+    pick = picks.get(ub.id)
+    if ub.leaderboard_next_match_pick_id != pick:
+        UserBracket.objects.filter(pk=ub.pk).update(
+            leaderboard_next_match_pick=pick
+        )
