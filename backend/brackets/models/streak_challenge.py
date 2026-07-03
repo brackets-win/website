@@ -49,6 +49,9 @@ class StreakChallenge(models.Model):
         choices=Mode.choices,
         default=Mode.STREAK,
     )
+    knockout_transition_at = models.DateTimeField(null=True, blank=True)
+    # ISO datetimes keyed by round index ("2", "3", …) when each round's picks begin.
+    knockout_round_starts = models.JSONField(default=dict, blank=True)
     # Cached stats revision + payload (see streak_challenge_stats.py).
     metadata = models.JSONField(default=dict, blank=True)
 
@@ -110,6 +113,7 @@ class StreakQuestion(models.Model):
         related_name="+",
     )
     order = models.PositiveIntegerField(default=0)
+    knockout_only = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["closes_at", "order", "id"]

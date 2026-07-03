@@ -187,6 +187,7 @@ export function StreakCompetitionsAdmin() {
   const [newText, setNewText] = useState('');
   const [newCloses, setNewCloses] = useState('');
   const [newChoices, setNewChoices] = useState(['', '']);
+  const [newKnockoutOnly, setNewKnockoutOnly] = useState(false);
   const [questionBusy, setQuestionBusy] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<AdminDeleteTarget | null>(
@@ -201,6 +202,7 @@ export function StreakCompetitionsAdmin() {
   const [editQuestionChoices, setEditQuestionChoices] = useState<
     Array<{ id?: number; label: string }>
   >([]);
+  const [editQuestionKnockoutOnly, setEditQuestionKnockoutOnly] = useState(false);
   const [editQuestionBusy, setEditQuestionBusy] = useState(false);
 
   const [deleteQuestionTarget, setDeleteQuestionTarget] =
@@ -363,6 +365,7 @@ export function StreakCompetitionsAdmin() {
     setNewText('');
     setNewCloses('');
     setNewChoices(['', '']);
+    setNewKnockoutOnly(false);
   }
 
   function updateNewChoice(index: number, value: string) {
@@ -402,6 +405,7 @@ export function StreakCompetitionsAdmin() {
         text,
         closes_at: closesIso,
         choices,
+        knockout_only: newKnockoutOnly,
       });
       resetAddForm();
       setAddOpen(false);
@@ -443,6 +447,7 @@ export function StreakCompetitionsAdmin() {
     setEditQuestionChoices(
       q.choices.map((choice) => ({ id: choice.id, label: choice.label })),
     );
+    setEditQuestionKnockoutOnly(q.knockout_only === true);
     setPageMsg(null);
   }
 
@@ -490,6 +495,7 @@ export function StreakCompetitionsAdmin() {
         text,
         closes_at: closesIso,
         choices,
+        knockout_only: editQuestionKnockoutOnly,
       });
       setEditQuestion(null);
       await reloadQuestions(questionsId);
@@ -805,6 +811,21 @@ export function StreakCompetitionsAdmin() {
                     required
                   />
                 </div>
+                <div className="field">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={editQuestionKnockoutOnly}
+                      onChange={(e) => setEditQuestionKnockoutOnly(e.target.checked)}
+                      disabled={editQuestionBusy}
+                    />
+                    Knockout Mode Only
+                  </label>
+                  <p className="field-hint">
+                    Only shown in challenges that enter knockout before this question
+                    closes.
+                  </p>
+                </div>
                 <fieldset className="streak-add-dialog__choices">
                   <legend>Answers</legend>
                   {editQuestionChoices.map((choice, index) => (
@@ -902,6 +923,21 @@ export function StreakCompetitionsAdmin() {
                     disabled={questionBusy}
                     required
                   />
+                </div>
+                <div className="field">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={newKnockoutOnly}
+                      onChange={(e) => setNewKnockoutOnly(e.target.checked)}
+                      disabled={questionBusy}
+                    />
+                    Knockout Mode Only
+                  </label>
+                  <p className="field-hint">
+                    Only shown in challenges that enter knockout before this question
+                    closes.
+                  </p>
                 </div>
                 <fieldset className="streak-add-dialog__choices">
                   <legend>Answers</legend>

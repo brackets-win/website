@@ -128,6 +128,13 @@ export type StreakCompetitionQuestionAdmin = {
   order: number;
   is_open: boolean;
   pick_count: number;
+  knockout_only?: boolean;
+};
+
+export type KnockoutPhaseInfo = {
+  round_index: number;
+  label: string;
+  starts_at: string;
 };
 
 export type StreakChallengeSummary = {
@@ -155,6 +162,9 @@ export type StreakChallengeSummary = {
   leaderboard_preview?: LeaderboardPreview;
   mode?: 'STREAK' | 'KNOCKOUT';
   is_knockout?: boolean;
+  knockout_transition_at?: string | null;
+  knockout_round_starts?: Record<string, string>;
+  knockout_total_rounds?: number;
 };
 
 export type StreakQuestionInfo = {
@@ -171,6 +181,10 @@ export type StreakQuestionInfo = {
   deadline_locked: boolean;
   locked_by_question_id: number | null;
   can_clear_pick: boolean;
+  knockout_only?: boolean;
+  is_knockout_pick?: boolean;
+  knockout_phase_label?: string | null;
+  knockout_phase_starts_at?: string | null;
 };
 
 export type StreakLeaderboardEntry = {
@@ -889,6 +903,7 @@ export async function joinStreakChallenge(body: {
 export async function getStreakChallenge(streakChallengeId: number): Promise<{
   streak_challenge: StreakChallengeSummary;
   questions: StreakQuestionInfo[];
+  knockout_phases: KnockoutPhaseInfo[];
 }> {
   return apiFetch('GET', `streak-challenges/${streakChallengeId}`);
 }
@@ -930,6 +945,23 @@ export async function startStreakKnockout(
   return apiFetch('POST', `streak-challenges/${streakChallengeId}/knockout/start`, {
     confirm,
   });
+}
+
+export async function saveStreakKnockoutSchedule(
+  streakChallengeId: number,
+  body: {
+    knockout_transition_at: string;
+    knockout_round_starts: Record<string, string>;
+  },
+): Promise<{
+  streak_challenge: StreakChallengeSummary;
+  knockout_phases: KnockoutPhaseInfo[];
+}> {
+  return apiFetch(
+    'PATCH',
+    `streak-challenges/${streakChallengeId}/knockout/schedule`,
+    body,
+  );
 }
 
 export async function swapStreakKnockoutSetup(
@@ -1026,7 +1058,12 @@ export async function adminDeleteStreakCompetition(
 
 export async function adminAddStreakCompetitionQuestion(
   streakCompetitionId: number,
-  body: { text: string; closes_at: string; choices: string[] },
+  body: {
+    text: string;
+    closes_at: string;
+    choices: string[];
+    knockout_only?: boolean;
+  },
 ): Promise<{ question: StreakCompetitionQuestionAdmin }> {
   return apiFetch(
     'POST',
@@ -1050,6 +1087,7 @@ export async function adminUpdateStreakQuestion(
     text: string;
     closes_at: string;
     choices?: Array<{ id?: number; label: string }>;
+    knockout_only?: boolean;
   },
 ): Promise<{ question: StreakCompetitionQuestionAdmin }> {
   return apiFetch('PATCH', `streak-questions/${questionId}`, body);

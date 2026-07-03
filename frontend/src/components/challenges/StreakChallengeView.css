@@ -137,6 +137,52 @@
   gap: 0.75rem;
 }
 
+.streak-make-phase {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0;
+  list-style: none;
+}
+
+.streak-make-phase__line {
+  flex: 1;
+  height: 1px;
+  background: var(--app-border, #cbd5e1);
+}
+
+.streak-make-phase__label {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--app-muted);
+  text-transform: uppercase;
+}
+
+.streak-knockout-schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.streak-knockout-schedule-readonly {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.streak-knockout-schedule-readonly li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
 .streak-question {
   padding: 1rem 1.15rem;
 }
@@ -210,9 +256,15 @@
   background: none;
   font: inherit;
   color: var(--activity-btn, var(--app-accent));
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   text-align: left;
+}
+
+/* Name sets its own weight directly, which beats the row's inherited bold,
+   so re-bold the viewer's own name. */
+.leaderboard-row--viewer .streak-leaderboard__player {
+  font-weight: 700;
 }
 
 .streak-leaderboard__player:hover {

@@ -10,9 +10,10 @@ import {
   getStreakLeaderboard,
   getStreakParticipantPicks,
   clearStreakPick,
-  startStreakKnockout,
+  saveStreakKnockoutSchedule,
   streakPick,
   type ApiUser,
+  type KnockoutPhaseInfo,
   type StreakAwardsPayload,
   type StreakLeaderboardEntry,
   type StreakParticipantPickRow,
@@ -22,7 +23,11 @@ import {
 import { invalidateHome } from '../../utils/homeCache';
 import { streakEmoji } from '../../utils/challengeTypes';
 import { challengeThemeClass } from '../../utils/challengeThemes';
-import { formatDeadlineEst } from '../../utils/est';
+import { estLocalInputToIso, formatDeadlineEst, isoToEstLocalInput } from '../../utils/est';
+import {
+  knockoutRoundLabel,
+  makePickPhaseDividers,
+} from '../../utils/streakKnockout';
 import {
   streakPath,
   streakPlayerPath,
@@ -102,10 +107,14 @@ export function StreakChallengeView({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState('');
-  const [knockoutOpen, setKnockoutOpen] = useState(false);
-  const [knockoutConfirm, setKnockoutConfirm] = useState('');
-  const [knockoutBusy, setKnockoutBusy] = useState(false);
-  const [knockoutErr, setKnockoutErr] = useState('');
+  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>([]);
+  const [scheduleTransition, setScheduleTransition] = useState('');
+  const [scheduleRoundStarts, setScheduleRoundStarts] = useState<
+    Record<string, string>
+  >({});
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleErr, setScheduleErr] = useState('');
+  const [scheduleMsg, setScheduleMsg] = useState('');
 
   const selectedPlayer = useMemo<SelectedPlayer | null>(() => {
     if (viewingPlayerId == null) return null;
@@ -131,6 +140,7 @@ export function StreakChallengeView({
       const board = await getStreakLeaderboard(streakChallengeId);
       setSummary(detail.streak_challenge);
       setQuestions(detail.questions);
+      setKnockoutPhases(detail.knockout_phases ?? []);
       setEntries(board.entries);
       if (detail.streak_challenge.competition_is_over) {
         try {
@@ -156,6 +166,22 @@ export function StreakChallengeView({
   const isKnockout = summary?.is_knockout === true;
   const canManageKnockout =
     summary?.is_creator === true || currentUser.is_staff === true;
+
+  useEffect(() => {
+    if (!summary || isKnockout) return;
+    setScheduleTransition(
+      summary.knockout_transition_at
+        ? isoToEstLocalInput(summary.knockout_transition_at)
+        : '',
+    );
+    const roundStarts: Record<string, string> = {};
+    const totalRounds = summary.knockout_total_rounds ?? 0;
+    for (let round = 2; round <= totalRounds; round += 1) {
+      const raw = summary.knockout_round_starts?.[String(round)];
+      roundStarts[String(round)] = raw ? isoToEstLocalInput(raw) : '';
+    }
+    setScheduleRoundStarts(roundStarts);
+  }, [summary, isKnockout]);
 
   useEffect(() => {
     if (!summary) return;
@@ -189,6 +215,23 @@ export function StreakChallengeView({
     make.sort(compareClosesAtAsc);
     return make;
   }, [questions]);
+
+  const makePickRows = useMemo(
+    () => makePickPhaseDividers(makeQuestions),
+    [makeQuestions],
+  );
+
+  const scheduleRoundFields = useMemo(() => {
+    const totalRounds = summary?.knockout_total_rounds ?? 0;
+    const rows: Array<{ round: number; label: string }> = [];
+    for (let round = 2; round <= totalRounds; round += 1) {
+      rows.push({
+        round,
+        label: knockoutRoundLabel(round, totalRounds),
+      });
+    }
+    return rows;
+  }, [summary?.knockout_total_rounds]);
 
   const sortedPlayerPicks = useMemo(
     () =>
@@ -317,21 +360,40 @@ export function StreakChallengeView({
     );
   }
 
-  async function handleStartKnockout() {
-    setKnockoutBusy(true);
-    setKnockoutErr('');
+  async function handleSaveKnockoutSchedule(e: React.FormEvent) {
+    e.preventDefault();
+    const transitionIso = estLocalInputToIso(scheduleTransition);
+    if (!transitionIso) {
+      setScheduleErr('Set a knockout start time.');
+      return;
+    }
+    const roundStarts: Record<string, string> = {};
+    for (const row of scheduleRoundFields) {
+      const iso = estLocalInputToIso(scheduleRoundStarts[String(row.round)] ?? '');
+      if (!iso) {
+        setScheduleErr(`Set a start time for ${row.label}.`);
+        return;
+      }
+      roundStarts[String(row.round)] = iso;
+    }
+    setScheduleBusy(true);
+    setScheduleErr('');
+    setScheduleMsg('');
     try {
-      const result = await startStreakKnockout(streakChallengeId, knockoutConfirm);
+      const result = await saveStreakKnockoutSchedule(streakChallengeId, {
+        knockout_transition_at: transitionIso,
+        knockout_round_starts: roundStarts,
+      });
       setSummary(result.streak_challenge);
-      setKnockoutOpen(false);
-      setKnockoutConfirm('');
-      navigate(streakPath(streakChallengeId, 'knockout'));
+      setKnockoutPhases(result.knockout_phases);
+      setScheduleMsg('Knockout schedule saved.');
+      await reload();
     } catch (e) {
-      setKnockoutErr(
-        e instanceof ApiError ? e.message : 'Could not start knockout.',
+      setScheduleErr(
+        e instanceof ApiError ? e.message : 'Could not save schedule.',
       );
     } finally {
-      setKnockoutBusy(false);
+      setScheduleBusy(false);
     }
   }
 
@@ -591,7 +653,20 @@ export function StreakChallengeView({
       {tab === 'make' ? (
         <section className="streak-view__questions streak-view__questions--make">
           <ul className="streak-question-list">
-            {makeQuestions.map((q) => renderQuestion(q))}
+            {makePickRows.map((row) =>
+              row.type === 'divider' ? (
+                <li
+                  key={row.key}
+                  className="streak-make-phase"
+                  aria-label={`${row.label} picks`}
+                >
+                  <span className="streak-make-phase__line" aria-hidden />
+                  <span className="streak-make-phase__label">{row.label}</span>
+                </li>
+              ) : (
+                renderQuestion(row.question)
+              ),
+            )}
           </ul>
           {makeQuestions.length === 0 ? (
             <p className="streak-view__muted">No open questions right now.</p>
@@ -693,31 +768,90 @@ export function StreakChallengeView({
               This challenge is public. Anyone can join from the public list.
             </p>
           )}
-          {canManageKnockout &&
-          !isKnockout &&
-          !competitionIsOver ? (
+          {canManageKnockout && !competitionIsOver ? (
             <div className="challenge-view__danger">
-              <h2 className="challenge-view__danger-title">H2H Knockout</h2>
-              <p className="streak-view__muted">
-                Switch this pool to knockout mode. Streak stats will freeze and a
-                bracket will be seeded from the current leaderboard.
-              </p>
-              {knockoutErr ? (
-                <div className="alert alert--error" role="status">
-                  {knockoutErr}
-                </div>
-              ) : null}
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => {
-                  setKnockoutErr('');
-                  setKnockoutConfirm('');
-                  setKnockoutOpen(true);
-                }}
-              >
-                Start H2H Knockout
-              </button>
+              <h2 className="challenge-view__danger-title">H2H Knockout Schedule</h2>
+              {isKnockout ? (
+                <>
+                  <p className="streak-view__muted">
+                    Knockout mode is active. Round times were set before the bracket
+                    started.
+                  </p>
+                  {knockoutPhases.length > 0 ? (
+                    <ul className="streak-knockout-schedule-readonly">
+                      {knockoutPhases.map((phase) => (
+                        <li key={phase.round_index}>
+                          <span>{phase.label}</span>
+                          <span>{formatDeadlineEst(phase.starts_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <form
+                  className="streak-knockout-schedule-form"
+                  onSubmit={(e) => void handleSaveKnockoutSchedule(e)}
+                >
+                  <p className="streak-view__muted">
+                    Set when this pool switches to knockout mode and when each bracket
+                    round begins. Questions after each time are knockout picks and are
+                    not limited to one per deadline.
+                  </p>
+                  <div className="field">
+                    <label htmlFor="streak-knockout-transition">
+                      {knockoutRoundLabel(1, summary.knockout_total_rounds ?? 1)} Start
+                    </label>
+                    <input
+                      id="streak-knockout-transition"
+                      className="input"
+                      type="datetime-local"
+                      value={scheduleTransition}
+                      onChange={(e) => setScheduleTransition(e.target.value)}
+                      disabled={scheduleBusy}
+                      required
+                    />
+                  </div>
+                  {scheduleRoundFields.map((row) => (
+                    <div className="field" key={row.round}>
+                      <label htmlFor={`streak-knockout-round-${row.round}`}>
+                        {row.label} Start
+                      </label>
+                      <input
+                        id={`streak-knockout-round-${row.round}`}
+                        className="input"
+                        type="datetime-local"
+                        value={scheduleRoundStarts[String(row.round)] ?? ''}
+                        onChange={(e) =>
+                          setScheduleRoundStarts((prev) => ({
+                            ...prev,
+                            [String(row.round)]: e.target.value,
+                          }))
+                        }
+                        disabled={scheduleBusy}
+                        required
+                      />
+                    </div>
+                  ))}
+                  {scheduleErr ? (
+                    <div className="alert alert--error" role="status">
+                      {scheduleErr}
+                    </div>
+                  ) : null}
+                  {scheduleMsg ? (
+                    <div className="alert alert--success" role="status">
+                      {scheduleMsg}
+                    </div>
+                  ) : null}
+                  <button
+                    type="submit"
+                    className="btn btn--primary"
+                    disabled={scheduleBusy}
+                  >
+                    {scheduleBusy ? 'Saving…' : 'Save Schedule'}
+                  </button>
+                </form>
+              )}
             </div>
           ) : null}
           {summary.is_creator ? (
@@ -761,61 +895,6 @@ export function StreakChallengeView({
         onConfirm={() => void handleDeleteChallenge()}
       />
 
-      {knockoutOpen ? (
-        <div
-          className="delete-dialog-backdrop"
-          role="presentation"
-          onClick={knockoutBusy ? undefined : () => setKnockoutOpen(false)}
-        >
-          <div
-            className="delete-dialog card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="streak-knockout-dialog-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="streak-knockout-dialog-title">Start H2H Knockout?</h2>
-            <p className="streak-view__muted">
-              Streak stats will freeze and a bracket will be seeded from the current
-              leaderboard. Type <strong>knockout</strong> to confirm.
-            </p>
-            <div className="field">
-              <label htmlFor="streak-knockout-confirm">Confirmation</label>
-              <input
-                id="streak-knockout-confirm"
-                className="input"
-                value={knockoutConfirm}
-                onChange={(e) => setKnockoutConfirm(e.target.value)}
-                disabled={knockoutBusy}
-                autoFocus
-              />
-            </div>
-            {knockoutErr ? (
-              <div className="alert alert--error" role="status">
-                {knockoutErr}
-              </div>
-            ) : null}
-            <div className="delete-dialog__actions">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setKnockoutOpen(false)}
-                disabled={knockoutBusy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={knockoutBusy || knockoutConfirm.trim().toLowerCase() !== 'knockout'}
-                onClick={() => void handleStartKnockout()}
-              >
-                {knockoutBusy ? 'Starting…' : 'Start Knockout'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

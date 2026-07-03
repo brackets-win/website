@@ -12,18 +12,12 @@ import {
 } from '../../utils/api';
 
 import './StreakKnockout.css';
+import { knockoutRoundLabel as roundLabel } from '../../utils/streakKnockout';
 
 type Props = {
   streakChallengeId: number;
   onSelectPlayer: (userId: number, displayName: string) => void;
 };
-
-function roundLabel(roundIndex: number, totalRounds: number): string {
-  if (roundIndex === totalRounds) return 'Final';
-  if (roundIndex === totalRounds - 1) return 'Semifinals';
-  if (roundIndex === totalRounds - 2 && totalRounds >= 3) return 'Quarterfinals';
-  return `Round ${roundIndex}`;
-}
 
 function MatchCard({
   match,

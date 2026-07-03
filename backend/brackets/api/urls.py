@@ -78,6 +78,10 @@ urlpatterns = [
         streak_views.streak_challenge_knockout,
     ),
     path(
+        "streak-challenges/<int:streak_challenge_id>/knockout/schedule",
+        streak_views.streak_challenge_knockout_schedule,
+    ),
+    path(
         "streak-challenges/<int:streak_challenge_id>/knockout/start",
         streak_views.streak_challenge_knockout_start,
     ),

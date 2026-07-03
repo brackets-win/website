@@ -44,6 +44,15 @@ from brackets.utils.streak_deadlines import (
     open_deadline_pick_map,
     other_open_pick_at_same_deadline,
 )
+from brackets.utils.streak_knockout_rules import (
+    is_knockout_pick,
+    knockout_phase_for_closes_at,
+    knockout_phases_payload,
+    knockout_total_rounds,
+    question_visible_in_challenge,
+    validate_knockout_schedule,
+)
+from brackets.utils.streak_knockout_schedule import process_scheduled_knockout
 from brackets.utils.streak_scoring import (
     clear_question_resolution,
     current_broken_win_streak,
@@ -135,6 +144,13 @@ def _streak_summary(
         else None,
         "mode": c.mode,
         "is_knockout": c.is_knockout,
+        "knockout_transition_at": c.knockout_transition_at.isoformat()
+        if c.knockout_transition_at
+        else None,
+        "knockout_round_starts": c.knockout_round_starts or {},
+        "knockout_total_rounds": knockout_total_rounds(
+            StreakParticipant.objects.filter(streak_challenge=c).count()
+        ),
     }
 
 
@@ -191,9 +207,10 @@ def _question_public(
     user,
     streak_challenge_id: int,
     *,
+    challenge: StreakChallenge,
     deadline_picks: dict | None = None,
     pick_stats: dict[int, dict[str, int]] | None = None,
-    knockout_mode: bool = False,
+    participant_count: int = 0,
 ) -> dict[str, Any]:
     pick = (
         StreakPick.objects.filter(
@@ -205,15 +222,17 @@ def _question_public(
     correct_label = q.correct_choice.label if q.correct_choice_id else None
     now = timezone.now()
     is_open = q.resolved_at is None and q.closes_at > now
+    knockout_pick = is_knockout_pick(challenge, q)
     locked_by_question_id = None
     deadline_locked = False
-    if is_open and deadline_picks is not None and not knockout_mode:
+    if is_open and deadline_picks is not None and not knockout_pick:
         locked_by_question_id = deadline_picks.get(closes_at_key(q.closes_at))
         deadline_locked = (
             locked_by_question_id is not None
             and locked_by_question_id != q.id
             and pick is None
         )
+    phase = knockout_phase_for_closes_at(challenge, q.closes_at, participant_count)
     return {
         "id": q.id,
         "text": q.text,
@@ -230,6 +249,10 @@ def _question_public(
         "deadline_locked": deadline_locked,
         "locked_by_question_id": locked_by_question_id,
         "can_clear_pick": is_open and pick is not None,
+        "knockout_only": q.knockout_only,
+        "is_knockout_pick": knockout_pick,
+        "knockout_phase_label": phase["label"] if phase else None,
+        "knockout_phase_starts_at": phase["starts_at"].isoformat() if phase else None,
     }
 
 
@@ -354,6 +377,7 @@ def _question_admin(
         "order": q.order,
         "is_open": q.resolved_at is None,
         "pick_count": pick_count,
+        "knockout_only": q.knockout_only,
     }
 
 
@@ -584,6 +608,7 @@ def streak_competition_question_create(
                 text=text,
                 closes_at=closes_at,
                 order=0,
+                knockout_only=bool(body.get("knockout_only")),
             )
             for idx, label in enumerate(labels, start=1):
                 StreakQuestionChoice.objects.create(
@@ -679,14 +704,24 @@ def streak_challenge_detail(
         return JsonResponse({"ok": True})
 
     participant = _streak_participant_or_none(challenge, user)
+    process_scheduled_knockout(challenge)
+    challenge.refresh_from_db()
+
+    participant_count = StreakParticipant.objects.filter(
+        streak_challenge=challenge
+    ).count()
     deadline_picks = (
-        open_deadline_pick_map(challenge.id, user.id) if participant else {}
+        open_deadline_pick_map(challenge.id, user.id, challenge=challenge)
+        if participant
+        else {}
     )
-    question_rows = list(
-        _questions_queryset().filter(
+    question_rows = [
+        q
+        for q in _questions_queryset().filter(
             streak_competition_id=challenge.streak_competition_id
         )
-    )
+        if question_visible_in_challenge(challenge, q)
+    ]
     resolved_ids = [q.id for q in question_rows if q.resolved_at is not None]
     pick_stats_map = _pick_stats_by_question(challenge.id, resolved_ids)
     questions = [
@@ -694,9 +729,10 @@ def streak_challenge_detail(
             q,
             user,
             challenge.id,
+            challenge=challenge,
             deadline_picks=deadline_picks,
             pick_stats=pick_stats_map.get(q.id),
-            knockout_mode=challenge.is_knockout,
+            participant_count=participant_count,
         )
         for q in question_rows
     ]
@@ -706,6 +742,7 @@ def streak_challenge_detail(
                 challenge, user, participant=participant
             ),
             "questions": questions,
+            "knockout_phases": knockout_phases_payload(challenge, participant_count),
         }
     )
 
@@ -934,7 +971,18 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
     if question.streak_competition.ended_at is not None:
         return _json_error("This competition has ended", 400)
 
-    deadline_picks = open_deadline_pick_map(challenge.id, user.id)
+    if not question_visible_in_challenge(challenge, question):
+        return _json_error("This question is not available in this challenge", 400)
+
+    process_scheduled_knockout(challenge)
+    challenge.refresh_from_db()
+
+    participant_count = StreakParticipant.objects.filter(
+        streak_challenge=challenge
+    ).count()
+    deadline_picks = open_deadline_pick_map(
+        challenge.id, user.id, challenge=challenge
+    )
 
     if request.method == "DELETE":
         StreakPick.objects.filter(
@@ -942,12 +990,19 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
             question=question,
             user=user,
         ).delete()
-        deadline_picks = open_deadline_pick_map(challenge.id, user.id)
+        deadline_picks = open_deadline_pick_map(
+            challenge.id, user.id, challenge=challenge
+        )
         question = _questions_queryset().get(pk=question.pk)
         return JsonResponse(
             {
                 "question": _question_public(
-                    question, user, challenge.id, deadline_picks=deadline_picks
+                    question,
+                    user,
+                    challenge.id,
+                    challenge=challenge,
+                    deadline_picks=deadline_picks,
+                    participant_count=participant_count,
                 )
             }
         )
@@ -967,11 +1022,10 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
         return _json_error("choice_id is invalid for this question", 400)
 
     if other_open_pick_at_same_deadline(challenge, user.id, question) is not None:
-        if not challenge.is_knockout:
-            return _json_error(
-                "You already picked another question for this deadline. Clear that pick first.",
-                409,
-            )
+        return _json_error(
+            "You already picked another question for this deadline. Clear that pick first.",
+            409,
+        )
 
     StreakPick.objects.update_or_create(
         streak_challenge=challenge,
@@ -979,12 +1033,19 @@ def streak_pick(request: HttpRequest, question_id: int) -> JsonResponse:
         user=user,
         defaults={"choice": choice},
     )
-    deadline_picks = open_deadline_pick_map(challenge.id, user.id)
+    deadline_picks = open_deadline_pick_map(
+        challenge.id, user.id, challenge=challenge
+    )
     question = _questions_queryset().get(pk=question.pk)
     return JsonResponse(
         {
             "question": _question_public(
-                question, user, challenge.id, deadline_picks=deadline_picks
+                question,
+                user,
+                challenge.id,
+                challenge=challenge,
+                deadline_picks=deadline_picks,
+                participant_count=participant_count,
             )
         }
     )
@@ -1036,6 +1097,10 @@ def streak_question_detail(
         except ValueError:
             return _json_error("Invalid closes_at", 400)
         update_fields.append("closes_at")
+
+    if "knockout_only" in body:
+        question.knockout_only = bool(body.get("knockout_only"))
+        update_fields.append("knockout_only")
 
     choice_updates = None
     if "choices" in body:
@@ -1103,6 +1168,75 @@ def _can_manage_knockout(challenge: StreakChallenge, user) -> bool:
     return challenge.created_by_id == user.id or user.is_staff
 
 
+@require_http_methods(["PATCH"])
+def streak_challenge_knockout_schedule(
+    request: HttpRequest, streak_challenge_id: int
+) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        StreakChallenge.objects.select_related("streak_competition"),
+        pk=streak_challenge_id,
+    )
+    if not _can_manage_knockout(challenge, user):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    transition_raw = body.get("knockout_transition_at")
+    if not transition_raw:
+        return _json_error("knockout_transition_at is required", 400)
+
+    from brackets.utils.challenge_deadline import parse_deadline_est
+
+    try:
+        transition_at = parse_deadline_est(str(transition_raw))
+    except ValueError:
+        return _json_error("Invalid knockout_transition_at", 400)
+
+    round_starts_raw = body.get("knockout_round_starts")
+    if round_starts_raw is None:
+        round_starts: dict[str, str] = {}
+    elif not isinstance(round_starts_raw, dict):
+        return _json_error("knockout_round_starts must be an object", 400)
+    else:
+        round_starts = {str(k): str(v) for k, v in round_starts_raw.items() if v}
+
+    participant_count = StreakParticipant.objects.filter(
+        streak_challenge=challenge
+    ).count()
+    schedule_err = validate_knockout_schedule(
+        challenge,
+        transition_at=transition_at,
+        round_starts=round_starts,
+        participant_count=participant_count,
+    )
+    if schedule_err is not None:
+        return _json_error(schedule_err, 400)
+
+    challenge.knockout_transition_at = transition_at
+    challenge.knockout_round_starts = round_starts
+    challenge.save(update_fields=["knockout_transition_at", "knockout_round_starts"])
+
+    process_scheduled_knockout(challenge)
+    challenge.refresh_from_db()
+
+    participant = _streak_participant_or_none(challenge, user)
+    return JsonResponse(
+        {
+            "streak_challenge": _streak_summary(
+                challenge, user, participant=participant
+            ),
+            "knockout_phases": knockout_phases_payload(challenge, participant_count),
+        }
+    )
+
+
 @require_http_methods(["GET"])
 def streak_challenge_knockout(
     request: HttpRequest, streak_challenge_id: int
@@ -1117,6 +1251,8 @@ def streak_challenge_knockout(
     )
     if _streak_participant_or_none(challenge, user) is None:
         return _json_error("Forbidden", 403)
+    process_scheduled_knockout(challenge)
+    challenge.refresh_from_db()
     if not challenge.is_knockout:
         return _json_error("Challenge is not in knockout mode", 400)
 
