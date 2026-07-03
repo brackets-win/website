@@ -169,6 +169,11 @@ export function StreakChallengeView({
   const isKnockout = summary?.is_knockout === true;
   const canManageKnockout =
     summary?.is_creator === true || currentUser.is_staff === true;
+  const knockoutCutoffCount =
+    summary?.knockout_transition_at &&
+    (summary.knockout_total_rounds ?? 0) > 0
+      ? 2 ** (summary.knockout_total_rounds ?? 0)
+      : null;
 
   useEffect(() => {
     if (!summary || isKnockout) return;
@@ -528,34 +533,50 @@ export function StreakChallengeView({
             {summary.streak_competition_name ? (
               <p className="challenge-view__meta">{summary.streak_competition_name}</p>
             ) : null}
-            <p className="streak-view__stat">
-              <span className="streak-view__stat-group">
-                <span className="streak-view__stat-label">BEST</span>
+            {isKnockout && summary.knockout_header ? (
+              <p className="streak-view__stat">
+                <span className="streak-view__stat-group">
+                  <span className="streak-view__stat-label">
+                    {summary.knockout_header.label}
+                  </span>
+                </span>
+                <span className="streak-view__stat-sep" aria-hidden>
+                  |
+                </span>
                 <span className="streak-view__stat-value">
-                  {summary.long_win_display}
+                  {summary.knockout_header.value}
                 </span>
-              </span>
-              <span className="streak-view__stat-sep" aria-hidden>
-                |
-              </span>
-              <span className="streak-view__stat-group">
-                <span className="streak-view__stat-label">CURRENT</span>
+              </p>
+            ) : (
+              <p className="streak-view__stat">
+                <span className="streak-view__stat-group">
+                  <span className="streak-view__stat-label">BEST</span>
+                  <span className="streak-view__stat-value">
+                    {summary.long_win_display}
+                  </span>
+                </span>
+                <span className="streak-view__stat-sep" aria-hidden>
+                  |
+                </span>
+                <span className="streak-view__stat-group">
+                  <span className="streak-view__stat-label">CURRENT</span>
+                  <span className="streak-view__stat-value">
+                    {summary.current_display}
+                  </span>
+                </span>
+                <span className="streak-view__stat-sep" aria-hidden>
+                  |
+                </span>
                 <span className="streak-view__stat-value">
-                  {summary.current_display}
+                  {summary.wins}-{summary.losses}
                 </span>
-              </span>
-              <span className="streak-view__stat-sep" aria-hidden>
-                |
-              </span>
-              <span className="streak-view__stat-value">
-                {summary.wins}-{summary.losses}
-              </span>
-              {activeStreakEmoji ? (
-                <span className="streak-view__stat-emoji" aria-hidden>
-                  {activeStreakEmoji}
-                </span>
-              ) : null}
-            </p>
+                {activeStreakEmoji ? (
+                  <span className="streak-view__stat-emoji" aria-hidden>
+                    {activeStreakEmoji}
+                  </span>
+                ) : null}
+              </p>
+            )}
           </div>
         </div>
       </header>
@@ -658,6 +679,8 @@ export function StreakChallengeView({
             entries={entries}
             viewerUserId={currentUser.id}
             onSelectPlayer={onSelectLeaderboardPlayer}
+            isKnockout={isKnockout}
+            knockoutCutoffCount={knockoutCutoffCount}
           />
         </section>
       ) : null}

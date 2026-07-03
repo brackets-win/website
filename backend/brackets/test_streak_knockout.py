@@ -170,6 +170,90 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("rounds", res.json()["knockout"])
 
+    def test_streak_detail_shows_knockout_matchup_header(self):
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+
+        self.client.force_login(self.alice)
+        res = self.client.get(f"/brackets/api/streak-challenges/{self.challenge.id}")
+        self.assertEqual(res.status_code, 200)
+        header = res.json()["streak_challenge"]["knockout_header"]
+        self.assertIsNotNone(header)
+        self.assertEqual(header["kind"], "matchup")
+        self.assertEqual(header["label"], "Semi Final")
+        self.assertEqual(header["value"], "Alice 0-0 Dave")
+
+    def test_streak_detail_shows_consolation_header(self):
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        bob_p = StreakParticipant.objects.get(user=self.bob)
+        dave_p = StreakParticipant.objects.get(user=self.dave)
+        now = timezone.now()
+        bob_p.in_knockout_bracket = False
+        bob_p.consolation_eligible_from = now
+        bob_p.consolation_wins = 5
+        bob_p.consolation_losses = 2
+        bob_p.save(
+            update_fields=[
+                "in_knockout_bracket",
+                "consolation_eligible_from",
+                "consolation_wins",
+                "consolation_losses",
+            ]
+        )
+        dave_p.in_knockout_bracket = False
+        dave_p.consolation_eligible_from = now
+        dave_p.consolation_wins = 4
+        dave_p.consolation_losses = 3
+        dave_p.save(
+            update_fields=[
+                "in_knockout_bracket",
+                "consolation_eligible_from",
+                "consolation_wins",
+                "consolation_losses",
+            ]
+        )
+
+        self.client.force_login(self.dave)
+        res = self.client.get(f"/brackets/api/streak-challenges/{self.challenge.id}")
+        self.assertEqual(res.status_code, 200)
+        header = res.json()["streak_challenge"]["knockout_header"]
+        self.assertIsNotNone(header)
+        self.assertEqual(header["kind"], "consolation")
+        self.assertEqual(header["label"], "CONSOLATION 2nd")
+        self.assertEqual(header["value"], "4-3")
+
+    def test_knockout_leaderboard_includes_season_and_total_fields(self):
+        self.challenge.mode = StreakChallenge.Mode.KNOCKOUT
+        self.challenge.save(update_fields=["mode"])
+        alice_p = StreakParticipant.objects.get(user=self.alice)
+        alice_p.frozen_wins = 5
+        alice_p.frozen_losses = 2
+        alice_p.wins = 7
+        alice_p.losses = 3
+        alice_p.save(
+            update_fields=["frozen_wins", "frozen_losses", "wins", "losses"]
+        )
+
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res.status_code, 200)
+        row = next(r for r in res.json()["entries"] if r["user_id"] == self.alice.id)
+        self.assertEqual(row["season_record"], "5-2")
+        self.assertEqual(row["season_win_pct"], 71)
+        self.assertEqual(row["total_record"], "7-3")
+        self.assertEqual(row["total_win_pct"], 70)
+
     def test_knockout_scores_include_correct_and_bonus_breakdown(self):
         now = timezone.now()
         self.challenge.knockout_transition_at = now - timedelta(days=2)

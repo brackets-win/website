@@ -138,6 +138,12 @@ export type KnockoutPhaseInfo = {
   headstart_enabled?: boolean;
 };
 
+export type StreakKnockoutHeaderSummary = {
+  kind: 'matchup' | 'consolation';
+  label: string;
+  value: string;
+};
+
 export type StreakChallengeSummary = {
   id: number;
   name: string;
@@ -167,6 +173,7 @@ export type StreakChallengeSummary = {
   knockout_round_starts?: Record<string, string>;
   knockout_round_headstart?: Record<string, boolean>;
   knockout_total_rounds?: number;
+  knockout_header?: StreakKnockoutHeaderSummary | null;
 };
 
 export type StreakQuestionInfo = {
@@ -202,6 +209,14 @@ export type StreakLeaderboardEntry = {
   losses: number;
   record: string;
   win_pct: number;
+  season_wins: number;
+  season_losses: number;
+  season_record: string;
+  season_win_pct: number;
+  total_wins: number;
+  total_losses: number;
+  total_record: string;
+  total_win_pct: number;
   best_win_streak: number;
   best_loss_streak: number;
   broken_win_streak?: number;

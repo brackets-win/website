@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import {
   ApiError,
@@ -11,7 +17,9 @@ import {
   type StreakLeaderboardEntry,
 } from '../../utils/api';
 
+import '../bracket/BracketFill.css';
 import './StreakKnockout.css';
+import { columnMatchupCenterPct } from '../bracket/bracketMirrorLayout';
 import { knockoutRoundLabel as roundLabel } from '../../utils/streakKnockout';
 
 type Props = {
@@ -19,47 +27,53 @@ type Props = {
   onSelectPlayer: (userId: number, displayName: string) => void;
 };
 
-function MatchCard({
+function formatScore(correct: number, bonus: number, bonusEnabled: boolean) {
+  if (!bonusEnabled) return String(correct);
+  return `${correct} (+${bonus})`;
+}
+
+function scoreParts(
+  {
+    match,
+    side,
+  }: {
+  match: StreakKnockoutMatch;
+  side: 'a' | 'b';
+  },
+) {
+  return side === 'a'
+    ? {
+        player: match.player_a,
+        seed: match.seed_a,
+        correct: match.score_a_correct,
+        bonus: match.score_a_bonus,
+      }
+    : {
+        player: match.player_b,
+        seed: match.seed_b,
+        correct: match.score_b_correct,
+        bonus: match.score_b_bonus,
+      };
+}
+
+function BracketSlot({
   match,
+  side,
   onSelectPlayer,
 }: {
   match: StreakKnockoutMatch;
+  side: 'a' | 'b';
   onSelectPlayer: (userId: number, displayName: string) => void;
 }) {
-  function formatScore(correct: number, bonus: number, bonusEnabled: boolean) {
-    if (!bonusEnabled) return String(correct);
-    return `${correct} (+${bonus})`;
-  }
+  const { player, seed, correct, bonus } = scoreParts({ match, side });
+  const isWinner = player != null && match.winner_user_id === player.user_id;
 
-  function renderSlot(
-    player: StreakKnockoutMatch['player_a'],
-    correct: number,
-    bonus: number,
-    bonusEnabled: boolean,
-    seed: number,
-  ) {
-    if (!player) {
-      return (
-        <div className="streak-knockout__slot streak-knockout__slot--empty">
-          <span className="streak-knockout__seed">—</span>
-          <span className="streak-knockout__name">TBD</span>
-          <span className="streak-knockout__score">—</span>
-        </div>
-      );
-    }
+  if (!player) {
     return (
-      <div className="streak-knockout__slot">
-        <span className="streak-knockout__seed">{seed || '—'}</span>
-        <button
-          type="button"
-          className="streak-knockout__name streak-knockout__name--link"
-          onClick={() => onSelectPlayer(player.user_id, player.display_name)}
-        >
-          {player.display_name}
-        </button>
-        <span className="streak-knockout__score">
-          {formatScore(correct, bonus, bonusEnabled)}
-        </span>
+      <div className="bf-slot streak-bf__slot streak-bf__slot--empty">
+        <span className="bf-ko-seed">—</span>
+        <span className="streak-bf__name">TBD</span>
+        <span className="streak-bf__score">—</span>
       </div>
     );
   }
@@ -67,31 +81,168 @@ function MatchCard({
   return (
     <div
       className={
-        match.finalized
-          ? 'streak-knockout__match streak-knockout__match--final'
-          : 'streak-knockout__match'
+        isWinner
+          ? 'bf-slot streak-bf__slot streak-bf__slot--winner'
+          : 'bf-slot streak-bf__slot'
       }
     >
+      <div className="streak-bf__identity">
+        <span className="bf-ko-seed">{seed || '—'}</span>
+        <button
+          type="button"
+          className="streak-bf__name"
+          onClick={() => onSelectPlayer(player.user_id, player.display_name)}
+        >
+          {player.display_name}
+        </button>
+      </div>
+      <span className="streak-bf__score">
+        {formatScore(correct, bonus, match.score_bonus_enabled)}
+      </span>
+    </div>
+  );
+}
+
+function BracketMatchup({
+  match,
+  onSelectPlayer,
+}: {
+  match: StreakKnockoutMatch;
+  onSelectPlayer: (userId: number, displayName: string) => void;
+}) {
+  return (
+    <div className="bf-matchup streak-bf__matchup">
       {match.is_live ? (
-        <span className="streak-knockout__live" aria-label="Live">
-          <span className="streak-knockout__live-dot" aria-hidden />
+        <span className="streak-bf__live" aria-label="Live">
           Live
         </span>
       ) : null}
-      {renderSlot(
-        match.player_a,
-        match.score_a_correct,
-        match.score_a_bonus,
-        match.score_bonus_enabled,
-        match.seed_a,
-      )}
-      {renderSlot(
-        match.player_b,
-        match.score_b_correct,
-        match.score_b_bonus,
-        match.score_bonus_enabled,
-        match.seed_b,
-      )}
+      <BracketSlot match={match} side="a" onSelectPlayer={onSelectPlayer} />
+      <BracketSlot match={match} side="b" onSelectPlayer={onSelectPlayer} />
+    </div>
+  );
+}
+
+function matchupAnchorStyle(
+  stageIdx: number,
+  position: number,
+  openingMatchCount: number,
+): CSSProperties {
+  if (stageIdx === 0) {
+    return {
+      top: `${((position - 1) / openingMatchCount) * 100}%`,
+      height: `${100 / openingMatchCount}%`,
+      transform: 'none',
+    };
+  }
+  return {
+    top: `${columnMatchupCenterPct(stageIdx, position, 1, openingMatchCount, 1)}%`,
+    transform: 'translateY(-50%)',
+  };
+}
+
+function ConnectorStrip({
+  fromStageIdx,
+  nextMatches,
+  openingMatchCount,
+}: {
+  fromStageIdx: number;
+  nextMatches: StreakKnockoutMatch[];
+  openingMatchCount: number;
+}) {
+  return (
+    <div className="bf-connector-strip" aria-hidden>
+      <div className="bf-stage-heading-spacer" />
+      <div className="bf-connector-track">
+        <svg
+          className="bf-connector-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          {nextMatches.map((match) => {
+            const feederTop = 2 * match.position - 1;
+            const feederBottom = 2 * match.position;
+            const y1 = columnMatchupCenterPct(
+              fromStageIdx,
+              feederTop,
+              1,
+              openingMatchCount,
+              1,
+            );
+            const y2 = columnMatchupCenterPct(
+              fromStageIdx,
+              feederBottom,
+              1,
+              openingMatchCount,
+              1,
+            );
+            const ym = columnMatchupCenterPct(
+              fromStageIdx + 1,
+              match.position,
+              1,
+              openingMatchCount,
+              1,
+            );
+            const d = `M 0 ${y1} H 24 M 0 ${y2} H 24 M 24 ${y1} V ${y2} M 24 ${ym} H 100`;
+            return <path key={match.id} d={d} className="bf-connector-path" />;
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function ChampionColumn({
+  knockout,
+  onSelectPlayer,
+}: {
+  knockout: StreakKnockoutPayload;
+  onSelectPlayer: (userId: number, displayName: string) => void;
+}) {
+  const finalMatch =
+    knockout.rounds.length > 0
+      ? knockout.rounds[knockout.rounds.length - 1].matches[0] ?? null
+      : null;
+  const champion =
+    finalMatch?.player_a?.user_id === knockout.champion_user_id
+      ? finalMatch.player_a
+      : finalMatch?.player_b?.user_id === knockout.champion_user_id
+        ? finalMatch.player_b
+        : null;
+
+  return (
+    <div className="bf-stage-col bf-stage-col--champion">
+      <p className="bf-stage-title">Champion</p>
+      <div className="bf-champion-stack">
+        <div className="bf-champion-middle">
+          <div
+            className={
+              champion
+                ? 'bf-champion-box bf-champion-box--active'
+                : 'bf-champion-box'
+            }
+          >
+            {champion ? (
+              <>
+                <button
+                  type="button"
+                  className="streak-bf__champion-name"
+                  onClick={() =>
+                    onSelectPlayer(champion.user_id, champion.display_name)
+                  }
+                >
+                  {champion.display_name}
+                </button>
+                <span className="bf-champion-seed">
+                  Seed #{champion.seed || '—'}
+                </span>
+              </>
+            ) : (
+              <span className="bf-champion-placeholder">Winner of Final</span>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -170,6 +321,11 @@ export function StreakKnockout({
   }
 
   const totalRounds = knockout.rounds.length;
+  const openingMatchCount = knockout.rounds[0]?.matches.length ?? 0;
+  const boardHeightPx = Math.max(
+    520,
+    openingMatchCount * (knockout.status === 'SETUP' ? 210 : 160),
+  );
 
   return (
     <section className="card streak-knockout">
@@ -198,31 +354,81 @@ export function StreakKnockout({
         </div>
       ) : null}
 
-      <div className="streak-knockout__bracket">
-        {knockout.rounds.map((round) => (
-          <div key={round.round_index} className="streak-knockout__round">
-            <h3 className="streak-knockout__round-title">
-              {roundLabel(round.round_index, totalRounds)}
-            </h3>
-            <div className="streak-knockout__round-matches">
-              {round.matches.map((match) => (
-                <div key={match.id}>
-                  <MatchCard match={match} onSelectPlayer={onSelectPlayer} />
-                  {knockout.status === 'SETUP' &&
-                  knockout.can_manage &&
-                  round.round_index === 1 ? (
-                    <SetupSwapControls
-                      match={match}
-                      entries={entries}
-                      onSwap={handleSwap}
-                    />
-                  ) : null}
-                </div>
-              ))}
+      {knockout.rounds.length > 0 ? (
+        <div
+          className="bf streak-bf"
+          style={{ '--bf-board-h': `${boardHeightPx}px` } as CSSProperties}
+        >
+          <div className="bf-ko-desktop bf-scroll">
+            <div className="bf-ko-touch-zoom">
+              <div className="bf-board-inner">
+                {knockout.rounds.map((round, stageIdx) => (
+                  <Fragment key={round.round_index}>
+                    <div className="bf-stage-col">
+                      <p className="bf-stage-title">
+                        {roundLabel(round.round_index, totalRounds)}
+                      </p>
+                      <div className="bf-stage-track">
+                        {round.matches.map((match) => (
+                          <div
+                            key={match.id}
+                            className={
+                              stageIdx === 0
+                                ? 'bf-matchup-anchor bf-matchup-anchor--band'
+                                : 'bf-matchup-anchor'
+                            }
+                            style={matchupAnchorStyle(
+                              stageIdx,
+                              match.position,
+                              openingMatchCount,
+                            )}
+                          >
+                            <BracketMatchup
+                              match={match}
+                              onSelectPlayer={onSelectPlayer}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {stageIdx < knockout.rounds.length - 1 ? (
+                      <ConnectorStrip
+                        fromStageIdx={stageIdx}
+                        nextMatches={knockout.rounds[stageIdx + 1].matches}
+                        openingMatchCount={openingMatchCount}
+                      />
+                    ) : null}
+                  </Fragment>
+                ))}
+                <ChampionColumn
+                  knockout={knockout}
+                  onSelectPlayer={onSelectPlayer}
+                />
+              </div>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
+
+      {knockout.status === 'SETUP' && knockout.can_manage ? (
+        <div className="streak-knockout__setup-panel">
+          <h3 className="streak-knockout__setup-title">Round 1 Matchups</h3>
+          <div className="streak-knockout__setup-grid">
+            {(knockout.rounds[0]?.matches ?? []).map((match) => (
+              <div key={match.id} className="streak-knockout__setup-card">
+                <p className="streak-knockout__setup-card-title">
+                  Match {match.position}
+                </p>
+                <SetupSwapControls
+                  match={match}
+                  entries={entries}
+                  onSwap={handleSwap}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {knockout.consolation.length > 0 ? (
         <div className="streak-knockout__consolation">

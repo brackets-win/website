@@ -60,6 +60,7 @@ from brackets.utils.streak_scoring import (
     recalculate_streak_competition,
     resolve_question,
 )
+from brackets.utils.streak_knockout import knockout_header_summary
 
 
 def _streak_participant_or_none(challenge: StreakChallenge, user):
@@ -153,6 +154,7 @@ def _streak_summary(
         "knockout_total_rounds": knockout_total_rounds(
             StreakParticipant.objects.filter(streak_challenge=c).count()
         ),
+        "knockout_header": knockout_header_summary(c, participant),
     }
 
 
@@ -269,6 +271,14 @@ def _long_streak_display(value: int, *, kind: str) -> str:
 def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
     answered = p.wins + p.losses
     rate = p.wins / answered if answered else 0.0
+    if p.streak_challenge.is_knockout:
+        season_wins = p.frozen_wins
+        season_losses = p.frozen_losses
+    else:
+        season_wins = p.wins
+        season_losses = p.losses
+    season_answered = season_wins + season_losses
+    season_rate = season_wins / season_answered if season_answered else 0.0
     return {
         "rank": rank,
         "user_id": p.user_id,
@@ -282,6 +292,14 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "losses": p.losses,
         "record": f"{p.wins}-{p.losses}",
         "win_pct": round(rate * 100),
+        "season_wins": season_wins,
+        "season_losses": season_losses,
+        "season_record": f"{season_wins}-{season_losses}",
+        "season_win_pct": round(season_rate * 100),
+        "total_wins": p.wins,
+        "total_losses": p.losses,
+        "total_record": f"{p.wins}-{p.losses}",
+        "total_win_pct": round(rate * 100),
         "best_win_streak": p.best_win_streak,
         "best_loss_streak": p.best_loss_streak,
         "broken_win_streak": current_broken_win_streak(p),

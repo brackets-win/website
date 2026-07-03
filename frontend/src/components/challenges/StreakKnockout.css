@@ -183,3 +183,114 @@
   letter-spacing: 0.04em;
   color: var(--app-muted);
 }
+
+.streak-bf.bf {
+  margin-top: 0;
+}
+
+.streak-bf__matchup {
+  position: relative;
+}
+
+.streak-bf__live {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.5rem;
+  z-index: 2;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #16a34a;
+}
+
+.streak-bf__slot {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.streak-bf__slot--winner {
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.08);
+}
+
+.streak-bf__slot--empty {
+  color: var(--bf-muted);
+}
+
+.streak-bf__identity {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+}
+
+.streak-bf__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--bf-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streak-bf__score {
+  flex-shrink: 0;
+  min-width: 4rem;
+  text-align: right;
+  font-weight: 700;
+  color: var(--app-accent);
+  white-space: nowrap;
+}
+
+.streak-bf__champion-name {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--bf-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streak-knockout__setup-panel {
+  border-top: 1px solid var(--app-border);
+  padding-top: 1rem;
+}
+
+.streak-knockout__setup-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.streak-knockout__setup-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.streak-knockout__setup-card {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-bg, #f8fafc);
+}
+
+.streak-knockout__setup-card-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--app-muted);
+}

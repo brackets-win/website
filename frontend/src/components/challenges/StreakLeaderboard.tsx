@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 import type { StreakLeaderboardEntry } from '../../utils/api';
 import {
@@ -16,7 +16,11 @@ type StreakSortKey =
   | 'long_w'
   | 'long_l'
   | 'record'
-  | 'win_pct';
+  | 'win_pct'
+  | 'season_record'
+  | 'season_win_pct'
+  | 'total_record'
+  | 'total_win_pct';
 
 type SortState = {
   key: StreakSortKey;
@@ -27,6 +31,8 @@ type Props = {
   entries: StreakLeaderboardEntry[];
   viewerUserId: number;
   onSelectPlayer: (userId: number, displayName: string) => void;
+  isKnockout: boolean;
+  knockoutCutoffCount: number | null;
 };
 
 function playerLabel(entry: StreakLeaderboardEntry): string {
@@ -101,6 +107,18 @@ function compareEntries(
   } else if (key === 'win_pct') {
     result = compareNumeric(a.win_pct, b.win_pct, direction);
     return result;
+  } else if (key === 'season_record') {
+    result = compareNumeric(a.season_wins, b.season_wins, direction);
+    return result;
+  } else if (key === 'season_win_pct') {
+    result = compareNumeric(a.season_win_pct, b.season_win_pct, direction);
+    return result;
+  } else if (key === 'total_record') {
+    result = compareNumeric(a.total_wins, b.total_wins, direction);
+    return result;
+  } else if (key === 'total_win_pct') {
+    result = compareNumeric(a.total_win_pct, b.total_win_pct, direction);
+    return result;
   }
 
   return direction === 'asc' ? result : -result;
@@ -158,10 +176,28 @@ const SORT_OPTIONS: {
   { key: 'long_l', label: 'Worst' },
 ];
 
+const KNOCKOUT_SORT_OPTIONS: {
+  key: StreakSortKey;
+  label: string;
+  mobileLabel?: string;
+}[] = [
+  { key: 'rank', label: '#', mobileLabel: 'Rank' },
+  { key: 'player', label: 'Player' },
+  { key: 'long_w', label: 'Best' },
+  { key: 'current', label: 'Current' },
+  { key: 'season_record', label: 'Season Record', mobileLabel: 'Season Rec' },
+  { key: 'season_win_pct', label: 'Season Win %', mobileLabel: 'Season %' },
+  { key: 'total_record', label: 'Total Record', mobileLabel: 'Total Rec' },
+  { key: 'total_win_pct', label: 'Total Win %', mobileLabel: 'Total %' },
+  { key: 'long_l', label: 'Worst' },
+];
+
 export function StreakLeaderboard({
   entries,
   viewerUserId,
   onSelectPlayer,
+  isKnockout,
+  knockoutCutoffCount,
 }: Props) {
   const [sort, setSort] = useState<SortState>({
     key: 'rank',
@@ -198,6 +234,13 @@ export function StreakLeaderboard({
     return rows;
   }, [entries, sort, ranks]);
 
+  const sortOptions = isKnockout ? KNOCKOUT_SORT_OPTIONS : SORT_OPTIONS;
+  const showCutoffDivider =
+    knockoutCutoffCount != null &&
+    sort.key === 'rank' &&
+    knockoutCutoffCount > 0 &&
+    knockoutCutoffCount < sortedEntries.length;
+
   if (entries.length === 0) {
     return <p className="streak-view__muted">No players yet.</p>;
   }
@@ -210,7 +253,7 @@ export function StreakLeaderboard({
           role="group"
           aria-label="Sort leaderboard"
         >
-          {SORT_OPTIONS.map((opt) => (
+          {sortOptions.map((opt) => (
             <button
               key={opt.key}
               type="button"
@@ -225,8 +268,14 @@ export function StreakLeaderboard({
             </button>
           ))}
         </div>
-        <ol className="leaderboard-cards">
-          {sortedEntries.map((e) => {
+        <ol
+          className={
+            showCutoffDivider
+              ? 'leaderboard-cards leaderboard-cards--rank-grouped'
+              : 'leaderboard-cards'
+          }
+        >
+          {sortedEntries.map((e, index) => {
             const rank = ranks.get(e.user_id)!;
             const isViewer = e.user_id === viewerUserId;
             const activeStreakEmoji = streakEmoji(
@@ -235,52 +284,68 @@ export function StreakLeaderboard({
               e.broken_win_streak ?? 0,
             );
             return (
-              <li
-                key={e.user_id}
-                className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
-              >
-                <div className="leaderboard-card__head">
-                  <span className="leaderboard-card__rank">{rank}</span>
-                  <button
-                    type="button"
-                    className="streak-leaderboard__player leaderboard-card__name"
-                    onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
-                  >
-                    {playerLabel(e)}{activeStreakEmoji ? (
-                      <span
-                        className="streak-leaderboard__name-emoji"
-                        aria-hidden
-                      >
-                        {activeStreakEmoji}
+              <Fragment key={e.user_id}>
+                {showCutoffDivider && index === knockoutCutoffCount ? (
+                  <li className="streak-leaderboard__cutoff-divider" aria-hidden />
+                ) : null}
+                <li
+                  className={`leaderboard-card ${leaderboardRowClassName(rank, isViewer)}`}
+                >
+                  <div className="leaderboard-card__head">
+                    <span className="leaderboard-card__rank">{rank}</span>
+                    <button
+                      type="button"
+                      className="streak-leaderboard__player leaderboard-card__name"
+                      onClick={() => onSelectPlayer(e.user_id, playerLabel(e))}
+                    >
+                      {playerLabel(e)}{activeStreakEmoji ? (
+                        <span
+                          className="streak-leaderboard__name-emoji"
+                          aria-hidden
+                        >
+                          {activeStreakEmoji}
+                        </span>
+                      ) : null}
+                    </button>
+                    <div className="leaderboard-card__hero">
+                      <span className="leaderboard-card__total-label">Best</span>
+                      <span className="leaderboard-card__total">
+                        {e.long_win_display}
                       </span>
+                    </div>
+                  </div>
+                  <dl className="leaderboard-card__stats leaderboard-card__stats--column-major">
+                    <div className="leaderboard-card__stat">
+                      <dt>Current</dt>
+                      <dd>{e.current_display}</dd>
+                    </div>
+                    <div className="leaderboard-card__stat">
+                      <dt>{isKnockout ? 'Season Record' : 'Record'}</dt>
+                      <dd>{isKnockout ? e.season_record : e.record}</dd>
+                    </div>
+                    <div className="leaderboard-card__stat">
+                      <dt>Worst</dt>
+                      <dd>{e.long_loss_display}</dd>
+                    </div>
+                    <div className="leaderboard-card__stat">
+                      <dt>{isKnockout ? 'Season Win %' : 'Win %'}</dt>
+                      <dd>{isKnockout ? e.season_win_pct : e.win_pct}%</dd>
+                    </div>
+                    {isKnockout ? (
+                      <>
+                        <div className="leaderboard-card__stat">
+                          <dt>Total Record</dt>
+                          <dd>{e.total_record}</dd>
+                        </div>
+                        <div className="leaderboard-card__stat">
+                          <dt>Total Win %</dt>
+                          <dd>{e.total_win_pct}%</dd>
+                        </div>
+                      </>
                     ) : null}
-                  </button>
-                  <div className="leaderboard-card__hero">
-                    <span className="leaderboard-card__total-label">Best</span>
-                    <span className="leaderboard-card__total">
-                      {e.long_win_display}
-                    </span>
-                  </div>
-                </div>
-                <dl className="leaderboard-card__stats leaderboard-card__stats--column-major">
-                  <div className="leaderboard-card__stat">
-                    <dt>Current</dt>
-                    <dd>{e.current_display}</dd>
-                  </div>
-                  <div className="leaderboard-card__stat">
-                    <dt>Record</dt>
-                    <dd>{e.record}</dd>
-                  </div>
-                  <div className="leaderboard-card__stat">
-                    <dt>Worst</dt>
-                    <dd>{e.long_loss_display}</dd>
-                  </div>
-                  <div className="leaderboard-card__stat">
-                    <dt>Win %</dt>
-                    <dd>{e.win_pct}%</dd>
-                  </div>
-                </dl>
-              </li>
+                  </dl>
+                </li>
+              </Fragment>
             );
           })}
         </ol>
@@ -328,17 +393,33 @@ export function StreakLeaderboard({
                 onSort={onSort}
               />
               <SortableHeader
-                label="Record"
-                sortKey="record"
+                label={isKnockout ? 'Season Record' : 'Record'}
+                sortKey={isKnockout ? 'season_record' : 'record'}
                 sort={sort}
                 onSort={onSort}
               />
               <SortableHeader
-                label="WIN %"
-                sortKey="win_pct"
+                label={isKnockout ? 'SEASON WIN %' : 'WIN %'}
+                sortKey={isKnockout ? 'season_win_pct' : 'win_pct'}
                 sort={sort}
                 onSort={onSort}
               />
+              {isKnockout ? (
+                <>
+                  <SortableHeader
+                    label="Total Record"
+                    sortKey="total_record"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  <SortableHeader
+                    label="TOTAL WIN %"
+                    sortKey="total_win_pct"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                </>
+              ) : null}
               <SortableHeader
                 label="Worst"
                 sortKey="long_l"
@@ -348,7 +429,7 @@ export function StreakLeaderboard({
             </tr>
           </thead>
           <tbody>
-            {sortedEntries.map((e) => {
+            {sortedEntries.map((e, index) => {
               const rank = ranks.get(e.user_id)!;
               const isViewer = e.user_id === viewerUserId;
               const activeStreakEmoji = streakEmoji(
@@ -356,10 +437,14 @@ export function StreakLeaderboard({
                 e.best_win_streak,
                 e.broken_win_streak ?? 0,
               );
+              const cutoffRowClass =
+                showCutoffDivider && index === knockoutCutoffCount - 1
+                  ? ' streak-leaderboard__cutoff-row'
+                  : '';
               return (
                 <tr
                   key={e.user_id}
-                  className={leaderboardRowClassName(rank, isViewer)}
+                  className={`${leaderboardRowClassName(rank, isViewer)}${cutoffRowClass}`}
                 >
                   <td className="is-num">{rank}</td>
                   <td className="is-player">
@@ -380,8 +465,18 @@ export function StreakLeaderboard({
                   </td>
                   <td className="is-num">{e.long_win_display}</td>
                   <td className="is-num">{e.current_display}</td>
-                  <td className="is-num">{e.record}</td>
-                  <td className="is-num">{e.win_pct}%</td>
+                  <td className="is-num">
+                    {isKnockout ? e.season_record : e.record}
+                  </td>
+                  <td className="is-num">
+                    {isKnockout ? e.season_win_pct : e.win_pct}%
+                  </td>
+                  {isKnockout ? (
+                    <>
+                      <td className="is-num">{e.total_record}</td>
+                      <td className="is-num">{e.total_win_pct}%</td>
+                    </>
+                  ) : null}
                   <td className="is-num">{e.long_loss_display}</td>
                 </tr>
               );

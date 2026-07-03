@@ -20,6 +20,8 @@ from brackets.models import (
 )
 from brackets.utils.streak_knockout_rules import (
     headstart_for_round,
+    knockout_round_label,
+    knockout_total_rounds,
     round_start_at,
 )
 from brackets.utils.bracket_seeding import first_round_seed_pairs
@@ -699,6 +701,96 @@ def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict
     }
 
 
+def _consolation_rows(
+    challenge: StreakChallenge, knockout: StreakKnockout
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for p in StreakParticipant.objects.filter(
+        streak_challenge=challenge,
+        consolation_eligible_from__isnull=False,
+    ).select_related("user"):
+        if knockout.champion_id == p.id:
+            continue
+        answered = p.consolation_wins + p.consolation_losses
+        rate = p.consolation_wins / answered if answered else 0.0
+        rows.append(
+            {
+                "user_id": p.user_id,
+                "display_name": streak_participant_label(p),
+                "wins": p.consolation_wins,
+                "losses": p.consolation_losses,
+                "record": f"{p.consolation_wins}-{p.consolation_losses}",
+                "win_pct": round(rate * 100),
+            }
+        )
+    rows.sort(key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold()))
+    return rows
+
+
+def _ordinal(value: int) -> str:
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def knockout_header_summary(
+    challenge: StreakChallenge, participant: StreakParticipant | None
+) -> dict[str, str] | None:
+    if participant is None or not challenge.is_knockout:
+        return None
+    try:
+        knockout = challenge.knockout
+    except StreakKnockout.DoesNotExist:
+        return None
+
+    if not participant.in_knockout_bracket and knockout.champion_id != participant.id:
+        rows = _consolation_rows(challenge, knockout)
+        rank = next(
+            (idx + 1 for idx, row in enumerate(rows) if row["user_id"] == participant.user_id),
+            None,
+        )
+        label = "CONSOLATION"
+        if rank is not None:
+            label = f"{label} {_ordinal(rank)}"
+        return {
+            "kind": "consolation",
+            "label": label,
+            "value": f"{participant.consolation_wins}-{participant.consolation_losses}",
+        }
+
+    participant_matches = list(
+        knockout.matches.filter(player_a=participant).select_related(
+            "player_a__user", "player_b__user", "winner__user"
+        )
+    ) + list(
+        knockout.matches.filter(player_b=participant).select_related(
+            "player_a__user", "player_b__user", "winner__user"
+        )
+    )
+    if not participant_matches:
+        return None
+
+    participant_matches.sort(
+        key=lambda m: (
+            0 if not m.finalized else 1,
+            -m.round_index,
+            m.position,
+        )
+    )
+    match = participant_matches[0]
+    scores = _match_score_display_payload(knockout, match)
+    total_rounds = knockout_total_rounds(challenge.participants.count())
+    name_a = streak_participant_label(match.player_a) if match.player_a else "TBD"
+    name_b = streak_participant_label(match.player_b) if match.player_b else "TBD"
+    return {
+        "kind": "matchup",
+        "label": knockout_round_label(match.round_index, total_rounds),
+        "value": f"{name_a} {scores['score_a']}-{scores['score_b']} {name_b}",
+    }
+
+
 def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
     knockout = getattr(challenge, "knockout", None)
     if knockout is None:
@@ -718,28 +810,7 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
     for match in matches:
         rounds.setdefault(match.round_index, []).append(_match_payload(knockout, match))
 
-    consolation_rows: list[dict[str, Any]] = []
-    for p in StreakParticipant.objects.filter(
-        streak_challenge=challenge,
-        consolation_eligible_from__isnull=False,
-    ).select_related("user"):
-        if knockout.champion_id == p.id:
-            continue
-        answered = p.consolation_wins + p.consolation_losses
-        rate = p.consolation_wins / answered if answered else 0.0
-        consolation_rows.append(
-            {
-                "user_id": p.user_id,
-                "display_name": streak_participant_label(p),
-                "wins": p.consolation_wins,
-                "losses": p.consolation_losses,
-                "record": f"{p.consolation_wins}-{p.consolation_losses}",
-                "win_pct": round(rate * 100),
-            }
-        )
-    consolation_rows.sort(
-        key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold())
-    )
+    consolation_rows = _consolation_rows(challenge, knockout)
 
     return {
         "status": knockout.status,
