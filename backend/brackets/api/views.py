@@ -1304,10 +1304,12 @@ def challenge_leaderboard(
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     omit_potential = omit_leaderboard_potential_for_bracket(bracket)
-    # Only surface Potential Rank once the enumeration gate has lifted and ranks
-    # are materialized for the current master revision (see potential_rank.py).
+    from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
+
+    # Only surface Potential Rank at quarter-finals or later on the master bracket.
     show_potential_rank = not omit_potential and (
         master is not None
+        and potential_rank_allowed_for_bracket(bracket)
         and UserBracket.objects.filter(
             challenge=challenge,
             is_master=False,

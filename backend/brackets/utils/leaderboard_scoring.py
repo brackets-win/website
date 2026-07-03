@@ -193,13 +193,13 @@ def materialize_leaderboard_scores_batch(
         from brackets.utils.next_match_pick import (
             persist_next_match_picks_for_bracket,
         )
-        from brackets.utils.potential_score import persist_all_potential_for_bracket
+        from brackets.utils.potential_score import persist_potential_scores_for_bracket
 
         try:
-            persist_all_potential_for_bracket(bracket)
+            persist_potential_scores_for_bracket(bracket)
         except Exception:
             logger.exception(
-                "Potential score/rank persist failed for bracket %s", bracket.pk
+                "Potential score persist failed for bracket %s", bracket.pk
             )
         try:
             persist_next_match_picks_for_bracket(bracket)
@@ -233,8 +233,14 @@ def _apply_pending_next_match_picks(bracket: Bracket) -> None:
 def _backfill_potential_ranks_if_missing(bracket: Bracket, revision: int) -> None:
     """Compute ranks when entries are current but have no rank yet (e.g. older data)."""
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+    from brackets.utils.potential_rank import (
+        persist_potential_ranks_for_bracket,
+        potential_rank_allowed_for_bracket,
+    )
 
     if omit_leaderboard_potential_for_bracket(bracket):
+        return
+    if not potential_rank_allowed_for_bracket(bracket):
         return
     missing = UserBracket.objects.filter(
         bracket=bracket,

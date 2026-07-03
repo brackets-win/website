@@ -336,6 +336,56 @@ class PotentialScoreTests(TestCase):
         self.assertGreater(potential_open, potential_if_portugal_wins)
         self.assertGreaterEqual(potential_open, ub.calculate_score(master=master))
 
+    def test_group_first_ko_points_not_reenumerated(self):
+        """R32 points are fixed from group projections — undecided R32 must not inflate potential."""
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "pot-gk-r32",
+            "Pot GK R32",
+            8,
+            self.user,
+            structure_config={
+                "points_champion": 10,
+                "knockout": {"points_per_correct_pick": 1},
+            },
+        )
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"C{i + 1}", seed=i + 1
+            )
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.user, is_master=False
+        )
+        gp = {
+            "A": {"1": 1, "2": 2, "3": 3, "4": 4},
+            "B": {"1": 5, "2": 6, "3": 7, "4": 8},
+        }
+        ub.metadata = {"group_positions": gp}
+        ub.save()
+        master.metadata = {"group_positions": gp}
+        master.save()
+        ensure_knockout_structure_for_user_bracket(master)
+        ensure_knockout_structure_for_user_bracket(ub)
+        sync_first_knockout_from_group_picks(ub)
+        sync_first_knockout_from_group_picks(master)
+
+        first_ko = (
+            bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        for m in master.matchup_set.filter(stage=first_ko):
+            m.winner = None
+            m.save(update_fields=["winner"])
+
+        ub.leaderboard_score = ub.calculate_score(master=master)
+        ub.save(update_fields=["leaderboard_score"])
+        current = ub.leaderboard_score
+        potential = calculate_potential_score(ub)
+        self.assertIsNotNone(potential)
+        self.assertGreaterEqual(potential, current)
+        # With first-round marginal excluded, upside is bounded by later rounds only.
+        self.assertLessEqual(potential - current, 8)
+
     def test_potential_equals_current_when_master_fully_decided(self):
         """No undecided matchups → potential is just the current score."""
         t1, t2, t3, t4 = self.teams
@@ -393,11 +443,11 @@ class PotentialScoreTests(TestCase):
         self.assertGreaterEqual(potential, self.ub.leaderboard_score)
 
     def test_potential_scores_persist_without_rank_cap(self):
-        """Potential points persist even when rank enumeration is capped out."""
+        """Potential points persist even when rank gate is closed."""
         from brackets.utils.potential_knockout import prepare_knockout_potential
         from brackets.utils.potential_rank import (
-            MAX_UNDECIDED_MATCHUPS,
             compute_potential_ranks_for_bracket,
+            potential_rank_allowed_for_bracket,
         )
         from brackets.utils.potential_score import (
             compute_potential_scores_for_bracket,
@@ -418,24 +468,13 @@ class PotentialScoreTests(TestCase):
         self.assertIsNotNone(scores)
         self.assertIn(self.ub.id, scores)
 
-        ranks = compute_potential_ranks_for_bracket(
-            self.bracket, cap=MAX_UNDECIDED_MATCHUPS
-        )
-        self.assertIsNotNone(ranks)
+        if potential_rank_allowed_for_bracket(self.bracket):
+            ranks = compute_potential_ranks_for_bracket(self.bracket)
+            self.assertIsNotNone(ranks)
 
         persist_potential_scores_for_bracket(self.bracket)
         self.ub.refresh_from_db()
         self.assertEqual(self.ub.leaderboard_potential, scores[self.ub.id])
-
-        ctx = load_leaderboard_scoring_context(self.bracket)
-        prepared = prepare_knockout_potential(ctx, [self.ub])
-        self.assertIsNotNone(prepared)
-        if prepared.branchable > 0:
-            capped_ranks = compute_potential_ranks_for_bracket(self.bracket, cap=0)
-            self.assertIsNotNone(capped_ranks)
-            self.assertIsNone(capped_ranks[self.ub.id])
-            scores_after_cap = compute_potential_scores_for_bracket(self.bracket)
-            self.assertEqual(scores_after_cap[self.ub.id], scores[self.ub.id])
 
     def test_backtrack_agrees_with_exhaustive_max(self):
         """Potential points backtrack must match max over all master completions."""

@@ -95,13 +95,10 @@ def _compute_potential_outcomes(
     ctx,
     ubs: list[UserBracket],
     *,
-    rank_cap: int | None = None,
+    compute_ranks: bool = False,
 ) -> tuple[dict[int, int | None], dict[int, int | None]] | None:
-    """Single tree walk: best scores and best ranks per submitted entry."""
-    from brackets.utils.potential_rank import MAX_UNDECIDED_MATCHUPS
-
-    if rank_cap is None:
-        rank_cap = MAX_UNDECIDED_MATCHUPS
+    """Single tree walk: best scores and (optionally) best ranks per entry."""
+    from brackets.utils.potential_rank import potential_rank_allowed_for_context
 
     master = ctx.master
     if master is None:
@@ -120,7 +117,7 @@ def _compute_potential_outcomes(
     if prepared is None:
         return None
 
-    compute_ranks = prepared.branchable <= rank_cap
+    compute_ranks = compute_ranks and potential_rank_allowed_for_context(ctx)
     n_players = len(ubs)
     best_scores, best_ranks = enumerate_potential_outcomes(
         prepared.tree,
@@ -150,43 +147,7 @@ def _compute_potential_outcomes(
 def persist_potential_scores_for_bracket(bracket: Bracket) -> None:
     """Compute and store potential points on all submitted entries."""
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
-
-    qs = UserBracket.objects.filter(
-        bracket=bracket,
-        is_master=False,
-        submitted_at__isnull=False,
-    )
-    if omit_leaderboard_potential_for_bracket(bracket):
-        return
-
-    scores = compute_potential_scores_for_bracket(bracket)
-    if scores is None:
-        return
-
-    for ub in qs:
-        score = scores.get(ub.id)
-        if score is None:
-            continue
-        update_fields: list[str] = []
-        if ub.leaderboard_potential != score:
-            ub.leaderboard_potential = score
-            update_fields.append("leaderboard_potential")
-        meta = dict(ub.metadata) if isinstance(ub.metadata, dict) else {}
-        cache = meta.get(LEADERBOARD_SCORES_KEY)
-        if isinstance(cache, dict):
-            cache = dict(cache)
-            if cache.get("potential") != score:
-                cache["potential"] = score
-                meta[LEADERBOARD_SCORES_KEY] = cache
-                ub.metadata = meta
-                update_fields.append("metadata")
-        if update_fields:
-            ub.save(update_fields=update_fields)
-
-
-def persist_all_potential_for_bracket(bracket: Bracket) -> None:
-    """Compute potential points + rank in one tree walk, then store."""
-    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+    from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
 
     qs = UserBracket.objects.filter(
         bracket=bracket,
@@ -201,13 +162,40 @@ def persist_all_potential_for_bracket(bracket: Bracket) -> None:
         return
 
     ctx = load_leaderboard_scoring_context(bracket)
-    outcomes = _compute_potential_outcomes(ctx, ubs)
+    outcomes = _compute_potential_outcomes(ctx, ubs, compute_ranks=False)
     if outcomes is None:
+        scores = {
+            ub.id: calculate_potential_score(ub, master=ctx.master)
+            for ub in ubs
+        }
+    else:
+        scores, _ranks = outcomes
+
+    _write_potential_scores(ubs, scores)
+
+    if not potential_rank_allowed_for_bracket(bracket):
+        UserBracket.objects.filter(
+            pk__in=[ub.pk for ub in ubs]
+        ).update(leaderboard_potential_rank=None)
+
+
+def persist_all_potential_for_bracket(bracket: Bracket) -> None:
+    """Materialize potential points; rank only when the QF+ gate allows."""
+    from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+    from brackets.utils.potential_rank import (
+        persist_potential_ranks_for_bracket,
+        potential_rank_allowed_for_bracket,
+    )
+
+    if omit_leaderboard_potential_for_bracket(bracket):
         return
 
-    scores, ranks = outcomes
-    _write_potential_scores(ubs, scores)
-    _write_potential_ranks(ubs, ranks)
+    persist_potential_scores_for_bracket(bracket)
+
+    if not potential_rank_allowed_for_bracket(bracket):
+        return
+
+    persist_potential_ranks_for_bracket(bracket)
 
 
 def _write_potential_scores(

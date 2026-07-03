@@ -216,6 +216,27 @@ def current_totals_for_users(ubs: list[UserBracket], ctx) -> np.ndarray:
     return scores
 
 
+def count_branchable_for_bracket(bracket) -> int | None:
+    """Branchable undecided master games, or ``None`` when not scoreable yet."""
+    from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+
+    ctx = load_leaderboard_scoring_context(bracket)
+    if ctx.master is None:
+        return None
+    ko_stages = [
+        s for s in ctx.stages if s.stage_type == BracketStage.StageType.KNOCKOUT
+    ]
+    main_ko_stages = [
+        s for s in ko_stages if not ctx.knockout_by_id[s.pk].is_third_place
+    ]
+    if main_ko_stages and not first_knockout_fully_seeded(
+        ctx.master, main_ko_stages[0]
+    ):
+        return None
+    tree = build_master_tree(ctx.master, ko_stages)
+    return count_branchable_undecided_matchups(tree)
+
+
 def prepare_knockout_potential(
     ctx,
     ubs: list[UserBracket],
@@ -265,6 +286,15 @@ def prepare_knockout_potential(
         ],
         dtype=np.float64,
     )
+    # Group → knockout: first-round points come from group projections (fixed in
+    # the Score column). Do not re-score R32 in the marginal enumeration — only
+    # later rounds gain/lose points as the master tree completes.
+    has_group = any(
+        s.stage_type == BracketStage.StageType.GROUP for s in ctx.stages
+    )
+    if has_group and len(stage_pts) > 0:
+        stage_pts = stage_pts.copy()
+        stage_pts[0] = 0.0
     user_mask = user_knockout_mask(ubs, main_ko_stages, team_to_idx)
     bracket = master.bracket
     champ_pts = float(bracket.points_champion or 0)

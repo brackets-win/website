@@ -9,16 +9,17 @@ from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.group_results_mode import set_group_results_mode_on_metadata
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 from brackets.utils.leaderboard_scoring import (
+    load_leaderboard_scoring_context,
     on_master_bracket_changed,
     read_stored_leaderboard_scores,
     refresh_all_submitted_leaderboard_scores_for_bracket,
 )
 from brackets.utils.potential_rank import (
-    MAX_UNDECIDED_MATCHUPS,
     competition_ranks_batch,
     compute_potential_ranks_for_bracket,
 )
 from brackets.utils.potential_score import compute_potential_scores_for_bracket
+from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
 
 User = get_user_model()
 
@@ -216,22 +217,64 @@ class PotentialRankTests(TestCase):
         ub.refresh_from_db()
         self.assertEqual(ub.leaderboard_potential_rank, 1)
 
-    def test_cap_exceeded_returns_none(self):
+    def test_rank_not_computed_before_quarterfinals(self):
+        """Potential rank stays off while the earliest incomplete stage has > 4 games."""
+        from brackets.utils.potential_rank import (
+            potential_rank_allowed_for_bracket,
+            potential_rank_allowed_for_context,
+        )
+
         t1, t2, t3, t4 = self.teams
         ub = self._submit("solo", sf1=t1, sf2=t3, final_winner=t1)
-
-        result = compute_potential_ranks_for_bracket(
-            self.bracket, cap=MAX_UNDECIDED_MATCHUPS
-        )
+        # 4-team bracket: semis are the earliest incomplete stage (2 games) — allowed.
+        self.assertTrue(potential_rank_allowed_for_bracket(self.bracket))
+        result = compute_potential_ranks_for_bracket(self.bracket)
         self.assertIsNotNone(result)
+        self.assertIsNotNone(result[ub.id])
 
-        # Rank cap exceeded: ranks are omitted, but scores still compute.
-        result = compute_potential_ranks_for_bracket(self.bracket, cap=0)
-        self.assertIsNotNone(result)
-        self.assertIsNone(result[ub.id])
         scores = compute_potential_scores_for_bracket(self.bracket)
         self.assertIsNotNone(scores)
         self.assertIsNotNone(scores[ub.id])
+
+        # 16-team group → knockout: first main round has 8 matchups (R16) — blocked.
+        big = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "pot-rank-gate-16",
+            "Rank gate 16",
+            16,
+            self.host,
+        )
+        for i in range(16):
+            BracketContestant.objects.create(
+                bracket=big, name_override=f"B{i + 1}", seed=i + 1
+            )
+        big_master = big.get_master_bracket()
+        ensure_knockout_structure_for_user_bracket(big_master)
+        gp = {
+            "A": {"1": 1, "2": 2, "3": 3, "4": 4},
+            "B": {"1": 5, "2": 6, "3": 7, "4": 8},
+            "C": {"1": 9, "2": 10, "3": 11, "4": 12},
+            "D": {"1": 13, "2": 14, "3": 15, "4": 16},
+        }
+        big_master.metadata = {"group_positions": gp}
+        big_master.save()
+        sync_first_knockout_from_group_picks(big_master)
+        first_ko = big.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        for m in big_master.matchup_set.filter(stage=first_ko):
+            m.winner = None
+            m.save(update_fields=["winner"])
+
+        self.assertFalse(potential_rank_allowed_for_bracket(big))
+        ctx = load_leaderboard_scoring_context(big)
+        self.assertFalse(potential_rank_allowed_for_context(ctx))
+        big_ub = UserBracket.objects.create(
+            user=User.objects.create_user(username="bigplayer", password="x"),
+            bracket=big,
+            submitted_at=timezone.now(),
+        )
+        blocked = compute_potential_ranks_for_bracket(big)
+        self.assertIsNotNone(blocked)
+        self.assertIsNone(blocked[big_ub.id])
 
     def test_confirmed_mode_leaderboard_includes_potential_rank(self):
         t1, t2, t3, t4 = self.teams
