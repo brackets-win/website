@@ -21,9 +21,9 @@ def knockout_round_label(round_index: int, total_rounds: int) -> str:
     if round_index == total_rounds:
         return "Final"
     if round_index == total_rounds - 1:
-        return "Semifinals"
+        return "Semi Final"
     if round_index == total_rounds - 2 and total_rounds >= 3:
-        return "Quarterfinals"
+        return "Quarter Final"
     return f"Round {round_index}"
 
 

@@ -3,8 +3,8 @@ export function knockoutRoundLabel(
   totalRounds: number,
 ): string {
   if (roundIndex === totalRounds) return 'Final';
-  if (roundIndex === totalRounds - 1) return 'Semifinals';
-  if (roundIndex === totalRounds - 2 && totalRounds >= 3) return 'Quarterfinals';
+  if (roundIndex === totalRounds - 1) return 'Semi Final';
+  if (roundIndex === totalRounds - 2 && totalRounds >= 3) return 'Quarter Final';
   return `Round ${roundIndex}`;
 }
 
