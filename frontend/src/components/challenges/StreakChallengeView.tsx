@@ -438,7 +438,12 @@ export function StreakChallengeView({
     return activePhase;
   }, [isKnockout, knockoutPhases]);
   const showMakePicksCaution = useMemo(() => {
-    if (activeKnockoutPhase == null) return false;
+    if (
+      activeKnockoutPhase == null ||
+      summary?.knockout_header?.kind !== 'matchup'
+    ) {
+      return false;
+    }
     return questions.some(
       (question) =>
         question.resolved_at == null &&
@@ -447,7 +452,7 @@ export function StreakChallengeView({
         question.knockout_phase_starts_at === activeKnockoutPhase.starts_at &&
         question.user_choice_id == null,
     );
-  }, [activeKnockoutPhase, questions]);
+  }, [activeKnockoutPhase, questions, summary?.knockout_header?.kind]);
   const firstKnockoutStageLabel = useMemo(() => {
     const totalRounds = summary?.knockout_total_rounds ?? 0;
     if (totalRounds <= 0) return null;
