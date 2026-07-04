@@ -265,7 +265,7 @@ function ChampionColumn({
                 </span>
               </>
             ) : (
-              <span className="bf-champion-placeholder">Winner of Final</span>
+              <span className="bf-champion-placeholder">Champion</span>
             )}
           </div>
         </div>
