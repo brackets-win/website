@@ -26,6 +26,7 @@ from brackets.utils.streak_knockout_rules import (
 )
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.leaderboard_preview import streak_participant_label, streak_ranked_participants
+from brackets.utils.streak_deadlines import closes_at_key
 from brackets.utils.streak_scoring import _is_correct
 
 
@@ -974,6 +975,83 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
     }
 
 
+def _participant_counts_for_consolation(
+    participant: StreakParticipant,
+    closes_at: datetime,
+) -> bool:
+    if participant.consolation_eligible_from is None:
+        return False
+    eligible_from = participant.consolation_eligible_from
+    if timezone.is_naive(closes_at):
+        closes_at = timezone.make_aware(closes_at)
+    if timezone.is_naive(eligible_from):
+        eligible_from = timezone.make_aware(eligible_from)
+    if closes_at < eligible_from:
+        return False
+    if participant.in_knockout_bracket and participant.bracket_eliminated_at is None:
+        return False
+    return True
+
+
+def recalculate_consolation_for_challenge(challenge: StreakChallenge) -> None:
+    """Rebuild consolation W-L from resolved picks (one scored pick per deadline)."""
+    if not challenge.is_knockout:
+        return
+
+    questions = list(
+        StreakQuestion.objects.filter(
+            streak_competition_id=challenge.streak_competition_id,
+            resolved_at__isnull=False,
+            correct_choice_id__isnull=False,
+        ).order_by("closes_at", "order", "id")
+    )
+    question_ids = [q.id for q in questions]
+    participants = list(
+        StreakParticipant.objects.filter(streak_challenge=challenge).select_related(
+            "user"
+        )
+    )
+
+    for participant in participants:
+        picks_by_q = {
+            p.question_id: p
+            for p in StreakPick.objects.filter(
+                streak_challenge_id=challenge.id,
+                user_id=participant.user_id,
+                question_id__in=question_ids,
+            )
+        }
+
+        deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
+        for q in questions:
+            pick = picks_by_q.get(q.id)
+            if pick is None:
+                continue
+            key = closes_at_key(q.closes_at)
+            prev = deadline_pick.get(key)
+            if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
+                deadline_pick[key] = (q, pick)
+
+        wins = 0
+        losses = 0
+        for closes_at in sorted(deadline_pick.keys()):
+            q, pick = deadline_pick[closes_at]
+            if not _participant_counts_for_consolation(participant, q.closes_at):
+                continue
+            if _is_correct(pick, q):
+                wins += 1
+            else:
+                losses += 1
+
+        if (
+            participant.consolation_wins != wins
+            or participant.consolation_losses != losses
+        ):
+            participant.consolation_wins = wins
+            participant.consolation_losses = losses
+            participant.save(update_fields=["consolation_wins", "consolation_losses"])
+
+
 def update_consolation_for_question(
     challenge: StreakChallenge, question: StreakQuestion
 ) -> None:
@@ -981,29 +1059,4 @@ def update_consolation_for_question(
         return
     if question.resolved_at is None or question.correct_choice_id is None:
         return
-
-    closes_at = question.closes_at
-    participants = StreakParticipant.objects.filter(
-        streak_challenge=challenge,
-        consolation_eligible_from__isnull=False,
-        consolation_eligible_from__lte=closes_at,
-    )
-    picks_by_user = {
-        p.user_id: p
-        for p in StreakPick.objects.filter(
-            streak_challenge=challenge,
-            question=question,
-        )
-    }
-    for participant in participants:
-        if participant.bracket_eliminated_at is None and participant.in_knockout_bracket:
-            continue
-        pick = picks_by_user.get(participant.user_id)
-        if pick is None:
-            continue
-        if _is_correct(pick, question):
-            participant.consolation_wins += 1
-            participant.save(update_fields=["consolation_wins"])
-        else:
-            participant.consolation_losses += 1
-            participant.save(update_fields=["consolation_losses"])
+    recalculate_consolation_for_challenge(challenge)

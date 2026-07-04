@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from brackets.models import StreakParticipant, StreakPick, StreakQuestion, StreakQuestionChoice
 from brackets.utils.streak_deadlines import closes_at_key
+from brackets.utils.streak_knockout_rules import streak_season_cutoff_at
 
 
 def _is_correct(pick: StreakPick, question: StreakQuestion) -> bool:
@@ -105,23 +106,60 @@ def recalculate_participant_stats(participant: StreakParticipant) -> None:
     )
 
 
+def season_streak_signed(participant: StreakParticipant) -> int:
+    if participant.streak_challenge.is_knockout:
+        return participant.frozen_streak_signed
+    return participant.streak_signed
+
+
+def season_best_win_streak(participant: StreakParticipant) -> int:
+    if participant.streak_challenge.is_knockout:
+        return participant.frozen_best_win_streak
+    return participant.best_win_streak
+
+
+def season_best_loss_streak(participant: StreakParticipant) -> int:
+    if participant.streak_challenge.is_knockout:
+        return participant.frozen_best_loss_streak
+    return participant.best_loss_streak
+
+
 def current_broken_win_streak(participant: StreakParticipant) -> int:
     """
     Length of the win streak that was just broken, when the current streak is 1L.
 
     Returns 0 for every other state.
     """
-    if participant.streak_signed != -1:
+    if participant.streak_challenge.is_knockout:
+        return season_broken_win_streak(participant)
+    return _broken_win_streak_from_picks(participant, participant.streak_signed)
+
+
+def season_broken_win_streak(participant: StreakParticipant) -> int:
+    streak_signed = season_streak_signed(participant)
+    if streak_signed != -1:
+        return 0
+    return _broken_win_streak_from_picks(participant, streak_signed)
+
+
+def _broken_win_streak_from_picks(
+    participant: StreakParticipant,
+    streak_signed: int,
+) -> int:
+    if streak_signed != -1:
         return 0
 
     competition_id = participant.streak_challenge.streak_competition_id
-    questions = list(
-        StreakQuestion.objects.filter(
-            streak_competition_id=competition_id,
-            resolved_at__isnull=False,
-            correct_choice_id__isnull=False,
-        ).order_by("closes_at", "order", "id")
+    questions_qs = StreakQuestion.objects.filter(
+        streak_competition_id=competition_id,
+        resolved_at__isnull=False,
+        correct_choice_id__isnull=False,
     )
+    if participant.streak_challenge.is_knockout:
+        cutoff = streak_season_cutoff_at(participant.streak_challenge)
+        if cutoff is not None:
+            questions_qs = questions_qs.filter(closes_at__lt=cutoff)
+    questions = list(questions_qs.order_by("closes_at", "order", "id"))
     picks_by_q = {
         p.question_id: p
         for p in StreakPick.objects.filter(
@@ -195,6 +233,7 @@ def clear_question_resolution(question: StreakQuestion) -> None:
     question.resolved_at = None
     question.save(update_fields=["correct_choice", "resolved_at"])
     recalculate_streak_competition(question.streak_competition_id)
+    update_knockout_consolation_for_question(question)
     bump_streak_stats_for_competition(question.streak_competition_id)
 
 

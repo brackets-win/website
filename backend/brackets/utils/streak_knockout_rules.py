@@ -8,7 +8,12 @@ from typing import Any
 
 from django.utils import timezone
 
-from brackets.models import StreakChallenge, StreakQuestion
+from brackets.models import (
+    StreakChallenge,
+    StreakKnockout,
+    StreakParticipant,
+    StreakQuestion,
+)
 
 
 def bracket_qualifier_count(participant_count: int) -> int:
@@ -76,6 +81,45 @@ def will_be_knockout_at(challenge: StreakChallenge, when: datetime) -> bool:
     if timezone.is_naive(transition):
         transition = timezone.make_aware(transition)
     return when >= transition
+
+
+def streak_season_cutoff_at(challenge: StreakChallenge) -> datetime | None:
+    """Exclusive boundary: picks before this time are streak season."""
+    if challenge.knockout_transition_at is not None:
+        return challenge.knockout_transition_at
+    if not challenge.is_knockout:
+        return None
+    return (
+        StreakKnockout.objects.filter(streak_challenge_id=challenge.id)
+        .values_list("started_at", flat=True)
+        .first()
+    )
+
+
+def participant_in_knockout_bracket_at(
+    participant: StreakParticipant,
+    closes_at: datetime,
+) -> bool:
+    challenge = participant.streak_challenge
+    if not challenge.is_knockout:
+        return False
+    cutoff = streak_season_cutoff_at(challenge)
+    if cutoff is None:
+        return False
+    if timezone.is_naive(closes_at):
+        closes_at = timezone.make_aware(closes_at)
+    if timezone.is_naive(cutoff):
+        cutoff = timezone.make_aware(cutoff)
+    if closes_at < cutoff:
+        return False
+    if participant.bracket_eliminated_at is not None:
+        eliminated = participant.bracket_eliminated_at
+        if timezone.is_naive(eliminated):
+            eliminated = timezone.make_aware(eliminated)
+        if closes_at >= eliminated:
+            return False
+        return True
+    return participant.in_knockout_bracket
 
 
 def is_knockout_pick(challenge: StreakChallenge, question: StreakQuestion) -> bool:

@@ -27,6 +27,7 @@ import { estLocalInputToIso, formatDeadlineEst, isoToEstLocalInput } from '../..
 import {
   knockoutRoundLabel,
   makePickPhaseDividers,
+  playerPickPhaseDividers,
   uniquePlayerAbbreviations,
 } from '../../utils/streakKnockout';
 import {
@@ -229,6 +230,13 @@ function mergeHeadToHeadPicks(
   );
 }
 
+function playerPicksTitle(player: SelectedPlayer): string {
+  if (player.picksFilter?.scope === 'consolation') {
+    return `${player.displayName}'s consolation picks`;
+  }
+  return `${player.displayName}'s picks`;
+}
+
 export function StreakChallengeView({
   streakChallengeId,
   tab,
@@ -415,7 +423,6 @@ export function StreakChallengeView({
       state: {
         playerName: displayName,
         fromTab: 'leaderboard',
-        picksScope: hasScheduledKnockout ? 'streak' : undefined,
       },
     });
   }
@@ -522,6 +529,17 @@ export function StreakChallengeView({
         ),
       ),
     [playerPicks],
+  );
+
+  const isComprehensivePlayerPicks =
+    isKnockout &&
+    selectedPlayer != null &&
+    selectedPlayer.matchup == null &&
+    !selectedPlayer.picksFilter;
+
+  const comprehensivePlayerPickRows = useMemo(
+    () => (isComprehensivePlayerPicks ? playerPickPhaseDividers(playerPicks) : []),
+    [isComprehensivePlayerPicks, playerPicks],
   );
 
   const headToHeadBaseQuestions = useMemo(() => {
@@ -838,7 +856,7 @@ export function StreakChallengeView({
           <h2 className="streak-player-picks__title">
             {matchup && headToHeadLabels
               ? `${headToHeadLabels.userA} vs ${headToHeadLabels.userB}`
-              : `${selectedPlayer.displayName}'s picks`}
+              : playerPicksTitle(selectedPlayer)}
           </h2>
           {playerPicksErr ? (
             <div className="alert alert--error">{playerPicksErr}</div>
@@ -899,6 +917,42 @@ export function StreakChallengeView({
                   ))}
                 </ul>
               </>
+            )
+          ) : isComprehensivePlayerPicks ? (
+            comprehensivePlayerPickRows.length === 0 ? (
+              <p className="streak-view__muted">No picks yet.</p>
+            ) : (
+              <ul className="streak-player-picks__list">
+                {comprehensivePlayerPickRows.map((row) =>
+                  row.type === 'divider' ? (
+                    <li
+                      key={row.key}
+                      className="streak-make-phase"
+                      aria-label={`${row.label} picks`}
+                    >
+                      <span className="streak-make-phase__line" aria-hidden />
+                      <span className="streak-make-phase__label">{row.label}</span>
+                    </li>
+                  ) : (
+                    <li
+                      key={row.pick.question_id}
+                      className="streak-player-picks__item"
+                    >
+                      <p className="streak-player-picks__question">{row.pick.text}</p>
+                      <p className="streak-player-picks__meta">
+                        Closed {formatDeadlineEst(row.pick.closes_at)}
+                      </p>
+                      <StreakQuestionChoices
+                        choices={row.pick.choices}
+                        userChoiceId={row.pick.pick_choice_id}
+                        correctChoiceId={row.pick.correct_choice_id}
+                        resolved
+                        disabled
+                      />
+                    </li>
+                  ),
+                )}
+              </ul>
             )
           ) : sortedPlayerPicks.length === 0 ? (
             <p className="streak-view__muted">No picks yet.</p>

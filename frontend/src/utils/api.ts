@@ -343,6 +343,8 @@ export type StreakParticipantPickRow = {
   pick_label: string;
   correct_answer: string | null;
   is_correct: boolean;
+  section_key?: string;
+  section_label?: string;
 };
 
 export type StreakStatsPicker = {

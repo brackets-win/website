@@ -1,4 +1,8 @@
-import type { StreakKnockoutPayload, StreakQuestionInfo } from './api';
+import type {
+  StreakKnockoutPayload,
+  StreakParticipantPickRow,
+  StreakQuestionInfo,
+} from './api';
 
 export function knockoutRoundLabel(
   roundIndex: number,
@@ -127,6 +131,44 @@ export function makePickPhaseDividers<T extends {
 
   while (rows.length > 0 && rows[rows.length - 1].type === 'divider') {
     rows.pop();
+  }
+
+  return rows;
+}
+
+function comparePickClosesAtAsc(
+  a: StreakParticipantPickRow,
+  b: StreakParticipantPickRow,
+): number {
+  const timeA = new Date(a.closes_at).getTime();
+  const timeB = new Date(b.closes_at).getTime();
+  if (timeA !== timeB) return timeA - timeB;
+  return a.question_id - b.question_id;
+}
+
+export function playerPickPhaseDividers(
+  picks: StreakParticipantPickRow[],
+): Array<
+  | { type: 'divider'; label: string; key: string }
+  | { type: 'pick'; pick: StreakParticipantPickRow }
+> {
+  if (picks.length === 0) return [];
+
+  const sorted = [...picks].sort(comparePickClosesAtAsc);
+  const rows: Array<
+    | { type: 'divider'; label: string; key: string }
+    | { type: 'pick'; pick: StreakParticipantPickRow }
+  > = [];
+  let prevKey: string | null = null;
+
+  for (const pick of sorted) {
+    const key = pick.section_key ?? 'streak';
+    const label = pick.section_label ?? 'Streak';
+    if (key !== prevKey) {
+      rows.push({ type: 'divider', label, key });
+      prevKey = key;
+    }
+    rows.push({ type: 'pick', pick });
   }
 
   return rows;

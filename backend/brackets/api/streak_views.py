@@ -50,18 +50,28 @@ from brackets.utils.streak_knockout_rules import (
     knockout_phase_for_closes_at,
     knockout_phases_payload,
     knockout_total_rounds,
+    participant_in_knockout_bracket_at,
     question_visible_in_challenge,
     round_start_at,
+    streak_season_cutoff_at,
     validate_knockout_schedule,
 )
 from brackets.utils.streak_knockout_schedule import process_scheduled_knockout
 from brackets.utils.streak_scoring import (
     clear_question_resolution,
-    current_broken_win_streak,
+    recalculate_streak_challenge,
     recalculate_streak_competition,
     resolve_question,
+    season_best_loss_streak,
+    season_best_win_streak,
+    season_broken_win_streak,
+    season_streak_signed,
 )
-from brackets.utils.streak_knockout import knockout_header_summary, projected_knockout_payload
+from brackets.utils.streak_knockout import (
+    knockout_header_summary,
+    projected_knockout_payload,
+    recalculate_consolation_for_challenge,
+)
 
 
 def _streak_participant_or_none(challenge: StreakChallenge, user):
@@ -126,19 +136,19 @@ def _streak_summary(
         "is_participant": participant is not None,
         "wins": participant.wins if participant else 0,
         "losses": participant.losses if participant else 0,
-        "streak_signed": participant.streak_signed if participant else 0,
-        "best_win_streak": participant.best_win_streak if participant else 0,
+        "streak_signed": season_streak_signed(participant) if participant else 0,
+        "best_win_streak": season_best_win_streak(participant) if participant else 0,
         "broken_win_streak": (
-            current_broken_win_streak(participant) if participant else 0
+            season_broken_win_streak(participant) if participant else 0
         ),
         "streak_display": serializers.streak_display(
-            participant.streak_signed if participant else 0
+            season_streak_signed(participant) if participant else 0
         ),
         "current_display": serializers.streak_display(
-            participant.streak_signed if participant else 0
+            season_streak_signed(participant) if participant else 0
         ),
         "long_win_display": _long_streak_display(
-            participant.best_win_streak if participant else 0, kind="win"
+            season_best_win_streak(participant) if participant else 0, kind="win"
         ),
         "is_creator": c.created_by_id == user.id,
         "competition_is_over": competition.is_over if competition is not None else False,
@@ -269,6 +279,21 @@ def _long_streak_display(value: int, *, kind: str) -> str:
     return f"{value}L"
 
 
+def _participant_pick_section(
+    challenge: StreakChallenge,
+    participant: StreakParticipant,
+    question: StreakQuestion,
+) -> tuple[str, str]:
+    transition = streak_season_cutoff_at(challenge)
+    if transition is None or question.closes_at < transition:
+        return ("streak", "Streak")
+
+    if participant_in_knockout_bracket_at(participant, question.closes_at):
+        return ("knockout", "Knockout")
+
+    return ("consolation", "Consolation")
+
+
 def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
     answered = p.wins + p.losses
     rate = p.wins / answered if answered else 0.0
@@ -280,15 +305,19 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         season_losses = p.losses
     season_answered = season_wins + season_losses
     season_rate = season_wins / season_answered if season_answered else 0.0
+    streak_signed = season_streak_signed(p)
+    best_win_streak = season_best_win_streak(p)
+    best_loss_streak = season_best_loss_streak(p)
+    broken_win_streak = season_broken_win_streak(p)
     return {
         "rank": rank,
         "user_id": p.user_id,
         "username": p.user.username,
         "display_name": streak_participant_label(p),
-        "streak_signed": p.streak_signed,
-        "current_display": serializers.streak_display(p.streak_signed),
-        "long_win_display": _long_streak_display(p.best_win_streak, kind="win"),
-        "long_loss_display": _long_streak_display(p.best_loss_streak, kind="loss"),
+        "streak_signed": streak_signed,
+        "current_display": serializers.streak_display(streak_signed),
+        "long_win_display": _long_streak_display(best_win_streak, kind="win"),
+        "long_loss_display": _long_streak_display(best_loss_streak, kind="loss"),
         "wins": p.wins,
         "losses": p.losses,
         "record": f"{p.wins}-{p.losses}",
@@ -301,10 +330,10 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "total_losses": p.losses,
         "total_record": f"{p.wins}-{p.losses}",
         "total_win_pct": round(rate * 100),
-        "best_win_streak": p.best_win_streak,
-        "best_loss_streak": p.best_loss_streak,
-        "broken_win_streak": current_broken_win_streak(p),
-        "streak_display": serializers.streak_display(p.streak_signed),
+        "best_win_streak": best_win_streak,
+        "best_loss_streak": best_loss_streak,
+        "broken_win_streak": broken_win_streak,
+        "streak_display": serializers.streak_display(streak_signed),
         "win_rate": round(rate, 4),
     }
 
@@ -780,9 +809,14 @@ def streak_challenge_leaderboard(
     if _streak_participant_or_none(challenge, user) is None:
         return _json_error("Forbidden", 403)
 
+    if challenge.is_knockout:
+        recalculate_streak_challenge(challenge.id)
+        recalculate_consolation_for_challenge(challenge)
+
     participants = list(
         StreakParticipant.objects.filter(streak_challenge=challenge).select_related(
-            "user"
+            "user",
+            "streak_challenge",
         )
     )
     entries = [
@@ -850,7 +884,7 @@ def streak_participant_picks(
 
     target = StreakParticipant.objects.filter(
         streak_challenge=challenge, user_id=user_id
-    ).select_related("user").first()
+    ).select_related("user", "streak_challenge").first()
     if target is None:
         return _json_error("Player not found", 404)
 
@@ -887,16 +921,26 @@ def streak_participant_picks(
             if end is not None:
                 picks_qs = picks_qs.filter(question__closes_at__lt=end)
 
+    order_desc = scope in ("streak", "consolation", "round")
     picks = (
         picks_qs.select_related("question", "choice", "question__correct_choice")
         .prefetch_related("question__choices")
-        .order_by("-question__closes_at", "-question__order", "-question__id")
+        .order_by(
+            "-question__closes_at" if order_desc else "question__closes_at",
+            "-question__order" if order_desc else "question__order",
+            "-question__id" if order_desc else "question__id",
+        )
     )
     rows = []
     for pick in picks:
         q = pick.question
         correct_label = (
             q.correct_choice.label if q.correct_choice_id else None
+        )
+        section_key, section_label = _participant_pick_section(
+            challenge,
+            target,
+            q,
         )
         rows.append(
             {
@@ -909,6 +953,8 @@ def streak_participant_picks(
                 "pick_label": pick.choice.label,
                 "correct_answer": correct_label,
                 "is_correct": pick.choice_id == q.correct_choice_id,
+                "section_key": section_key,
+                "section_label": section_label,
             }
         )
 
@@ -1329,6 +1375,7 @@ def streak_challenge_knockout(
 
     from brackets.utils.streak_knockout import knockout_payload
 
+    recalculate_consolation_for_challenge(challenge)
     payload = knockout_payload(challenge)
     if payload is None:
         return _json_error("Knockout not found", 404)

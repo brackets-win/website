@@ -113,11 +113,22 @@ def streak_participant_label(p: StreakParticipant) -> str:
 
 
 def streak_win_rate(p: StreakParticipant) -> float:
+    if p.streak_challenge.is_knockout:
+        answered = p.frozen_wins + p.frozen_losses
+        return round(p.frozen_wins / answered, 4) if answered else 0.0
     answered = p.wins + p.losses
     return round(p.wins / answered, 4) if answered else 0.0
 
 
 def streak_participant_stats_key(p: StreakParticipant) -> tuple:
+    if p.streak_challenge.is_knockout:
+        return (
+            p.frozen_best_win_streak,
+            p.frozen_streak_signed,
+            p.frozen_wins,
+            streak_win_rate(p),
+            -p.frozen_best_loss_streak,
+        )
     return (
         p.best_win_streak,
         p.streak_signed,
@@ -204,7 +215,8 @@ def streak_challenge_leaderboard_preview(
 ) -> dict[str, Any]:
     participants = list(
         StreakParticipant.objects.filter(streak_challenge=challenge).select_related(
-            "user"
+            "user",
+            "streak_challenge",
         )
     )
     ranked = [
