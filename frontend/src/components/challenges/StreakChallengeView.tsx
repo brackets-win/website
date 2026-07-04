@@ -585,7 +585,7 @@ export function StreakChallengeView({
             {isKnockout && summary.knockout_header ? (
               <p className="streak-view__stat">
                 <span className="streak-view__stat-group">
-                  <span className="streak-view__stat-label">
+                  <span className="streak-view__stat-label streak-view__stat-label--knockout">
                     {summary.knockout_header.label}
                   </span>
                 </span>

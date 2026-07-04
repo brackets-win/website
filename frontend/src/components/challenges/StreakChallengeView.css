@@ -37,6 +37,14 @@
   color: var(--app-muted);
 }
 
+.streak-view__stat-label--knockout {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--app-text);
+}
+
 .streak-view__stat-value {
   font-size: 1.15rem;
   font-weight: 400;
