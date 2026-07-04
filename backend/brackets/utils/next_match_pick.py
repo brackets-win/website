@@ -14,9 +14,13 @@ from __future__ import annotations
 
 from brackets.models import BracketStage, KnockoutStage, UserBracket
 
+_ALL_CHALLENGES = object()
+
 
 def compute_next_match_picks_for_bracket(
     bracket,
+    *,
+    challenge_id: int | None | object = _ALL_CHALLENGES,
 ) -> dict[int, int | None] | None:
     """Map submitted ``user_bracket_id`` to the wanted ``BracketContestant`` id.
 
@@ -32,13 +36,14 @@ def compute_next_match_picks_for_bracket(
     x_id = m.contestant1_id
     y_id = m.contestant2_id
 
-    ubs = list(
-        UserBracket.objects.filter(
-            bracket=bracket,
-            is_master=False,
-            submitted_at__isnull=False,
-        )
+    ubs_qs = UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
     )
+    if challenge_id is not _ALL_CHALLENGES:
+        ubs_qs = ubs_qs.filter(challenge_id=challenge_id)
+    ubs = list(ubs_qs)
     if not ubs:
         return {}
 
@@ -171,19 +176,26 @@ def persist_next_match_picks_for_bracket(bracket) -> None:
         )
         return
 
-    picks = compute_next_match_picks_for_bracket(bracket)
-    if picks is None:
-        qs.exclude(leaderboard_next_match_pick__isnull=True).update(
-            leaderboard_next_match_pick=None
-        )
-        return
-
+    submitted = list(qs)
+    challenge_ids = sorted({ub.challenge_id for ub in submitted}, key=lambda x: (x is None, x))
     to_update: list[UserBracket] = []
-    for ub in qs:
-        pick = picks.get(ub.id)
-        if ub.leaderboard_next_match_pick_id != pick:
-            ub.leaderboard_next_match_pick_id = pick
-            to_update.append(ub)
+    for challenge_id in challenge_ids:
+        challenge_qs = [ub for ub in submitted if ub.challenge_id == challenge_id]
+        picks = compute_next_match_picks_for_bracket(
+            bracket,
+            challenge_id=challenge_id,
+        )
+        if picks is None:
+            for ub in challenge_qs:
+                if ub.leaderboard_next_match_pick_id is not None:
+                    ub.leaderboard_next_match_pick_id = None
+                    to_update.append(ub)
+            continue
+        for ub in challenge_qs:
+            pick = picks.get(ub.id)
+            if ub.leaderboard_next_match_pick_id != pick:
+                ub.leaderboard_next_match_pick_id = pick
+                to_update.append(ub)
     if to_update:
         UserBracket.objects.bulk_update(to_update, ["leaderboard_next_match_pick"])
 
@@ -208,7 +220,10 @@ def persist_next_match_pick_for_user_bracket(ub: UserBracket) -> None:
             )
         return
 
-    picks = compute_next_match_picks_for_bracket(bracket)
+    picks = compute_next_match_picks_for_bracket(
+        bracket,
+        challenge_id=ub.challenge_id,
+    )
     if picks is None:
         if ub.leaderboard_next_match_pick_id is not None:
             UserBracket.objects.filter(pk=ub.pk).update(

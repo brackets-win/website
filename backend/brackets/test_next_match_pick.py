@@ -506,6 +506,7 @@ class NextMatchFuturePreferenceTests(TestCase):
         qf1,
         qf2,
         sf1,
+        challenge=None,
         qf3=None,
         qf4=None,
         sf2=None,
@@ -520,7 +521,7 @@ class NextMatchFuturePreferenceTests(TestCase):
         ub = UserBracket.objects.create(
             user=user,
             bracket=self.bracket,
-            challenge=self.challenge,
+            challenge=challenge or self.challenge,
             submitted_at=timezone.now(),
         )
         ensure_knockout_structure_for_user_bracket(ub)
@@ -576,3 +577,45 @@ class NextMatchFuturePreferenceTests(TestCase):
         picks = compute_next_match_picks_for_bracket(self.bracket)
         self.assertEqual(picks[ub_future_t1.id], self.t1.id)
         self.assertEqual(picks[ub_indifferent.id], self.t3.id)
+
+    def test_next_match_popularity_does_not_leak_across_challenges(self):
+        other_challenge = BracketChallenge.objects.create(
+            name="Other Pool",
+            bracket=self.bracket,
+            created_by=self.host,
+            join_code="NEXTMAT9",
+        )
+        ub_a = self._submit(
+            "pool-a",
+            challenge=self.challenge,
+            qf1=self.t2,
+            qf2=self.t4,
+            sf1=self.t4,
+            final_winner=self.t5,
+        )
+        ub_b = self._submit(
+            "pool-b",
+            challenge=self.challenge,
+            qf1=self.t2,
+            qf2=self.t4,
+            sf1=self.t4,
+            final_winner=self.t5,
+        )
+        ub_other = self._submit(
+            "other-pool",
+            challenge=other_challenge,
+            qf1=self.t1,
+            qf2=self.t3,
+            sf1=self.t1,
+            final_winner=self.t5,
+        )
+        self._set_next_match(self._master_sf1().id)
+
+        persist_next_match_picks_for_bracket(self.bracket)
+        ub_a.refresh_from_db()
+        ub_b.refresh_from_db()
+        ub_other.refresh_from_db()
+
+        self.assertIsNone(ub_a.leaderboard_next_match_pick_id)
+        self.assertIsNone(ub_b.leaderboard_next_match_pick_id)
+        self.assertEqual(ub_other.leaderboard_next_match_pick_id, self.t1.id)
