@@ -181,10 +181,12 @@ function StageTitle({
   }
 
   return (
-    <p className="bf-stage-title bf-stage-title--active streak-bf__stage-title">
-      <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
-      <span>
-        {label} ({progress.resolved}/{progress.total})
+    <p className="bf-stage-title streak-bf__stage-title">
+      <span className="streak-bf__stage-title-inner">
+        <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
+        <span>
+          {label} ({progress.resolved} out of {progress.total})
+        </span>
       </span>
     </p>
   );

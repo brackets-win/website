@@ -209,13 +209,16 @@
 }
 
 .streak-bf__stage-title {
-  gap: 0.35rem;
-  justify-content: flex-start;
-  padding-left: 0.15rem;
+  justify-content: center;
+  padding-left: 0;
 }
 
-.bf-stage-title--active {
-  color: var(--bf-text);
+.streak-bf__stage-title-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: 100%;
 }
 
 .streak-bf__stage-live {
@@ -224,7 +227,7 @@
   height: 0.55rem;
   border-radius: 999px;
   background: #16a34a;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+  transform: translateY(-0.08rem);
 }
 
 .streak-bf__slot {

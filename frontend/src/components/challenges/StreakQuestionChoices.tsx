@@ -66,7 +66,9 @@ export function StreakQuestionChoices({
 }: Props) {
   const actionsClassName = expandableStats
     ? 'streak-question__actions streak-question__actions--fill streak-question__actions--stats'
-    : 'streak-question__actions streak-question__actions--fill';
+    : h2h
+      ? 'streak-question__actions streak-question__actions--fill streak-question__actions--h2h'
+      : 'streak-question__actions streak-question__actions--fill';
 
   return (
     <div className={actionsClassName} role="group" aria-label="Choices">
@@ -145,16 +147,6 @@ export function StreakQuestionChoices({
                   ✗
                 </span>
               ) : null}
-              {h2h && h2h.leftPickChoiceId === choice.id ? (
-                <span className="streak-choice__h2h-badges streak-choice__h2h-badges--left">
-                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
-                    {h2h.leftBadge}
-                  </span>
-                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
-                    {h2h.leftBadgeShort}
-                  </span>
-                </span>
-              ) : null}
               <span className="streak-choice__label">{choice.label}</span>
               {showPickStats &&
               choice.pick_count != null &&
@@ -165,14 +157,30 @@ export function StreakQuestionChoices({
               ) : showPickPct && choice.pick_pct != null ? (
                 <span className="streak-choice__pct">{choice.pick_pct}%</span>
               ) : null}
-              {h2h && h2h.rightPickChoiceId === choice.id ? (
-                <span className="streak-choice__h2h-badges streak-choice__h2h-badges--right">
-                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
-                    {h2h.rightBadge}
-                  </span>
-                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
-                    {h2h.rightBadgeShort}
-                  </span>
+              {h2h &&
+              (h2h.leftPickChoiceId === choice.id ||
+                h2h.rightPickChoiceId === choice.id) ? (
+                <span className="streak-choice__h2h-badges">
+                  {h2h.leftPickChoiceId === choice.id ? (
+                    <>
+                      <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
+                        {h2h.leftBadge}
+                      </span>
+                      <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
+                        {h2h.leftBadgeShort}
+                      </span>
+                    </>
+                  ) : null}
+                  {h2h.rightPickChoiceId === choice.id ? (
+                    <>
+                      <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
+                        {h2h.rightBadge}
+                      </span>
+                      <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
+                        {h2h.rightBadgeShort}
+                      </span>
+                    </>
+                  ) : null}
                 </span>
               ) : null}
             </button>
