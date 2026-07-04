@@ -41,6 +41,12 @@ def _participant_by_seed(
     return {seed: p for p, seed in seeded}
 
 
+def _matches_in_round(bracket_size: int, round_index: int) -> int:
+    if round_index <= 0:
+        return 0
+    return max(1, bracket_size // (2**round_index))
+
+
 def _seed_participants(
     participants: list[StreakParticipant],
 ) -> list[tuple[StreakParticipant, int]]:
@@ -657,6 +663,32 @@ def _participant_slot(match: StreakKnockoutMatch, p: StreakParticipant) -> dict[
     }
 
 
+def _empty_match_payload(
+    *,
+    round_index: int,
+    position: int,
+) -> dict[str, Any]:
+    return {
+        "id": -(round_index * 1000 + position),
+        "round_index": round_index,
+        "position": position,
+        "player_a": None,
+        "player_b": None,
+        "seed_a": 0,
+        "seed_b": 0,
+        "score_a": 0,
+        "score_b": 0,
+        "score_a_correct": 0,
+        "score_b_correct": 0,
+        "score_a_bonus": 0,
+        "score_b_bonus": 0,
+        "score_bonus_enabled": False,
+        "winner_user_id": None,
+        "finalized": False,
+        "is_live": False,
+    }
+
+
 def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict[str, Any]:
     scores = _match_score_display_payload(knockout, match)
     challenge = knockout.streak_challenge
@@ -720,6 +752,29 @@ def _consolation_rows(
                 "wins": p.consolation_wins,
                 "losses": p.consolation_losses,
                 "record": f"{p.consolation_wins}-{p.consolation_losses}",
+                "win_pct": round(rate * 100),
+            }
+        )
+    rows.sort(key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold()))
+    return rows
+
+
+def _projected_consolation_rows(
+    participants: list[StreakParticipant], qualifier_ids: set[int]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for p in participants:
+        if p.id in qualifier_ids:
+            continue
+        answered = p.wins + p.losses
+        rate = p.wins / answered if answered else 0.0
+        rows.append(
+            {
+                "user_id": p.user_id,
+                "display_name": streak_participant_label(p),
+                "wins": p.wins,
+                "losses": p.losses,
+                "record": f"{p.wins}-{p.losses}",
                 "win_pct": round(rate * 100),
             }
         )
@@ -791,6 +846,85 @@ def knockout_header_summary(
     }
 
 
+def projected_knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
+    participants = list(
+        StreakParticipant.objects.filter(streak_challenge=challenge).select_related("user")
+    )
+    if len(participants) < 2:
+        return None
+
+    seeded = _seed_participants(participants)
+    bracket_size = bracket_qualifier_count(len(seeded))
+    if bracket_size < 2:
+        return None
+
+    qualifiers = seeded[:bracket_size]
+    qualifier_ids = {p.id for p, _seed in qualifiers}
+    by_seed = _participant_by_seed(qualifiers)
+    total_rounds = knockout_total_rounds(len(participants))
+    rounds: list[dict[str, Any]] = []
+
+    first_round_matches: list[dict[str, Any]] = []
+    for position, (seed_a, seed_b) in enumerate(
+        first_round_seed_pairs(bracket_size), start=1
+    ):
+        player_a = by_seed.get(seed_a)
+        player_b = by_seed.get(seed_b)
+        first_round_matches.append(
+            {
+                "id": -(1000 + position),
+                "round_index": 1,
+                "position": position,
+                "player_a": {
+                    "user_id": player_a.user_id,
+                    "display_name": streak_participant_label(player_a),
+                    "seed": seed_a,
+                }
+                if player_a
+                else None,
+                "player_b": {
+                    "user_id": player_b.user_id,
+                    "display_name": streak_participant_label(player_b),
+                    "seed": seed_b,
+                }
+                if player_b
+                else None,
+                "seed_a": seed_a,
+                "seed_b": seed_b,
+                "score_a": 0,
+                "score_b": 0,
+                "score_a_correct": 0,
+                "score_b_correct": 0,
+                "score_a_bonus": 0,
+                "score_b_bonus": 0,
+                "score_bonus_enabled": False,
+                "winner_user_id": None,
+                "finalized": False,
+                "is_live": False,
+            }
+        )
+    rounds.append({"round_index": 1, "matches": first_round_matches})
+
+    for round_index in range(2, total_rounds + 1):
+        matches = [
+            _empty_match_payload(round_index=round_index, position=position)
+            for position in range(1, _matches_in_round(bracket_size, round_index) + 1)
+        ]
+        rounds.append({"round_index": round_index, "matches": matches})
+
+    return {
+        "status": "SETUP",
+        "current_round": 0,
+        "headstart_enabled": False,
+        "champion_user_id": None,
+        "total_rounds": total_rounds,
+        "rounds": rounds,
+        "consolation": _projected_consolation_rows(participants, qualifier_ids),
+        "can_manage": False,
+        "projected": True,
+    }
+
+
 def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
     knockout = getattr(challenge, "knockout", None)
     if knockout is None:
@@ -799,6 +933,9 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
         except StreakKnockout.DoesNotExist:
             return None
 
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    bracket_size = bracket_qualifier_count(max(participant_count, 2))
     matches = list(
         knockout.matches.select_related(
             "player_a__user",
@@ -810,6 +947,17 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
     for match in matches:
         rounds.setdefault(match.round_index, []).append(_match_payload(knockout, match))
 
+    round_rows: list[dict[str, Any]] = []
+    for idx in range(1, total_rounds + 1):
+        existing = {m["position"]: m for m in rounds.get(idx, [])}
+        match_count = _matches_in_round(bracket_size, idx)
+        match_rows = [
+            existing.get(position)
+            or _empty_match_payload(round_index=idx, position=position)
+            for position in range(1, match_count + 1)
+        ]
+        round_rows.append({"round_index": idx, "matches": match_rows})
+
     consolation_rows = _consolation_rows(challenge, knockout)
 
     return {
@@ -817,12 +965,11 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
         "current_round": knockout.current_round,
         "headstart_enabled": knockout.headstart_enabled,
         "champion_user_id": knockout.champion.user_id if knockout.champion else None,
-        "rounds": [
-            {"round_index": idx, "matches": rounds[idx]}
-            for idx in sorted(rounds.keys())
-        ],
+        "total_rounds": total_rounds,
+        "rounds": round_rows,
         "consolation": consolation_rows,
         "can_manage": False,
+        "projected": False,
     }
 
 

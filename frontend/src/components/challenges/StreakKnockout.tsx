@@ -320,23 +320,33 @@ export function StreakKnockout({
     return <p className="streak-view__muted">Loading…</p>;
   }
 
-  const totalRounds = knockout.rounds.length;
+  const totalRounds = knockout.total_rounds || knockout.rounds.length;
+  const isProjected = knockout.projected === true;
   const openingMatchCount = knockout.rounds[0]?.matches.length ?? 0;
   const boardHeightPx = Math.max(
     520,
-    openingMatchCount * (knockout.status === 'SETUP' ? 210 : 160),
+    openingMatchCount * (knockout.status === 'SETUP' && !isProjected ? 210 : 160),
   );
 
   return (
     <section className="card streak-knockout">
       {setupErr ? <div className="alert alert--error">{setupErr}</div> : null}
-      {knockout.status === 'COMPLETE' && knockout.champion_user_id != null ? (
+      {knockout.status === 'COMPLETE' &&
+      knockout.champion_user_id != null &&
+      !isProjected ? (
         <p className="streak-knockout__champion">
           Champion crowned.
         </p>
       ) : null}
 
-      {knockout.status === 'SETUP' && knockout.can_manage ? (
+      {isProjected ? (
+        <p className="streak-knockout__projected-note">
+          The bracket is not finalized yet. These projected matchups are based
+          on the current leaderboard.
+        </p>
+      ) : null}
+
+      {knockout.status === 'SETUP' && knockout.can_manage && !isProjected ? (
         <div className="streak-knockout__manage">
           <p className="streak-knockout__setup-note">
             Scores update from the schedule while you adjust round-one slots.
@@ -356,7 +366,7 @@ export function StreakKnockout({
 
       {knockout.rounds.length > 0 ? (
         <div
-          className="bf streak-bf"
+          className={isProjected ? 'bf streak-bf streak-bf--projected' : 'bf streak-bf'}
           style={{ '--bf-board-h': `${boardHeightPx}px` } as CSSProperties}
         >
           <div className="bf-ko-desktop bf-scroll">
@@ -410,7 +420,7 @@ export function StreakKnockout({
         </div>
       ) : null}
 
-      {knockout.status === 'SETUP' && knockout.can_manage ? (
+      {knockout.status === 'SETUP' && knockout.can_manage && !isProjected ? (
         <div className="streak-knockout__setup-panel">
           <h3 className="streak-knockout__setup-title">Round 1 Matchups</h3>
           <div className="streak-knockout__setup-grid">
@@ -433,7 +443,7 @@ export function StreakKnockout({
       {knockout.consolation.length > 0 ? (
         <div className="streak-knockout__consolation">
           <h3 className="streak-knockout__consolation-title">
-            Consolation 🥲
+            {isProjected ? 'Projected Consolation' : 'Consolation 🥲'}
           </h3>
           <table className="streak-knockout__consolation-table">
             <thead>

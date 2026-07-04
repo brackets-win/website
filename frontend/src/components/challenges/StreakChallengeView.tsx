@@ -167,6 +167,7 @@ export function StreakChallengeView({
 
   const competitionIsOver = summary?.competition_is_over === true;
   const isKnockout = summary?.is_knockout === true;
+  const hasScheduledKnockout = summary?.knockout_transition_at != null;
   const canManageKnockout =
     summary?.is_creator === true || currentUser.is_staff === true;
   const knockoutCutoffCount =
@@ -608,7 +609,7 @@ export function StreakChallengeView({
         >
           Leaderboard
         </button>
-        {isKnockout ? (
+        {hasScheduledKnockout ? (
           <button
             type="button"
             className={
@@ -685,7 +686,7 @@ export function StreakChallengeView({
         </section>
       ) : null}
 
-      {tab === 'knockout' && isKnockout ? (
+      {tab === 'knockout' && hasScheduledKnockout ? (
         <StreakKnockout
           streakChallengeId={streakChallengeId}
           onSelectPlayer={onSelectLeaderboardPlayer}

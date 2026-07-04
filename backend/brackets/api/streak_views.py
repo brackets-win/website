@@ -60,7 +60,7 @@ from brackets.utils.streak_scoring import (
     recalculate_streak_competition,
     resolve_question,
 )
-from brackets.utils.streak_knockout import knockout_header_summary
+from brackets.utils.streak_knockout import knockout_header_summary, projected_knockout_payload
 
 
 def _streak_participant_or_none(challenge: StreakChallenge, user):
@@ -1291,7 +1291,12 @@ def streak_challenge_knockout(
     process_scheduled_knockout(challenge)
     challenge.refresh_from_db()
     if not challenge.is_knockout:
-        return _json_error("Challenge is not in knockout mode", 400)
+        if challenge.knockout_transition_at is None:
+            return _json_error("Challenge is not in knockout mode", 400)
+        payload = projected_knockout_payload(challenge)
+        if payload is None:
+            return _json_error("Projected knockout unavailable", 400)
+        return JsonResponse({"knockout": payload})
 
     from brackets.utils.streak_knockout import knockout_payload
 

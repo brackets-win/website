@@ -19,6 +19,12 @@
   color: var(--app-accent);
 }
 
+.streak-knockout__projected-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--app-muted);
+}
+
 .streak-knockout__bracket {
   display: flex;
   gap: 1rem;
@@ -186,6 +192,10 @@
 
 .streak-bf.bf {
   margin-top: 0;
+}
+
+.streak-bf--projected {
+  opacity: 0.72;
 }
 
 .streak-bf__matchup {

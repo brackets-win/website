@@ -326,9 +326,11 @@ export type StreakKnockoutPayload = {
   current_round: number;
   headstart_enabled: boolean;
   champion_user_id: number | null;
+  total_rounds: number;
   rounds: StreakKnockoutRound[];
   consolation: StreakConsolationEntry[];
   can_manage: boolean;
+  projected?: boolean;
 };
 
 export type StreakParticipantPickRow = {

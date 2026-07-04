@@ -170,6 +170,27 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("rounds", res.json()["knockout"])
 
+    def test_knockout_get_endpoint_returns_projected_bracket_when_scheduled(self):
+        self.challenge.knockout_transition_at = timezone.now() + timedelta(days=2)
+        self.challenge.save(update_fields=["knockout_transition_at"])
+
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout"
+        )
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()["knockout"]
+        self.assertTrue(payload["projected"])
+        self.assertEqual(payload["status"], "SETUP")
+        self.assertEqual(payload["total_rounds"], 2)
+        self.assertEqual(payload["rounds"][0]["matches"][0]["player_a"]["display_name"], "Alice")
+        self.assertEqual(payload["rounds"][0]["matches"][0]["player_b"]["display_name"], "Dave")
+        self.assertEqual(payload["rounds"][1]["matches"][0]["player_a"], None)
+        self.assertEqual(
+            [row["display_name"] for row in payload["consolation"]],
+            [],
+        )
+
     def test_streak_detail_shows_knockout_matchup_header(self):
         self.client.force_login(self.host)
         self.client.post(
