@@ -421,6 +421,33 @@ export function StreakChallengeView({
     () => makePickPhaseDividers(makeQuestions),
     [makeQuestions],
   );
+  const activeKnockoutPhase = useMemo(() => {
+    if (!isKnockout || knockoutPhases.length === 0) return null;
+    const nowMs = Date.now();
+    let activePhase: KnockoutPhaseInfo | null = null;
+    for (const phase of knockoutPhases) {
+      const startsAtMs = new Date(phase.starts_at).getTime();
+      if (!Number.isFinite(startsAtMs) || startsAtMs > nowMs) continue;
+      if (
+        activePhase == null ||
+        startsAtMs > new Date(activePhase.starts_at).getTime()
+      ) {
+        activePhase = phase;
+      }
+    }
+    return activePhase;
+  }, [isKnockout, knockoutPhases]);
+  const showMakePicksCaution = useMemo(() => {
+    if (activeKnockoutPhase == null) return false;
+    return questions.some(
+      (question) =>
+        question.resolved_at == null &&
+        question.is_open &&
+        question.is_knockout_pick === true &&
+        question.knockout_phase_starts_at === activeKnockoutPhase.starts_at &&
+        question.user_choice_id == null,
+    );
+  }, [activeKnockoutPhase, questions]);
   const firstKnockoutStageLabel = useMemo(() => {
     const totalRounds = summary?.knockout_total_rounds ?? 0;
     if (totalRounds <= 0) return null;
@@ -1009,8 +1036,17 @@ export function StreakChallengeView({
                 : 'challenge-view__tab'
             }
             onClick={() => goToTab('make')}
+            aria-label={showMakePicksCaution ? 'Make Picks' : undefined}
           >
-            Make Picks
+            {showMakePicksCaution ? (
+              <span className="streak-view__tab-alert">
+                <span aria-hidden>⚠️</span>
+                <span>Make Picks</span>
+                <span aria-hidden>⚠️</span>
+              </span>
+            ) : (
+              'Make Picks'
+            )}
           </button>
         ) : null}
         <button
