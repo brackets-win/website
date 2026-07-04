@@ -30,6 +30,10 @@ import {
   uniquePlayerAbbreviations,
 } from '../../utils/streakKnockout';
 import {
+  readStreakChallengeSessionCache,
+  writeStreakChallengeSessionCache,
+} from '../../utils/streakChallengeSessionCache';
+import {
   streakPath,
   streakPlayerPath,
   type StreakTab,
@@ -252,15 +256,26 @@ export function StreakChallengeView({
     navigate(streakPath(streakChallengeId, nextTab));
   }
 
-  const [summary, setSummary] = useState<StreakChallengeSummary | null>(null);
-  const [questions, setQuestions] = useState<StreakQuestionInfo[]>([]);
-  const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
-  const [awards, setAwards] = useState<StreakAwardsPayload | null>(null);
+  const [summary, setSummary] = useState<StreakChallengeSummary | null>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.summary ?? null,
+  );
+  const [questions, setQuestions] = useState<StreakQuestionInfo[]>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.questions ?? [],
+  );
+  const [entries, setEntries] = useState<StreakLeaderboardEntry[]>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.entries ?? [],
+  );
+  const [awards, setAwards] = useState<StreakAwardsPayload | null>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.awards ?? null,
+  );
   const [loadErr, setLoadErr] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState('');
-  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>([]);
+  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>(
+    () =>
+      readStreakChallengeSessionCache(streakChallengeId)?.knockoutPhases ?? [],
+  );
   const [scheduleTransition, setScheduleTransition] = useState('');
   const [scheduleRoundStarts, setScheduleRoundStarts] = useState<
     Record<string, string>
@@ -320,19 +335,26 @@ export function StreakChallengeView({
     try {
       const detail = await getStreakChallenge(streakChallengeId);
       const board = await getStreakLeaderboard(streakChallengeId);
+      let awardsPayload: StreakAwardsPayload | null = null;
+      if (detail.streak_challenge.competition_is_over) {
+        try {
+          awardsPayload = await getStreakAwards(streakChallengeId);
+        } catch {
+          awardsPayload = null;
+        }
+      }
       setSummary(detail.streak_challenge);
       setQuestions(detail.questions);
       setKnockoutPhases(detail.knockout_phases ?? []);
       setEntries(board.entries);
-      if (detail.streak_challenge.competition_is_over) {
-        try {
-          setAwards(await getStreakAwards(streakChallengeId));
-        } catch {
-          setAwards(null);
-        }
-      } else {
-        setAwards(null);
-      }
+      setAwards(awardsPayload);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        summary: detail.streak_challenge,
+        questions: detail.questions,
+        knockoutPhases: detail.knockout_phases ?? [],
+        entries: board.entries,
+        awards: awardsPayload,
+      });
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load streak challenge.',
@@ -719,6 +741,10 @@ export function StreakChallengeView({
       });
       setSummary(result.streak_challenge);
       setKnockoutPhases(result.knockout_phases);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        summary: result.streak_challenge,
+        knockoutPhases: result.knockout_phases,
+      });
       setScheduleMsg('Knockout schedule saved.');
       await reload();
     } catch (e) {

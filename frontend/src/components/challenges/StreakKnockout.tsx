@@ -28,6 +28,10 @@ import {
   stageQuestionProgress,
   type KnockoutPhaseInfo,
 } from '../../utils/streakKnockout';
+import {
+  readStreakChallengeSessionCache,
+  writeStreakChallengeSessionCache,
+} from '../../utils/streakChallengeSessionCache';
 
 type MatchupPlayer = {
   userId: number;
@@ -184,8 +188,9 @@ function StageTitle({
     <p className="bf-stage-title streak-bf__stage-title">
       <span className="streak-bf__stage-title-inner">
         <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
-        <span>
-          {label} ({progress.resolved} out of {progress.total})
+        <span className="streak-bf__stage-title-label">{label}</span>
+        <span className="streak-bf__stage-progress">
+          ({progress.resolved} out of {progress.total})
         </span>
       </span>
     </p>
@@ -344,10 +349,19 @@ export function StreakKnockout({
   streakChallengeId,
   onSelectPlayer,
 }: Props) {
-  const [knockout, setKnockout] = useState<StreakKnockoutPayload | null>(null);
-  const [questions, setQuestions] = useState<StreakQuestionInfo[]>([]);
-  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>([]);
-  const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
+  const [knockout, setKnockout] = useState<StreakKnockoutPayload | null>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.knockout ?? null,
+  );
+  const [questions, setQuestions] = useState<StreakQuestionInfo[]>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.questions ?? [],
+  );
+  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>(
+    () =>
+      readStreakChallengeSessionCache(streakChallengeId)?.knockoutPhases ?? [],
+  );
+  const [entries, setEntries] = useState<StreakLeaderboardEntry[]>(
+    () => readStreakChallengeSessionCache(streakChallengeId)?.entries ?? [],
+  );
   const [loadErr, setLoadErr] = useState('');
   const [setupErr, setSetupErr] = useState('');
   const [startBusy, setStartBusy] = useState(false);
@@ -364,6 +378,12 @@ export function StreakKnockout({
       setQuestions(detail.questions);
       setKnockoutPhases(detail.knockout_phases ?? []);
       setEntries(board.entries);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        knockout: data.knockout,
+        questions: detail.questions,
+        knockoutPhases: detail.knockout_phases ?? [],
+        entries: board.entries,
+      });
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load knockout bracket.',
@@ -388,6 +408,9 @@ export function StreakKnockout({
         user_id: userId,
       });
       setKnockout(result.knockout);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        knockout: result.knockout,
+      });
     } catch (e) {
       setSetupErr(
         e instanceof ApiError ? e.message : 'Could not update bracket.',
@@ -401,6 +424,9 @@ export function StreakKnockout({
     try {
       const result = await advanceStreakKnockout(streakChallengeId);
       setKnockout(result.knockout);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        knockout: result.knockout,
+      });
     } catch (e) {
       setSetupErr(
         e instanceof ApiError ? e.message : 'Could not start knockout.',

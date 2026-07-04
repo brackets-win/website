@@ -221,6 +221,14 @@
   max-width: 100%;
 }
 
+.streak-bf__stage-progress {
+  text-transform: none;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0.85;
+}
+
 .streak-bf__stage-live {
   flex-shrink: 0;
   width: 0.55rem;
