@@ -54,7 +54,7 @@ def _seed_participants(
     answered = [p for p in participants if p.wins + p.losses > 0]
     if answered:
         ranked = streak_ranked_participants(participants)
-        return [(p, rank) for p, rank in ranked]
+        return [(p, idx) for idx, (p, _rank) in enumerate(ranked, start=1)]
 
     shuffled = list(participants)
     random.shuffle(shuffled)
@@ -168,13 +168,6 @@ def start_knockout(challenge: StreakChallenge) -> StreakKnockout:
         raise ValueError("At least two participants are required")
 
     now = timezone.now()
-    challenge.mode = StreakChallenge.Mode.KNOCKOUT
-    challenge.save(update_fields=["mode"])
-
-    seeded = _seed_participants(participants)
-    bracket_size = bracket_qualifier_count(len(seeded))
-    qualifiers = seeded[:bracket_size]
-    by_seed = _participant_by_seed(qualifiers)
 
     for p in participants:
         _freeze_participant_stats(p)
@@ -199,6 +192,14 @@ def start_knockout(challenge: StreakChallenge) -> StreakKnockout:
                 "consolation_eligible_from",
             ]
         )
+
+    seeded = _seed_participants(participants)
+    bracket_size = bracket_qualifier_count(len(seeded))
+    qualifiers = seeded[:bracket_size]
+    by_seed = _participant_by_seed(qualifiers)
+
+    challenge.mode = StreakChallenge.Mode.KNOCKOUT
+    challenge.save(update_fields=["mode"])
 
     for p, seed in qualifiers:
         p.in_knockout_bracket = True

@@ -59,7 +59,7 @@ def _parse_stored_dt(value: Any) -> datetime | None:
 
 def round_start_at(challenge: StreakChallenge, round_index: int) -> datetime | None:
     if round_index <= 1:
-        return challenge.knockout_transition_at
+        return streak_season_cutoff_at(challenge)
     return _parse_stored_dt((challenge.knockout_round_starts or {}).get(str(round_index)))
 
 
