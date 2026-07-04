@@ -82,6 +82,11 @@ function QuestionTile({
       <div className="streak-question-tile__header">
         <div className="streak-question-tile__status">
           <span className="streak-question-tile__badge">{badge}</span>
+          {q.knockout_only ? (
+            <span className="streak-question-tile__badge streak-question-tile__badge--knockout">
+              Knockout
+            </span>
+          ) : null}
           <span
             className={
               q.pick_count > 0

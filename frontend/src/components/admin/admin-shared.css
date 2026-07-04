@@ -729,6 +729,11 @@
   color: var(--app-accent);
 }
 
+.streak-question-tile__badge--knockout {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
 .streak-question-tile--past .streak-question-tile__badge {
   background: rgba(217, 119, 6, 0.15);
   color: #b45309;
