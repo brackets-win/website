@@ -423,3 +423,156 @@ class NextMatchPickTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 403)
+
+
+class NextMatchFuturePreferenceTests(TestCase):
+    def setUp(self):
+        self.host = User.objects.create_user(
+            username="host-future", password="x", is_staff=True
+        )
+        self.bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "next-match-se8",
+            "Next Match SE8",
+            8,
+            self.host,
+            structure_config={
+                "points_champion": 10,
+                "knockout": {"points_per_correct_pick": 1},
+            },
+        )
+        self.challenge = BracketChallenge.objects.create(
+            name="Pool Future",
+            bracket=self.bracket,
+            created_by=self.host,
+            join_code="NEXTMAT8",
+        )
+        self.master = self.bracket.get_master_bracket()
+        self.teams = [
+            BracketContestant.objects.create(
+                bracket=self.bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
+            for i in range(8)
+        ]
+        ensure_knockout_structure_for_user_bracket(self.master)
+        (
+            self.t1,
+            self.t2,
+            self.t3,
+            self.t4,
+            self.t5,
+            self.t6,
+            self.t7,
+            self.t8,
+        ) = self.teams
+        self._set_master_sf1_pending()
+
+    def _ko_stages(self):
+        return list(
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order")
+        )
+
+    def _set_master_sf1_pending(self):
+        quarter, semi, _final = self._ko_stages()
+        for position, left, right, winner in [
+            (1, self.t1, self.t2, self.t1),
+            (2, self.t3, self.t4, self.t3),
+            (3, self.t5, self.t6, self.t5),
+            (4, self.t7, self.t8, self.t7),
+        ]:
+            match = self.master.matchup_set.get(stage=quarter, position=position)
+            match.contestant1 = left
+            match.contestant2 = right
+            match.winner = winner
+            match.save(update_fields=["contestant1", "contestant2", "winner"])
+        sf1 = self.master.matchup_set.get(stage=semi, position=1)
+        sf1.winner = None
+        sf1.save(update_fields=["winner"])
+
+    def _master_sf1(self):
+        _quarter, semi, _final = self._ko_stages()
+        return self.master.matchup_set.get(stage=semi, position=1)
+
+    def _set_next_match(self, matchup_id):
+        self.bracket.metadata = set_next_match_on_metadata(
+            self.bracket.metadata, matchup_id
+        )
+        self.bracket.save(update_fields=["metadata"])
+
+    def _submit(
+        self,
+        username,
+        *,
+        qf1,
+        qf2,
+        sf1,
+        qf3=None,
+        qf4=None,
+        sf2=None,
+        final_winner=None,
+    ):
+        quarter, semi, final = self._ko_stages()
+        qf3 = qf3 or self.t5
+        qf4 = qf4 or self.t7
+        sf2 = sf2 or qf3
+        final_winner = final_winner or sf2
+        user = User.objects.create_user(username=username, password="x")
+        ub = UserBracket.objects.create(
+            user=user,
+            bracket=self.bracket,
+            challenge=self.challenge,
+            submitted_at=timezone.now(),
+        )
+        ensure_knockout_structure_for_user_bracket(ub)
+        for position, left, right, winner in [
+            (1, self.t1, self.t2, qf1),
+            (2, self.t3, self.t4, qf2),
+            (3, self.t5, self.t6, qf3),
+            (4, self.t7, self.t8, qf4),
+        ]:
+            match = ub.matchup_set.get(stage=quarter, position=position)
+            match.contestant1 = left
+            match.contestant2 = right
+            match.winner = winner
+            match.save(update_fields=["contestant1", "contestant2", "winner"])
+        sf1_match = ub.matchup_set.get(stage=semi, position=1)
+        sf1_match.contestant1 = qf1
+        sf1_match.contestant2 = qf2
+        sf1_match.winner = sf1
+        sf1_match.save(update_fields=["contestant1", "contestant2", "winner"])
+        sf2_match = ub.matchup_set.get(stage=semi, position=2)
+        sf2_match.contestant1 = qf3
+        sf2_match.contestant2 = qf4
+        sf2_match.winner = sf2
+        sf2_match.save(update_fields=["contestant1", "contestant2", "winner"])
+        final_match = ub.matchup_set.get(stage=final, position=1)
+        final_match.contestant1 = sf1
+        final_match.contestant2 = sf2
+        final_match.winner = final_winner
+        final_match.save(update_fields=["contestant1", "contestant2", "winner"])
+        return ub
+
+    def test_current_round_result_does_not_create_preference(self):
+        # One entry still has T1 alive beyond the semifinal, so indifferent
+        # entries should inherit the less-popular side (T3).
+        ub_future_t1 = self._submit(
+            "future-t1",
+            qf1=self.t1,
+            qf2=self.t3,
+            sf1=self.t1,
+            final_winner=self.t5,
+        )
+        # T1 loses in the current semifinal and T3 was already out in quarters,
+        # so neither team can earn more after this stage for this entry.
+        ub_indifferent = self._submit(
+            "indifferent",
+            qf1=self.t1,
+            qf2=self.t4,
+            sf1=self.t4,
+            final_winner=self.t5,
+        )
+        self._set_next_match(self._master_sf1().id)
+
+        picks = compute_next_match_picks_for_bracket(self.bracket)
+        self.assertEqual(picks[ub_future_t1.id], self.t1.id)
+        self.assertEqual(picks[ub_indifferent.id], self.t3.id)

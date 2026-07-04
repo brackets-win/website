@@ -1,8 +1,8 @@
 """Per-entry "who do you want to win the next match" picks for the leaderboard.
 
 For the admin-set next match (a single undecided master knockout game between two
-contestants X and Y), each submitted entry "wants" whichever of X/Y they took
-further in their own bracket — the contestant who reached the deeper knockout round.
+contestants X and Y), each submitted entry "wants" whichever of X/Y they still
+have going farther beyond the current matchup's stage in their own bracket.
 The third-place match breaks the tie among semifinal losers (winning it ranks above
 losing it, both below the final's runner-up). Group placement is ignored. Entries
 that took both teams equally far (including never advancing either) are shown the
@@ -43,12 +43,13 @@ def compute_next_match_picks_for_bracket(
         return {}
 
     depths_by_entry = _knockout_depths_by_entry(bracket, ubs, {x_id, y_id})
+    current_stage_floor = _current_stage_depth_floor(bracket, m.stage_id)
 
     pref: dict[int, str | None] = {}
     for ub in ubs:
         depths = depths_by_entry.get(ub.id, {})
-        dx = depths.get(x_id, 0.0)
-        dy = depths.get(y_id, 0.0)
+        dx = max(depths.get(x_id, 0.0) - current_stage_floor, 0.0)
+        dy = max(depths.get(y_id, 0.0) - current_stage_floor, 0.0)
         if dx > dy:
             pref[ub.id] = "x"
         elif dy > dx:
@@ -57,6 +58,26 @@ def compute_next_match_picks_for_bracket(
             pref[ub.id] = None
 
     return _assign_picks(pref, x_id, y_id)
+
+
+def _current_stage_depth_floor(bracket, stage_id: int) -> float:
+    """Depth already earned by reaching the current matchup's stage."""
+    knockout_stages = list(
+        bracket.stages.filter(
+            stage_type=BracketStage.StageType.KNOCKOUT
+        ).order_by("order")
+    )
+    third_place_ids = {
+        ks.pk
+        for ks in KnockoutStage.objects.filter(bracket=bracket, is_third_place=True)
+    }
+    main_ko_stages = [s for s in knockout_stages if s.id not in third_place_ids]
+    for level, stage in enumerate(main_ko_stages, start=1):
+        if stage.id == stage_id:
+            return float(level)
+    if stage_id in third_place_ids:
+        return float(max(len(main_ko_stages) - 1, 0)) + 0.5
+    return 0.0
 
 
 def _knockout_depths_by_entry(
