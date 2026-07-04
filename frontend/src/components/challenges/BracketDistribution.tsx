@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
+  type BracketContestantInfo,
   type BracketDetail,
   type BracketStageInfo,
   type ChallengeStatsBracketSlotEntry,
@@ -221,6 +222,33 @@ function SlotDistribution({
   );
 }
 
+function SeededSlot({
+  contestant,
+}: {
+  contestant: BracketContestantInfo | null | undefined;
+}) {
+  if (!contestant) {
+    return (
+      <div className="bd-slot bd-slot--empty" aria-hidden>
+        —
+      </div>
+    );
+  }
+  return (
+    <div className="bd-slot">
+      <div className="bd-slot-top">
+        <ContestantAvatar
+          displayName={contestant.display_name}
+          imageUrl={contestant.image_url}
+          className="bd-slot-img"
+          placeholderClassName="bd-slot-img bd-slot-img--ph"
+        />
+        <span className="bd-slot-top-name">{contestant.display_name}</span>
+      </div>
+    </div>
+  );
+}
+
 function MatchupBox({
   m,
   isFirst,
@@ -228,6 +256,7 @@ function MatchupBox({
   master,
   slots,
   maxOthers,
+  seededOnly = false,
 }: {
   m: MatchupInfo;
   isFirst: boolean;
@@ -235,7 +264,16 @@ function MatchupBox({
   master: UserBracketDetail | null;
   slots: Slots;
   maxOthers: number;
+  seededOnly?: boolean;
 }) {
+  if (seededOnly) {
+    return (
+      <div className="bf-matchup bd-matchup">
+        <SeededSlot contestant={m.contestant1} />
+        <SeededSlot contestant={m.contestant2} />
+      </div>
+    );
+  }
   const feeders = resolveFeederMatchups(m, master ?? undefinedDetail, prevStageId);
   const topSide = isFirst
     ? 1
@@ -299,12 +337,14 @@ function DistStageColumn({
   master,
   slots,
   maxOthers,
+  seededOpeningRound,
 }: {
   col: MirrorBracketColumn;
   stages: BracketStageInfo[];
   master: UserBracketDetail | null;
   slots: Slots;
   maxOthers: number;
+  seededOpeningRound: boolean;
 }) {
   const { stage, stageIdx, positionMin, positionMax, wingMin, wingMax } = col;
   const isFirst = stageIdx === 0;
@@ -368,6 +408,7 @@ function DistStageColumn({
                 master={master}
                 slots={slots}
                 maxOthers={maxOthers}
+                seededOnly={seededOpeningRound && isFirst}
               />
             </div>
           );
@@ -679,15 +720,11 @@ export function BracketDistribution({
     () => sortedStages.some((s) => s.stage_type === 'GROUP'),
     [sortedStages],
   );
-  const knockoutStagesMain = useMemo(() => {
-    const main = knockoutStages.filter((s) => !s.knockout?.is_third_place);
-    // Knockout-only brackets seed the opening round, so its picks carry no
-    // prediction signal (every entry is identical). Drop it from the board.
-    if (!hasGroupStage && main.length > 1) {
-      return main.slice(1);
-    }
-    return main;
-  }, [knockoutStages, hasGroupStage]);
+  const knockoutStagesMain = useMemo(
+    () => knockoutStages.filter((s) => !s.knockout?.is_third_place),
+    [knockoutStages],
+  );
+  const seededOpeningRound = !hasGroupStage;
   const thirdStage = useMemo(
     () =>
       bracketDef?.has_third_place_match
@@ -759,6 +796,7 @@ export function BracketDistribution({
                       master={master}
                       slots={slots}
                       maxOthers={maxOthers}
+                      seededOpeningRound={seededOpeningRound}
                     />
                     {colIdx < mirrorLayout.left.length - 1 ? (
                       <DistConnector
@@ -822,6 +860,7 @@ export function BracketDistribution({
                       master={master}
                       slots={slots}
                       maxOthers={maxOthers}
+                      seededOpeningRound={seededOpeningRound}
                     />
                     {colIdx < mirrorLayout.right.length - 1 ? (
                       <DistConnector
@@ -845,6 +884,7 @@ export function BracketDistribution({
                     master={master}
                     slots={slots}
                     maxOthers={maxOthers}
+                    seededOpeningRound={seededOpeningRound}
                   />
                   {stageIdx < knockoutStagesMain.length - 1 ? (
                     <DistConnector
