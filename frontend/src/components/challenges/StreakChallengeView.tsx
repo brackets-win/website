@@ -78,15 +78,148 @@ function compareClosesAtDesc(
   return b.id - a.id;
 }
 
+type PickFilter = {
+  scope?: 'streak' | 'consolation' | 'round';
+  roundIndex?: number;
+};
+
+type MatchupOpponent = {
+  userId: number;
+  displayName: string;
+};
+
 type SelectedPlayer = {
   userId: number;
   displayName: string;
   fromTab: StreakTab;
-  picksFilter?: {
-    scope?: 'streak' | 'consolation' | 'round';
-    roundIndex?: number;
-  };
+  picksFilter?: PickFilter;
+  opponent?: MatchupOpponent;
 };
+
+type MatchupOutcome = 'correct' | 'wrong' | 'none';
+
+type HeadToHeadQuestionRow = {
+  questionId: number;
+  text: string;
+  closesAt: string;
+  choices: StreakParticipantPickRow['choices'];
+  correctChoiceId: number | null;
+  selectedPickChoiceId: number | null;
+  opponentPickChoiceId: number | null;
+  selectedOutcome: MatchupOutcome;
+  opponentOutcome: MatchupOutcome;
+};
+
+function knockoutRoundStartsAt(
+  summary: StreakChallengeSummary | null,
+  roundIndex: number,
+): string | null {
+  if (!summary || roundIndex <= 0) return null;
+  if (roundIndex === 1) return summary.knockout_transition_at ?? null;
+  return summary.knockout_round_starts?.[String(roundIndex)] ?? null;
+}
+
+function pickOutcomeFromChoice(
+  pickChoiceId: number | null,
+  correctChoiceId: number | null,
+): MatchupOutcome {
+  if (pickChoiceId == null || correctChoiceId == null) return 'none';
+  return pickChoiceId === correctChoiceId ? 'correct' : 'wrong';
+}
+
+function mergeHeadToHeadPicks(
+  selectedRows: StreakParticipantPickRow[],
+  opponentRows: StreakParticipantPickRow[],
+  baseQuestions: StreakQuestionInfo[] = [],
+): HeadToHeadQuestionRow[] {
+  const byQuestionId = new Map<number, HeadToHeadQuestionRow>();
+
+  for (const question of baseQuestions) {
+    byQuestionId.set(question.id, {
+      questionId: question.id,
+      text: question.text,
+      closesAt: question.closes_at,
+      choices: question.choices,
+      correctChoiceId: question.correct_choice_id,
+      selectedPickChoiceId: null,
+      opponentPickChoiceId: null,
+      selectedOutcome: 'none',
+      opponentOutcome: 'none',
+    });
+  }
+
+  for (const row of selectedRows) {
+    const existing = byQuestionId.get(row.question_id);
+    if (existing) {
+      existing.selectedPickChoiceId = row.pick_choice_id;
+      existing.selectedOutcome = pickOutcomeFromChoice(
+        row.pick_choice_id,
+        row.correct_choice_id,
+      );
+      if (existing.correctChoiceId == null) {
+        existing.correctChoiceId = row.correct_choice_id;
+      }
+      if (existing.choices.length === 0) {
+        existing.choices = row.choices;
+      }
+      continue;
+    }
+
+    byQuestionId.set(row.question_id, {
+      questionId: row.question_id,
+      text: row.text,
+      closesAt: row.closes_at,
+      choices: row.choices,
+      correctChoiceId: row.correct_choice_id,
+      selectedPickChoiceId: row.pick_choice_id,
+      opponentPickChoiceId: null,
+      selectedOutcome: pickOutcomeFromChoice(
+        row.pick_choice_id,
+        row.correct_choice_id,
+      ),
+      opponentOutcome: 'none',
+    });
+  }
+
+  for (const row of opponentRows) {
+    const existing = byQuestionId.get(row.question_id);
+    const opponentOutcome = pickOutcomeFromChoice(
+      row.pick_choice_id,
+      row.correct_choice_id,
+    );
+
+    if (existing) {
+      existing.opponentPickChoiceId = row.pick_choice_id;
+      existing.opponentOutcome = opponentOutcome;
+      if (existing.correctChoiceId == null) {
+        existing.correctChoiceId = row.correct_choice_id;
+      }
+      if (existing.choices.length === 0) {
+        existing.choices = row.choices;
+      }
+      continue;
+    }
+
+    byQuestionId.set(row.question_id, {
+      questionId: row.question_id,
+      text: row.text,
+      closesAt: row.closes_at,
+      choices: row.choices,
+      correctChoiceId: row.correct_choice_id,
+      selectedPickChoiceId: null,
+      opponentPickChoiceId: row.pick_choice_id,
+      selectedOutcome: 'none',
+      opponentOutcome,
+    });
+  }
+
+  return [...byQuestionId.values()].sort((a, b) =>
+    compareClosesAtAsc(
+      { closes_at: a.closesAt, id: a.questionId },
+      { closes_at: b.closesAt, id: b.questionId },
+    ),
+  );
+}
 
 export function StreakChallengeView({
   streakChallengeId,
@@ -102,6 +235,8 @@ export function StreakChallengeView({
         fromTab?: StreakTab;
         picksScope?: 'streak' | 'consolation' | 'round';
         roundIndex?: number;
+        opponentUserId?: number;
+        opponentName?: string;
       }
     | null
     | undefined;
@@ -146,10 +281,20 @@ export function StreakChallengeView({
             roundIndex: playerNavState.roundIndex,
           }
         : undefined,
+      opponent:
+        playerNavState?.opponentUserId != null && playerNavState.opponentName
+          ? {
+              userId: playerNavState.opponentUserId,
+              displayName: playerNavState.opponentName,
+            }
+          : undefined,
     };
   }, [viewingPlayerId, entries, playerNameFromState, playerNavState]);
 
   const [playerPicks, setPlayerPicks] = useState<StreakParticipantPickRow[]>(
+    [],
+  );
+  const [opponentPicks, setOpponentPicks] = useState<StreakParticipantPickRow[]>(
     [],
   );
   const [playerPicksBusy, setPlayerPicksBusy] = useState(false);
@@ -241,7 +386,8 @@ export function StreakChallengeView({
   function onSelectKnockoutPlayer(
     userId: number,
     displayName: string,
-    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+    filter?: PickFilter,
+    opponent?: MatchupOpponent,
   ) {
     navigate(streakPlayerPath(streakChallengeId, userId), {
       state: {
@@ -249,6 +395,8 @@ export function StreakChallengeView({
         fromTab: 'knockout',
         picksScope: filter?.scope,
         roundIndex: filter?.roundIndex,
+        opponentUserId: opponent?.userId,
+        opponentName: opponent?.displayName,
       },
     });
   }
@@ -302,22 +450,72 @@ export function StreakChallengeView({
     [playerPicks],
   );
 
+  const headToHeadBaseQuestions = useMemo(() => {
+    if (
+      selectedPlayer?.opponent == null ||
+      selectedPlayer.picksFilter?.scope !== 'round' ||
+      selectedPlayer.picksFilter.roundIndex == null
+    ) {
+      return [];
+    }
+
+    const roundIndex = selectedPlayer.picksFilter.roundIndex;
+    const start = knockoutRoundStartsAt(summary, roundIndex);
+    if (!start) return [];
+    const end = knockoutRoundStartsAt(summary, roundIndex + 1);
+    const startMs = new Date(start).getTime();
+    const endMs = end ? new Date(end).getTime() : null;
+
+    return questions
+      .filter((question) => {
+        if (question.resolved_at == null) return false;
+        const closesAtMs = new Date(question.closes_at).getTime();
+        if (closesAtMs < startMs) return false;
+        if (endMs != null && closesAtMs >= endMs) return false;
+        return true;
+      })
+      .sort(compareClosesAtAsc);
+  }, [questions, selectedPlayer, summary]);
+
+  const headToHeadRows = useMemo(
+    () =>
+      mergeHeadToHeadPicks(
+        playerPicks,
+        opponentPicks,
+        headToHeadBaseQuestions,
+      ),
+    [headToHeadBaseQuestions, playerPicks, opponentPicks],
+  );
+
   useEffect(() => {
     if (selectedPlayer == null) {
       setPlayerPicks([]);
+      setOpponentPicks([]);
       setPlayerPicksErr('');
       return;
     }
     let cancelled = false;
     setPlayerPicksBusy(true);
     setPlayerPicksErr('');
-    void getStreakParticipantPicks(
-      streakChallengeId,
-      selectedPlayer.userId,
-      selectedPlayer.picksFilter,
-    )
-      .then((data) => {
-        if (!cancelled) setPlayerPicks(data.picks);
+    void Promise.all([
+      getStreakParticipantPicks(
+        streakChallengeId,
+        selectedPlayer.userId,
+        selectedPlayer.picksFilter,
+      ),
+      selectedPlayer.opponent
+        ? getStreakParticipantPicks(
+            streakChallengeId,
+            selectedPlayer.opponent.userId,
+            selectedPlayer.picksFilter,
+          )
+        : Promise.resolve(null),
+    ])
+      .then(([playerData, opponentData]) => {
+        if (!cancelled) {
+          setPlayerPicks(playerData.picks);
+          setOpponentPicks(opponentData?.picks ?? []);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -481,6 +679,31 @@ export function StreakChallengeView({
     }
   }
 
+  function renderMatchupOutcomeMark(
+    outcome: MatchupOutcome,
+    playerName: string,
+  ) {
+    const label =
+      outcome === 'correct'
+        ? `${playerName} answered correctly`
+        : outcome === 'wrong'
+          ? `${playerName} answered incorrectly`
+          : `${playerName} did not make a scored pick`;
+    const symbol = outcome === 'correct' ? '✓' : outcome === 'wrong' ? '✕' : '—';
+    const className =
+      outcome === 'correct'
+        ? 'streak-player-picks__mark streak-player-picks__mark--correct'
+        : outcome === 'wrong'
+          ? 'streak-player-picks__mark streak-player-picks__mark--wrong'
+          : 'streak-player-picks__mark streak-player-picks__mark--none';
+
+    return (
+      <span className={className} aria-label={label} title={label}>
+        {symbol}
+      </span>
+    );
+  }
+
   if (loadErr && !summary) {
     return (
       <div className={`${streakThemeClass} streak-view`}>
@@ -501,6 +724,7 @@ export function StreakChallengeView({
   }
 
   if (selectedPlayer != null) {
+    const matchupOpponent = selectedPlayer.opponent;
     const rootClassName = `${streakThemeClass} streak-view${
       hasScheduledKnockout ? ' streak-view--wide' : ''
     }`;
@@ -515,13 +739,108 @@ export function StreakChallengeView({
         </button>
         <section className="card streak-view__panel">
           <h2 className="streak-player-picks__title">
-            {selectedPlayer.displayName}&apos;s picks
+            {matchupOpponent
+              ? `${selectedPlayer.displayName} vs ${matchupOpponent.displayName}`
+              : `${selectedPlayer.displayName}'s picks`}
           </h2>
           {playerPicksErr ? (
             <div className="alert alert--error">{playerPicksErr}</div>
           ) : null}
           {playerPicksBusy ? (
             <p className="streak-view__muted">Loading…</p>
+          ) : matchupOpponent ? (
+            headToHeadRows.length === 0 ? (
+              <p className="streak-view__muted">No resolved picks yet.</p>
+            ) : (
+              <>
+                <div className="streak-player-picks__h2h-head" aria-hidden>
+                  <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--left">
+                    {selectedPlayer.displayName}
+                  </span>
+                  <span className="streak-player-picks__h2h-head-gap" />
+                  <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--right">
+                    {matchupOpponent.displayName}
+                  </span>
+                </div>
+                <ul className="streak-player-picks__list">
+                  {headToHeadRows.map((row) => (
+                    <li
+                      key={row.questionId}
+                      className="streak-player-picks__item streak-player-picks__item--h2h"
+                    >
+                      <div className="streak-player-picks__h2h-grid">
+                        <div className="streak-player-picks__h2h-mark-col">
+                          {renderMatchupOutcomeMark(
+                            row.selectedOutcome,
+                            selectedPlayer.displayName,
+                          )}
+                        </div>
+                        <div className="streak-player-picks__h2h-main">
+                          <p className="streak-player-picks__question">{row.text}</p>
+                          <p className="streak-player-picks__meta">
+                            Closed {formatDeadlineEst(row.closesAt)}
+                          </p>
+                          <div className="streak-player-picks__h2h-choices">
+                            {row.choices.map((choice) => {
+                              const selectedPicked =
+                                row.selectedPickChoiceId === choice.id;
+                              const opponentPicked =
+                                row.opponentPickChoiceId === choice.id;
+                              const isCorrectChoice =
+                                row.correctChoiceId != null &&
+                                row.correctChoiceId === choice.id;
+                              const isWrongPick =
+                                !isCorrectChoice &&
+                                (selectedPicked || opponentPicked);
+
+                              const choiceClassName = isCorrectChoice
+                                ? 'streak-player-picks__h2h-choice streak-player-picks__h2h-choice--correct'
+                                : isWrongPick
+                                  ? 'streak-player-picks__h2h-choice streak-player-picks__h2h-choice--wrong'
+                                  : 'streak-player-picks__h2h-choice';
+
+                              return (
+                                <div key={choice.id} className={choiceClassName}>
+                                  <span
+                                    className={
+                                      selectedPicked
+                                        ? 'streak-player-picks__h2h-choice-pick streak-player-picks__h2h-choice-pick--active'
+                                        : 'streak-player-picks__h2h-choice-pick'
+                                    }
+                                    aria-hidden
+                                  >
+                                    {selectedPicked ? '●' : ''}
+                                  </span>
+                                  <span className="streak-player-picks__h2h-choice-label">
+                                    {choice.label}
+                                  </span>
+                                  <span
+                                    className={
+                                      opponentPicked
+                                        ? 'streak-player-picks__h2h-choice-pick streak-player-picks__h2h-choice-pick--active'
+                                        : 'streak-player-picks__h2h-choice-pick'
+                                    }
+                                    aria-hidden
+                                  >
+                                    {opponentPicked ? '●' : ''}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="streak-player-picks__h2h-mark-col streak-player-picks__h2h-mark-col--right">
+                          {renderMatchupOutcomeMark(
+                            row.opponentOutcome,
+                            matchupOpponent.displayName,
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )
           ) : sortedPlayerPicks.length === 0 ? (
             <p className="streak-view__muted">No picks yet.</p>
           ) : (

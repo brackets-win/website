@@ -203,15 +203,20 @@
   position: relative;
 }
 
+.streak-bf__matchup--decided {
+  box-shadow: 0 0 0 1px rgba(var(--app-accent-rgb, 87, 130, 168), 0.12);
+  border-radius: 10px;
+}
+
 .streak-bf__live {
   position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
+  top: 0.38rem;
+  left: 0.38rem;
   z-index: 2;
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
-  background: #16a34a;
+  background: rgba(74, 222, 128, 0.78);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
@@ -221,7 +226,9 @@
 }
 
 .streak-bf__slot--winner {
-  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.08);
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.12);
+  box-shadow: inset 3px 0 0 rgba(var(--app-accent-rgb, 87, 130, 168), 0.8);
+  font-weight: 600;
 }
 
 .streak-bf__slot--empty {

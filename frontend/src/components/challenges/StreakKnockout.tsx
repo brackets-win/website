@@ -28,6 +28,7 @@ type Props = {
     userId: number,
     displayName: string,
     filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+    opponent?: { userId: number; displayName: string },
   ) => void;
 };
 
@@ -71,9 +72,11 @@ function BracketSlot({
     userId: number,
     displayName: string,
     filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+    opponent?: { userId: number; displayName: string },
   ) => void;
 }) {
   const { player, seed, correct, bonus } = scoreParts({ match, side });
+  const opponent = side === 'a' ? match.player_b : match.player_a;
   const isWinner = player != null && match.winner_user_id === player.user_id;
 
   if (!player) {
@@ -103,7 +106,12 @@ function BracketSlot({
             onSelectPlayer(player.user_id, player.display_name, {
               scope: 'round',
               roundIndex: match.round_index,
-            })
+            }, opponent
+              ? {
+                  userId: opponent.user_id,
+                  displayName: opponent.display_name,
+                }
+              : undefined)
           }
         >
           {player.display_name}
@@ -125,10 +133,17 @@ function BracketMatchup({
     userId: number,
     displayName: string,
     filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+    opponent?: { userId: number; displayName: string },
   ) => void;
 }) {
   return (
-    <div className="bf-matchup streak-bf__matchup">
+    <div
+      className={
+        match.finalized || match.winner_user_id != null
+          ? 'bf-matchup streak-bf__matchup streak-bf__matchup--decided'
+          : 'bf-matchup streak-bf__matchup'
+      }
+    >
       {match.is_live ? (
         <span className="streak-bf__live" aria-label="Live" title="Live" />
       ) : null}
@@ -216,6 +231,7 @@ function ChampionColumn({
     userId: number,
     displayName: string,
     filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+    opponent?: { userId: number; displayName: string },
   ) => void;
 }) {
   const finalMatch =
@@ -228,6 +244,12 @@ function ChampionColumn({
       : finalMatch?.player_b?.user_id === knockout.champion_user_id
         ? finalMatch.player_b
         : null;
+  const runnerUp =
+    champion && finalMatch
+      ? finalMatch.player_a?.user_id === champion.user_id
+        ? finalMatch.player_b
+        : finalMatch.player_a
+      : null;
 
   return (
     <div className="bf-stage-col bf-stage-col--champion">
@@ -253,7 +275,12 @@ function ChampionColumn({
                     onSelectPlayer(champion.user_id, champion.display_name, {
                       scope: 'round',
                       roundIndex: knockout.rounds.length,
-                    })
+                    }, runnerUp
+                      ? {
+                          userId: runnerUp.user_id,
+                          displayName: runnerUp.display_name,
+                        }
+                      : undefined)
                   }
                 >
                   {champion.display_name}
