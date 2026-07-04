@@ -26,7 +26,6 @@ from brackets.utils.streak_knockout_rules import (
 )
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.leaderboard_preview import streak_participant_label, streak_ranked_participants
-from brackets.utils.streak_deadlines import closes_at_key
 from brackets.utils.streak_scoring import _is_correct
 
 
@@ -995,7 +994,7 @@ def _participant_counts_for_consolation(
 
 
 def recalculate_consolation_for_challenge(challenge: StreakChallenge) -> None:
-    """Rebuild consolation W-L from resolved picks (one scored pick per deadline)."""
+    """Rebuild consolation W-L from resolved picks (every question counts)."""
     if not challenge.is_knockout:
         return
 
@@ -1023,20 +1022,12 @@ def recalculate_consolation_for_challenge(challenge: StreakChallenge) -> None:
             )
         }
 
-        deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
+        wins = 0
+        losses = 0
         for q in questions:
             pick = picks_by_q.get(q.id)
             if pick is None:
                 continue
-            key = closes_at_key(q.closes_at)
-            prev = deadline_pick.get(key)
-            if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
-                deadline_pick[key] = (q, pick)
-
-        wins = 0
-        losses = 0
-        for closes_at in sorted(deadline_pick.keys()):
-            q, pick = deadline_pick[closes_at]
             if not _participant_counts_for_consolation(participant, q.closes_at):
                 continue
             if _is_correct(pick, q):

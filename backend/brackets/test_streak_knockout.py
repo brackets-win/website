@@ -519,6 +519,72 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(row["total_record"], "6-1")
         self.assertEqual(row["total_win_pct"], 86)
 
+    def test_knockout_total_record_counts_all_picks_at_deadline(self):
+        from brackets.utils.streak_scoring import resolve_question
+
+        base = timezone.now() - timedelta(days=5)
+        for i in range(5):
+            self._seed_resolved_pick(
+                user=self.alice,
+                closes_at=base + timedelta(hours=i),
+                correct=True,
+                order=i,
+            )
+        self._seed_resolved_pick(
+            user=self.alice,
+            closes_at=base + timedelta(hours=10),
+            correct=False,
+            order=10,
+        )
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+
+        knockout_closes = timezone.now() + timedelta(hours=1)
+        q1 = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Knockout Q1",
+            closes_at=knockout_closes,
+            order=0,
+        )
+        q2 = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Knockout Q2",
+            closes_at=knockout_closes,
+            order=1,
+        )
+        right1 = StreakQuestionChoice.objects.create(question=q1, label="Yes", order=0)
+        StreakQuestionChoice.objects.create(question=q1, label="No", order=1)
+        right2 = StreakQuestionChoice.objects.create(question=q2, label="Yes", order=0)
+        StreakQuestionChoice.objects.create(question=q2, label="No", order=1)
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=q1,
+            user=self.alice,
+            choice=right1,
+        )
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=q2,
+            user=self.alice,
+            choice=right2,
+        )
+        resolve_question(q1, right1.id)
+        resolve_question(q2, right2.id)
+
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res.status_code, 200)
+        row = next(r for r in res.json()["entries"] if r["user_id"] == self.alice.id)
+        self.assertEqual(row["season_record"], "5-1")
+        self.assertEqual(row["total_record"], "7-1")
+
     def test_knockout_leaderboard_season_streak_unaffected_by_knockout_picks(self):
         from brackets.utils.streak_scoring import resolve_question
 
@@ -559,7 +625,9 @@ class StreakKnockoutTests(TestCase):
         resolve_question(q, right.id)
 
         alice_p.refresh_from_db()
-        self.assertNotEqual(alice_p.streak_signed, alice_p.frozen_streak_signed)
+        self.assertEqual(alice_p.streak_signed, alice_p.frozen_streak_signed)
+        self.assertEqual(alice_p.best_win_streak, alice_p.frozen_best_win_streak)
+        self.assertGreater(alice_p.losses, alice_p.frozen_losses)
 
         self.client.force_login(self.alice)
         res = self.client.get(
@@ -626,7 +694,7 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(res_consolation.status_code, 200)
         self.assertEqual(res_consolation.json()["picks"], [])
 
-    def test_consolation_record_one_pick_per_deadline(self):
+    def test_consolation_record_counts_all_picks_at_deadline(self):
         from brackets.utils.streak_knockout import recalculate_consolation_for_challenge
         from brackets.utils.streak_scoring import resolve_question
 
@@ -684,7 +752,7 @@ class StreakKnockoutTests(TestCase):
 
         eve_p = StreakParticipant.objects.get(user=eve)
         self.assertEqual(eve_p.consolation_wins, 0)
-        self.assertEqual(eve_p.consolation_losses, 1)
+        self.assertEqual(eve_p.consolation_losses, 2)
 
         self.client.force_login(eve)
         res = self.client.get(
@@ -694,11 +762,11 @@ class StreakKnockoutTests(TestCase):
         eve_row = next(
             row for row in res.json()["knockout"]["consolation"] if row["user_id"] == eve.id
         )
-        self.assertEqual(eve_row["record"], "0-1")
+        self.assertEqual(eve_row["record"], "0-2")
 
         recalculate_consolation_for_challenge(self.challenge)
         eve_p.refresh_from_db()
-        self.assertEqual(eve_p.consolation_losses, 1)
+        self.assertEqual(eve_p.consolation_losses, 2)
 
     def test_consolation_record_idempotent_on_re_resolve(self):
         from brackets.utils.streak_scoring import resolve_question

@@ -39,8 +39,26 @@ def _apply_batch(streak_signed: int, wins: int, losses: int) -> int:
     return wins
 
 
+def _one_pick_per_deadline(
+    questions: list[StreakQuestion],
+    picks_by_q: dict[int, StreakPick],
+) -> list[tuple[StreakQuestion, StreakPick]]:
+    """Streak season: at most one scored pick per deadline."""
+    deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
+    for q in questions:
+        pick = picks_by_q.get(q.id)
+        if pick is None:
+            continue
+        key = closes_at_key(q.closes_at)
+        prev = deadline_pick.get(key)
+        if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
+            deadline_pick[key] = (q, pick)
+    return [deadline_pick[k] for k in sorted(deadline_pick.keys())]
+
+
 def recalculate_participant_stats(participant: StreakParticipant) -> None:
-    competition_id = participant.streak_challenge.streak_competition_id
+    challenge = participant.streak_challenge
+    competition_id = challenge.streak_competition_id
     questions = list(
         StreakQuestion.objects.filter(
             streak_competition_id=competition_id,
@@ -57,25 +75,23 @@ def recalculate_participant_stats(participant: StreakParticipant) -> None:
         ).select_related("choice")
     }
 
+    cutoff = streak_season_cutoff_at(challenge) if challenge.is_knockout else None
+    if cutoff is not None:
+        season_questions = [q for q in questions if q.closes_at < cutoff]
+        post_cutoff_questions = [q for q in questions if q.closes_at >= cutoff]
+    else:
+        season_questions = questions
+        post_cutoff_questions = []
+
+    season_scored = _one_pick_per_deadline(season_questions, picks_by_q)
+
     wins = 0
     losses = 0
     streak_signed = 0
     best_win_streak = 0
     best_loss_streak = 0
 
-    # At most one scored pick per deadline; prefer lowest order when legacy dupes exist.
-    deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
-    for q in questions:
-        pick = picks_by_q.get(q.id)
-        if pick is None:
-            continue
-        key = closes_at_key(q.closes_at)
-        prev = deadline_pick.get(key)
-        if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
-            deadline_pick[key] = (q, pick)
-
-    for _closes_at in sorted(deadline_pick.keys()):
-        q, pick = deadline_pick[_closes_at]
+    for q, pick in season_scored:
         if _is_correct(pick, q):
             wins += 1
             batch_wins = 1
@@ -89,6 +105,16 @@ def recalculate_participant_stats(participant: StreakParticipant) -> None:
             best_win_streak = max(best_win_streak, streak_signed)
         elif streak_signed < 0:
             best_loss_streak = max(best_loss_streak, -streak_signed)
+
+    # Knockout/consolation: every resolved question counts toward total record.
+    for q in post_cutoff_questions:
+        pick = picks_by_q.get(q.id)
+        if pick is None:
+            continue
+        if _is_correct(pick, q):
+            wins += 1
+        else:
+            losses += 1
 
     participant.wins = wins
     participant.losses = losses
@@ -169,21 +195,11 @@ def _broken_win_streak_from_picks(
         ).select_related("choice")
     }
 
-    # At most one scored pick per deadline; prefer lowest order when legacy dupes exist.
-    deadline_pick: dict[datetime, tuple[StreakQuestion, StreakPick]] = {}
-    for q in questions:
-        pick = picks_by_q.get(q.id)
-        if pick is None:
-            continue
-        key = closes_at_key(q.closes_at)
-        prev = deadline_pick.get(key)
-        if prev is None or (q.order, q.id) < (prev[0].order, prev[0].id):
-            deadline_pick[key] = (q, pick)
+    season_scored = _one_pick_per_deadline(questions, picks_by_q)
 
     streak_signed = 0
     broken_streak = 0
-    for closes_at in sorted(deadline_pick.keys()):
-        q, pick = deadline_pick[closes_at]
+    for q, pick in season_scored:
         previous_streak = streak_signed
         if _is_correct(pick, q):
             streak_signed = _apply_batch(streak_signed, 1, 0)
