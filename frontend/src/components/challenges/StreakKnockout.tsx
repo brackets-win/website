@@ -130,9 +130,7 @@ function BracketMatchup({
   return (
     <div className="bf-matchup streak-bf__matchup">
       {match.is_live ? (
-        <span className="streak-bf__live" aria-label="Live">
-          Live
-        </span>
+        <span className="streak-bf__live" aria-label="Live" title="Live" />
       ) : null}
       <BracketSlot match={match} side="a" onSelectPlayer={onSelectPlayer} />
       <BracketSlot match={match} side="b" onSelectPlayer={onSelectPlayer} />
@@ -470,7 +468,7 @@ export function StreakKnockout({
       {knockout.consolation.length > 0 ? (
         <div className="streak-knockout__consolation">
           <h3 className="streak-knockout__consolation-title">
-            {isProjected ? 'Consolation' : 'Consolation 🥲'}
+            Consolation
           </h3>
           <table className="streak-knockout__consolation-table">
             <thead>
