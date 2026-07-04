@@ -191,6 +191,125 @@ class StreakKnockoutTests(TestCase):
             [],
         )
 
+    def test_projected_knockout_preview_uses_current_bonus_and_resets_consolation(self):
+        eve = User.objects.create_user(username="eve", password="x")
+        StreakParticipant.objects.create(
+            streak_challenge=self.challenge,
+            user=eve,
+            display_name="Eve",
+            wins=1,
+            losses=5,
+            best_win_streak=1,
+            streak_signed=-1,
+        )
+        self.challenge.knockout_transition_at = timezone.now() + timedelta(days=2)
+        self.challenge.knockout_round_headstart = {"1": True}
+        self.challenge.save(
+            update_fields=["knockout_transition_at", "knockout_round_headstart"]
+        )
+
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout"
+        )
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()["knockout"]
+        first_match = payload["rounds"][0]["matches"][0]
+        self.assertTrue(first_match["score_bonus_enabled"])
+        self.assertEqual(first_match["score_a_correct"], 0)
+        self.assertEqual(first_match["score_a_bonus"], 4)
+        self.assertEqual(first_match["score_a"], 4)
+        self.assertEqual(payload["consolation"][0]["display_name"], "Eve")
+        self.assertEqual(payload["consolation"][0]["record"], "0-0")
+        self.assertEqual(payload["consolation"][0]["win_pct"], 0)
+
+    def test_streak_participant_picks_filters_by_scope(self):
+        now = timezone.now()
+        self.challenge.knockout_transition_at = now - timedelta(days=2)
+        self.challenge.knockout_round_starts = {
+            "2": (now - timedelta(hours=12)).isoformat()
+        }
+        self.challenge.save(
+            update_fields=["knockout_transition_at", "knockout_round_starts"]
+        )
+
+        bob_p = StreakParticipant.objects.get(user=self.bob)
+        bob_p.consolation_eligible_from = now - timedelta(hours=8)
+        bob_p.save(update_fields=["consolation_eligible_from"])
+
+        q_season = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Season Q",
+            closes_at=now - timedelta(days=3),
+            resolved_at=now - timedelta(days=3),
+            order=0,
+        )
+        season_right = StreakQuestionChoice.objects.create(
+            question=q_season, label="Yes", order=0
+        )
+        q_season.correct_choice = season_right
+        q_season.save(update_fields=["correct_choice"])
+
+        q_round = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Round 1 Q",
+            closes_at=now - timedelta(days=1),
+            resolved_at=now - timedelta(days=1),
+            order=1,
+        )
+        round_right = StreakQuestionChoice.objects.create(
+            question=q_round, label="Yes", order=0
+        )
+        q_round.correct_choice = round_right
+        q_round.save(update_fields=["correct_choice"])
+
+        q_consolation = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Consolation Q",
+            closes_at=now - timedelta(hours=6),
+            resolved_at=now - timedelta(hours=6),
+            order=2,
+        )
+        consolation_right = StreakQuestionChoice.objects.create(
+            question=q_consolation, label="Yes", order=0
+        )
+        q_consolation.correct_choice = consolation_right
+        q_consolation.save(update_fields=["correct_choice"])
+
+        for question, choice in [
+            (q_season, season_right),
+            (q_round, round_right),
+            (q_consolation, consolation_right),
+        ]:
+            StreakPick.objects.create(
+                streak_challenge=self.challenge,
+                question=question,
+                user=self.bob,
+                choice=choice,
+            )
+
+        self.client.force_login(self.alice)
+        base = f"/brackets/api/streak-challenges/{self.challenge.id}/players/{self.bob.id}/picks"
+        streak_res = self.client.get(f"{base}?scope=streak")
+        round_res = self.client.get(f"{base}?scope=round&round_index=1")
+        consolation_res = self.client.get(f"{base}?scope=consolation")
+
+        self.assertEqual(streak_res.status_code, 200)
+        self.assertEqual(
+            [row["text"] for row in streak_res.json()["picks"]],
+            ["Season Q"],
+        )
+        self.assertEqual(round_res.status_code, 200)
+        self.assertEqual(
+            [row["text"] for row in round_res.json()["picks"]],
+            ["Round 1 Q"],
+        )
+        self.assertEqual(consolation_res.status_code, 200)
+        self.assertEqual(
+            [row["text"] for row in consolation_res.json()["picks"]],
+            ["Consolation Q"],
+        )
+
     def test_streak_detail_shows_knockout_matchup_header(self):
         self.client.force_login(self.host)
         self.client.post(

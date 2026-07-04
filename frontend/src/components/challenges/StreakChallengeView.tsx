@@ -81,6 +81,11 @@ function compareClosesAtDesc(
 type SelectedPlayer = {
   userId: number;
   displayName: string;
+  fromTab: StreakTab;
+  picksFilter?: {
+    scope?: 'streak' | 'consolation' | 'round';
+    roundIndex?: number;
+  };
 };
 
 export function StreakChallengeView({
@@ -91,9 +96,16 @@ export function StreakChallengeView({
 }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
-  const playerNameFromState = (
-    location.state as { playerName?: string } | null | undefined
-  )?.playerName;
+  const playerNavState = location.state as
+    | {
+        playerName?: string;
+        fromTab?: StreakTab;
+        picksScope?: 'streak' | 'consolation' | 'round';
+        roundIndex?: number;
+      }
+    | null
+    | undefined;
+  const playerNameFromState = playerNavState?.playerName;
 
   function goToTab(nextTab: StreakTab) {
     navigate(streakPath(streakChallengeId, nextTab));
@@ -127,8 +139,15 @@ export function StreakChallengeView({
       displayName:
         playerNameFromState ??
         (fromBoard ? streakPlayerLabel(fromBoard) : 'Player'),
+      fromTab: playerNavState?.fromTab ?? 'leaderboard',
+      picksFilter: playerNavState?.picksScope
+        ? {
+            scope: playerNavState.picksScope,
+            roundIndex: playerNavState.roundIndex,
+          }
+        : undefined,
     };
-  }, [viewingPlayerId, entries, playerNameFromState]);
+  }, [viewingPlayerId, entries, playerNameFromState, playerNavState]);
 
   const [playerPicks, setPlayerPicks] = useState<StreakParticipantPickRow[]>(
     [],
@@ -211,7 +230,26 @@ export function StreakChallengeView({
 
   function onSelectLeaderboardPlayer(userId: number, displayName: string) {
     navigate(streakPlayerPath(streakChallengeId, userId), {
-      state: { playerName: displayName },
+      state: {
+        playerName: displayName,
+        fromTab: 'leaderboard',
+        picksScope: hasScheduledKnockout ? 'streak' : undefined,
+      },
+    });
+  }
+
+  function onSelectKnockoutPlayer(
+    userId: number,
+    displayName: string,
+    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+  ) {
+    navigate(streakPlayerPath(streakChallengeId, userId), {
+      state: {
+        playerName: displayName,
+        fromTab: 'knockout',
+        picksScope: filter?.scope,
+        roundIndex: filter?.roundIndex,
+      },
     });
   }
 
@@ -273,7 +311,11 @@ export function StreakChallengeView({
     let cancelled = false;
     setPlayerPicksBusy(true);
     setPlayerPicksErr('');
-    void getStreakParticipantPicks(streakChallengeId, selectedPlayer.userId)
+    void getStreakParticipantPicks(
+      streakChallengeId,
+      selectedPlayer.userId,
+      selectedPlayer.picksFilter,
+    )
       .then((data) => {
         if (!cancelled) setPlayerPicks(data.picks);
       })
@@ -459,14 +501,17 @@ export function StreakChallengeView({
   }
 
   if (selectedPlayer != null) {
+    const rootClassName = `${streakThemeClass} streak-view${
+      hasScheduledKnockout ? ' streak-view--wide' : ''
+    }`;
     return (
-      <div className={`${streakThemeClass} streak-view`}>
+      <div className={rootClassName}>
         <button
           type="button"
           className="btn btn--ghost streak-player-picks__back"
-          onClick={() => goToTab('leaderboard')}
+          onClick={() => goToTab(selectedPlayer.fromTab)}
         >
-          ← Leaderboard
+          ← {selectedPlayer.fromTab === 'knockout' ? 'Knockout' : 'Leaderboard'}
         </button>
         <section className="card streak-view__panel">
           <h2 className="streak-player-picks__title">
@@ -508,9 +553,12 @@ export function StreakChallengeView({
     summary.best_win_streak,
     summary.broken_win_streak ?? 0,
   );
+  const rootClassName = `${streakThemeClass} streak-view${
+    hasScheduledKnockout ? ' streak-view--wide' : ''
+  }`;
 
   return (
-    <div className={`${streakThemeClass} streak-view`}>
+    <div className={rootClassName}>
       <Link to="/" className="btn btn--ghost challenge-view__back">
         ← My Challenges
       </Link>
@@ -689,7 +737,7 @@ export function StreakChallengeView({
       {tab === 'knockout' && hasScheduledKnockout ? (
         <StreakKnockout
           streakChallengeId={streakChallengeId}
-          onSelectPlayer={onSelectLeaderboardPlayer}
+          onSelectPlayer={onSelectKnockoutPlayer}
         />
       ) : null}
 

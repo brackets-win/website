@@ -51,6 +51,7 @@ from brackets.utils.streak_knockout_rules import (
     knockout_phases_payload,
     knockout_total_rounds,
     question_visible_in_challenge,
+    round_start_at,
     validate_knockout_schedule,
 )
 from brackets.utils.streak_knockout_schedule import process_scheduled_knockout
@@ -853,13 +854,41 @@ def streak_participant_picks(
     if target is None:
         return _json_error("Player not found", 404)
 
+    picks_qs = StreakPick.objects.filter(
+        streak_challenge=challenge,
+        user_id=user_id,
+        question__resolved_at__isnull=False,
+    )
+
+    scope = (request.GET.get("scope") or "").strip().lower()
+    if scope == "streak":
+        if challenge.knockout_transition_at is not None:
+            picks_qs = picks_qs.filter(
+                question__closes_at__lt=challenge.knockout_transition_at
+            )
+    elif scope == "consolation":
+        start = target.consolation_eligible_from or challenge.knockout_transition_at
+        if start is None:
+            picks_qs = picks_qs.none()
+        else:
+            picks_qs = picks_qs.filter(question__closes_at__gte=start)
+    elif scope == "round":
+        round_index_raw = request.GET.get("round_index")
+        try:
+            round_index = int(round_index_raw or "0")
+        except ValueError:
+            round_index = 0
+        start = round_start_at(challenge, round_index)
+        if start is None:
+            picks_qs = picks_qs.none()
+        else:
+            picks_qs = picks_qs.filter(question__closes_at__gte=start)
+            end = round_start_at(challenge, round_index + 1)
+            if end is not None:
+                picks_qs = picks_qs.filter(question__closes_at__lt=end)
+
     picks = (
-        StreakPick.objects.filter(
-            streak_challenge=challenge,
-            user_id=user_id,
-            question__resolved_at__isnull=False,
-        )
-        .select_related("question", "choice", "question__correct_choice")
+        picks_qs.select_related("question", "choice", "question__correct_choice")
         .prefetch_related("question__choices")
         .order_by("-question__closes_at", "-question__order", "-question__id")
     )

@@ -192,6 +192,7 @@
 
 .streak-bf.bf {
   margin-top: 0;
+  --bf-ko-col-width: 220px;
 }
 
 .streak-bf--projected {
@@ -228,13 +229,16 @@
 
 .streak-bf__identity {
   min-width: 0;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.45rem;
   flex: 1;
 }
 
 .streak-bf__name {
+  display: block;
+  flex: 1 1 auto;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -242,18 +246,32 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--bf-text);
+  color: var(--activity-btn, var(--app-accent));
   font: inherit;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+}
+
+.streak-bf__name.streak-leaderboard__player,
+.streak-bf__champion-name.streak-leaderboard__player,
+.streak-knockout__name.streak-leaderboard__player {
+  font-weight: 600;
+}
+
+.streak-bf__name.streak-leaderboard__player:hover,
+.streak-bf__name.streak-leaderboard__player:focus-visible,
+.streak-bf__champion-name.streak-leaderboard__player:hover,
+.streak-bf__champion-name.streak-leaderboard__player:focus-visible,
+.streak-knockout__name.streak-leaderboard__player:hover,
+.streak-knockout__name.streak-leaderboard__player:focus-visible {
+  text-decoration: none;
 }
 
 .streak-bf__score {
   flex-shrink: 0;
-  min-width: 4rem;
+  min-width: 3.4rem;
   text-align: right;
   font-weight: 700;
   color: var(--app-accent);
@@ -264,12 +282,15 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--bf-text);
+  color: var(--activity-btn, var(--app-accent));
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+}
+
+.streak-bf__champion-anchor {
+  width: 100%;
 }
 
 .streak-knockout__setup-panel {

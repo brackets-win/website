@@ -1028,10 +1028,17 @@ export async function getStreakChallengeStats(
 export async function getStreakParticipantPicks(
   streakChallengeId: number,
   userId: number,
+  filter?: { scope?: 'streak' | 'consolation' | 'round'; roundIndex?: number },
 ): Promise<{ display_name: string; username: string; picks: StreakParticipantPickRow[] }> {
+  const params = new URLSearchParams();
+  if (filter?.scope) params.set('scope', filter.scope);
+  if (filter?.scope === 'round' && filter.roundIndex != null) {
+    params.set('round_index', String(filter.roundIndex));
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : '';
   return apiFetch(
     'GET',
-    `streak-challenges/${streakChallengeId}/players/${userId}/picks`,
+    `streak-challenges/${streakChallengeId}/players/${userId}/picks${suffix}`,
   );
 }
 

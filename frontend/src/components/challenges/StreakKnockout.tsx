@@ -24,7 +24,11 @@ import { knockoutRoundLabel as roundLabel } from '../../utils/streakKnockout';
 
 type Props = {
   streakChallengeId: number;
-  onSelectPlayer: (userId: number, displayName: string) => void;
+  onSelectPlayer: (
+    userId: number,
+    displayName: string,
+    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+  ) => void;
 };
 
 function formatScore(correct: number, bonus: number, bonusEnabled: boolean) {
@@ -63,7 +67,11 @@ function BracketSlot({
 }: {
   match: StreakKnockoutMatch;
   side: 'a' | 'b';
-  onSelectPlayer: (userId: number, displayName: string) => void;
+  onSelectPlayer: (
+    userId: number,
+    displayName: string,
+    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+  ) => void;
 }) {
   const { player, seed, correct, bonus } = scoreParts({ match, side });
   const isWinner = player != null && match.winner_user_id === player.user_id;
@@ -90,8 +98,13 @@ function BracketSlot({
         <span className="bf-ko-seed">{seed || '—'}</span>
         <button
           type="button"
-          className="streak-bf__name"
-          onClick={() => onSelectPlayer(player.user_id, player.display_name)}
+          className="streak-bf__name streak-leaderboard__player"
+          onClick={() =>
+            onSelectPlayer(player.user_id, player.display_name, {
+              scope: 'round',
+              roundIndex: match.round_index,
+            })
+          }
         >
           {player.display_name}
         </button>
@@ -108,7 +121,11 @@ function BracketMatchup({
   onSelectPlayer,
 }: {
   match: StreakKnockoutMatch;
-  onSelectPlayer: (userId: number, displayName: string) => void;
+  onSelectPlayer: (
+    userId: number,
+    displayName: string,
+    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+  ) => void;
 }) {
   return (
     <div className="bf-matchup streak-bf__matchup">
@@ -197,7 +214,11 @@ function ChampionColumn({
   onSelectPlayer,
 }: {
   knockout: StreakKnockoutPayload;
-  onSelectPlayer: (userId: number, displayName: string) => void;
+  onSelectPlayer: (
+    userId: number,
+    displayName: string,
+    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
+  ) => void;
 }) {
   const finalMatch =
     knockout.rounds.length > 0
@@ -213,8 +234,11 @@ function ChampionColumn({
   return (
     <div className="bf-stage-col bf-stage-col--champion">
       <p className="bf-stage-title">Champion</p>
-      <div className="bf-champion-stack">
-        <div className="bf-champion-middle">
+      <div className="bf-stage-track">
+        <div
+          className="bf-matchup-anchor streak-bf__champion-anchor"
+          style={{ top: '50%', transform: 'translateY(-50%)' }}
+        >
           <div
             className={
               champion
@@ -226,9 +250,12 @@ function ChampionColumn({
               <>
                 <button
                   type="button"
-                  className="streak-bf__champion-name"
+                  className="streak-bf__champion-name streak-leaderboard__player"
                   onClick={() =>
-                    onSelectPlayer(champion.user_id, champion.display_name)
+                    onSelectPlayer(champion.user_id, champion.display_name, {
+                      scope: 'round',
+                      roundIndex: knockout.rounds.length,
+                    })
                   }
                 >
                   {champion.display_name}
@@ -443,7 +470,7 @@ export function StreakKnockout({
       {knockout.consolation.length > 0 ? (
         <div className="streak-knockout__consolation">
           <h3 className="streak-knockout__consolation-title">
-            {isProjected ? 'Projected Consolation' : 'Consolation 🥲'}
+            {isProjected ? 'Consolation' : 'Consolation 🥲'}
           </h3>
           <table className="streak-knockout__consolation-table">
             <thead>
@@ -459,9 +486,11 @@ export function StreakKnockout({
                   <td>
                     <button
                       type="button"
-                      className="streak-knockout__name streak-knockout__name--link"
+                      className="streak-knockout__name streak-leaderboard__player"
                       onClick={() =>
-                        onSelectPlayer(row.user_id, row.display_name)
+                        onSelectPlayer(row.user_id, row.display_name, {
+                          scope: 'consolation',
+                        })
                       }
                     >
                       {row.display_name}

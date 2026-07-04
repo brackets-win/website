@@ -3,6 +3,10 @@
   margin: 0 auto;
 }
 
+.streak-view--wide {
+  max-width: 72rem;
+}
+
 .streak-view__back {
   margin-bottom: 1rem;
   padding-left: 0;

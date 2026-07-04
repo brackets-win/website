@@ -766,16 +766,14 @@ def _projected_consolation_rows(
     for p in participants:
         if p.id in qualifier_ids:
             continue
-        answered = p.wins + p.losses
-        rate = p.wins / answered if answered else 0.0
         rows.append(
             {
                 "user_id": p.user_id,
                 "display_name": streak_participant_label(p),
-                "wins": p.wins,
-                "losses": p.losses,
-                "record": f"{p.wins}-{p.losses}",
-                "win_pct": round(rate * 100),
+                "wins": 0,
+                "losses": 0,
+                "record": "0-0",
+                "win_pct": 0,
             }
         )
     rows.sort(key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold()))
@@ -862,6 +860,7 @@ def projected_knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | N
     qualifier_ids = {p.id for p, _seed in qualifiers}
     by_seed = _participant_by_seed(qualifiers)
     total_rounds = knockout_total_rounds(len(participants))
+    round_one_bonus_enabled = headstart_for_round(challenge, 1)
     rounds: list[dict[str, Any]] = []
 
     first_round_matches: list[dict[str, Any]] = []
@@ -870,6 +869,8 @@ def projected_knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | N
     ):
         player_a = by_seed.get(seed_a)
         player_b = by_seed.get(seed_b)
+        score_a_bonus = player_a.best_win_streak if player_a and round_one_bonus_enabled else 0
+        score_b_bonus = player_b.best_win_streak if player_b and round_one_bonus_enabled else 0
         first_round_matches.append(
             {
                 "id": -(1000 + position),
@@ -891,13 +892,13 @@ def projected_knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | N
                 else None,
                 "seed_a": seed_a,
                 "seed_b": seed_b,
-                "score_a": 0,
-                "score_b": 0,
+                "score_a": score_a_bonus,
+                "score_b": score_b_bonus,
                 "score_a_correct": 0,
                 "score_b_correct": 0,
-                "score_a_bonus": 0,
-                "score_b_bonus": 0,
-                "score_bonus_enabled": False,
+                "score_a_bonus": score_a_bonus,
+                "score_b_bonus": score_b_bonus,
+                "score_bonus_enabled": round_one_bonus_enabled,
                 "winner_user_id": None,
                 "finalized": False,
                 "is_live": False,
