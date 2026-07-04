@@ -27,6 +27,7 @@ import { estLocalInputToIso, formatDeadlineEst, isoToEstLocalInput } from '../..
 import {
   knockoutRoundLabel,
   makePickPhaseDividers,
+  uniquePlayerAbbreviations,
 } from '../../utils/streakKnockout';
 import {
   streakPath,
@@ -78,14 +79,14 @@ function compareClosesAtDesc(
   return b.id - a.id;
 }
 
+type MatchupPlayer = {
+  userId: number;
+  displayName: string;
+};
+
 type PickFilter = {
   scope?: 'streak' | 'consolation' | 'round';
   roundIndex?: number;
-};
-
-type MatchupOpponent = {
-  userId: number;
-  displayName: string;
 };
 
 type SelectedPlayer = {
@@ -93,7 +94,10 @@ type SelectedPlayer = {
   displayName: string;
   fromTab: StreakTab;
   picksFilter?: PickFilter;
-  opponent?: MatchupOpponent;
+  matchup?: {
+    userA: MatchupPlayer;
+    userB: MatchupPlayer;
+  };
 };
 
 type MatchupOutcome = 'correct' | 'wrong' | 'none';
@@ -104,10 +108,10 @@ type HeadToHeadQuestionRow = {
   closesAt: string;
   choices: StreakParticipantPickRow['choices'];
   correctChoiceId: number | null;
-  selectedPickChoiceId: number | null;
-  opponentPickChoiceId: number | null;
-  selectedOutcome: MatchupOutcome;
-  opponentOutcome: MatchupOutcome;
+  leftPickChoiceId: number | null;
+  rightPickChoiceId: number | null;
+  leftOutcome: MatchupOutcome;
+  rightOutcome: MatchupOutcome;
 };
 
 function knockoutRoundStartsAt(
@@ -128,8 +132,8 @@ function pickOutcomeFromChoice(
 }
 
 function mergeHeadToHeadPicks(
-  selectedRows: StreakParticipantPickRow[],
-  opponentRows: StreakParticipantPickRow[],
+  leftRows: StreakParticipantPickRow[],
+  rightRows: StreakParticipantPickRow[],
   baseQuestions: StreakQuestionInfo[] = [],
 ): HeadToHeadQuestionRow[] {
   const byQuestionId = new Map<number, HeadToHeadQuestionRow>();
@@ -141,18 +145,18 @@ function mergeHeadToHeadPicks(
       closesAt: question.closes_at,
       choices: question.choices,
       correctChoiceId: question.correct_choice_id,
-      selectedPickChoiceId: null,
-      opponentPickChoiceId: null,
-      selectedOutcome: 'none',
-      opponentOutcome: 'none',
+      leftPickChoiceId: null,
+      rightPickChoiceId: null,
+      leftOutcome: 'none',
+      rightOutcome: 'none',
     });
   }
 
-  for (const row of selectedRows) {
+  for (const row of leftRows) {
     const existing = byQuestionId.get(row.question_id);
     if (existing) {
-      existing.selectedPickChoiceId = row.pick_choice_id;
-      existing.selectedOutcome = pickOutcomeFromChoice(
+      existing.leftPickChoiceId = row.pick_choice_id;
+      existing.leftOutcome = pickOutcomeFromChoice(
         row.pick_choice_id,
         row.correct_choice_id,
       );
@@ -171,26 +175,26 @@ function mergeHeadToHeadPicks(
       closesAt: row.closes_at,
       choices: row.choices,
       correctChoiceId: row.correct_choice_id,
-      selectedPickChoiceId: row.pick_choice_id,
-      opponentPickChoiceId: null,
-      selectedOutcome: pickOutcomeFromChoice(
+      leftPickChoiceId: row.pick_choice_id,
+      rightPickChoiceId: null,
+      leftOutcome: pickOutcomeFromChoice(
         row.pick_choice_id,
         row.correct_choice_id,
       ),
-      opponentOutcome: 'none',
+      rightOutcome: 'none',
     });
   }
 
-  for (const row of opponentRows) {
+  for (const row of rightRows) {
     const existing = byQuestionId.get(row.question_id);
-    const opponentOutcome = pickOutcomeFromChoice(
+    const rightOutcome = pickOutcomeFromChoice(
       row.pick_choice_id,
       row.correct_choice_id,
     );
 
     if (existing) {
-      existing.opponentPickChoiceId = row.pick_choice_id;
-      existing.opponentOutcome = opponentOutcome;
+      existing.rightPickChoiceId = row.pick_choice_id;
+      existing.rightOutcome = rightOutcome;
       if (existing.correctChoiceId == null) {
         existing.correctChoiceId = row.correct_choice_id;
       }
@@ -206,10 +210,10 @@ function mergeHeadToHeadPicks(
       closesAt: row.closes_at,
       choices: row.choices,
       correctChoiceId: row.correct_choice_id,
-      selectedPickChoiceId: null,
-      opponentPickChoiceId: row.pick_choice_id,
-      selectedOutcome: 'none',
-      opponentOutcome,
+      leftPickChoiceId: null,
+      rightPickChoiceId: row.pick_choice_id,
+      leftOutcome: 'none',
+      rightOutcome,
     });
   }
 
@@ -235,8 +239,10 @@ export function StreakChallengeView({
         fromTab?: StreakTab;
         picksScope?: 'streak' | 'consolation' | 'round';
         roundIndex?: number;
-        opponentUserId?: number;
-        opponentName?: string;
+        matchupUserAId?: number;
+        matchupUserAName?: string;
+        matchupUserBId?: number;
+        matchupUserBName?: string;
       }
     | null
     | undefined;
@@ -281,11 +287,20 @@ export function StreakChallengeView({
             roundIndex: playerNavState.roundIndex,
           }
         : undefined,
-      opponent:
-        playerNavState?.opponentUserId != null && playerNavState.opponentName
+      matchup:
+        playerNavState?.matchupUserAId != null &&
+        playerNavState.matchupUserAName &&
+        playerNavState.matchupUserBId != null &&
+        playerNavState.matchupUserBName
           ? {
-              userId: playerNavState.opponentUserId,
-              displayName: playerNavState.opponentName,
+              userA: {
+                userId: playerNavState.matchupUserAId,
+                displayName: playerNavState.matchupUserAName,
+              },
+              userB: {
+                userId: playerNavState.matchupUserBId,
+                displayName: playerNavState.matchupUserBName,
+              },
             }
           : undefined,
     };
@@ -294,9 +309,9 @@ export function StreakChallengeView({
   const [playerPicks, setPlayerPicks] = useState<StreakParticipantPickRow[]>(
     [],
   );
-  const [opponentPicks, setOpponentPicks] = useState<StreakParticipantPickRow[]>(
-    [],
-  );
+  const [matchupRightPicks, setMatchupRightPicks] = useState<
+    StreakParticipantPickRow[]
+  >([]);
   const [playerPicksBusy, setPlayerPicksBusy] = useState(false);
   const [playerPicksErr, setPlayerPicksErr] = useState('');
 
@@ -387,7 +402,10 @@ export function StreakChallengeView({
     userId: number,
     displayName: string,
     filter?: PickFilter,
-    opponent?: MatchupOpponent,
+    matchup?: {
+      userA: MatchupPlayer;
+      userB: MatchupPlayer;
+    },
   ) {
     navigate(streakPlayerPath(streakChallengeId, userId), {
       state: {
@@ -395,8 +413,10 @@ export function StreakChallengeView({
         fromTab: 'knockout',
         picksScope: filter?.scope,
         roundIndex: filter?.roundIndex,
-        opponentUserId: opponent?.userId,
-        opponentName: opponent?.displayName,
+        matchupUserAId: matchup?.userA.userId,
+        matchupUserAName: matchup?.userA.displayName,
+        matchupUserBId: matchup?.userB.userId,
+        matchupUserBName: matchup?.userB.displayName,
       },
     });
   }
@@ -484,7 +504,7 @@ export function StreakChallengeView({
 
   const headToHeadBaseQuestions = useMemo(() => {
     if (
-      selectedPlayer?.opponent == null ||
+      selectedPlayer?.matchup == null ||
       selectedPlayer.picksFilter?.scope !== 'round' ||
       selectedPlayer.picksFilter.roundIndex == null
     ) {
@@ -513,40 +533,56 @@ export function StreakChallengeView({
     () =>
       mergeHeadToHeadPicks(
         playerPicks,
-        opponentPicks,
+        matchupRightPicks,
         headToHeadBaseQuestions,
       ),
-    [headToHeadBaseQuestions, playerPicks, opponentPicks],
+    [headToHeadBaseQuestions, playerPicks, matchupRightPicks],
   );
+
+  const headToHeadLabels = useMemo(() => {
+    const matchup = selectedPlayer?.matchup;
+    if (!matchup) return null;
+    const [leftShort, rightShort] = uniquePlayerAbbreviations(
+      matchup.userA.displayName,
+      matchup.userB.displayName,
+    );
+    return {
+      userA: matchup.userA.displayName,
+      userB: matchup.userB.displayName,
+      userAShort: leftShort,
+      userBShort: rightShort,
+    };
+  }, [selectedPlayer?.matchup]);
 
   useEffect(() => {
     if (selectedPlayer == null) {
       setPlayerPicks([]);
-      setOpponentPicks([]);
+      setMatchupRightPicks([]);
       setPlayerPicksErr('');
       return;
     }
     let cancelled = false;
     setPlayerPicksBusy(true);
     setPlayerPicksErr('');
+    const matchup = selectedPlayer.matchup;
     void Promise.all([
       getStreakParticipantPicks(
         streakChallengeId,
-        selectedPlayer.userId,
+        matchup?.userA.userId ?? selectedPlayer.userId,
         selectedPlayer.picksFilter,
       ),
-      selectedPlayer.opponent
+      matchup
         ? getStreakParticipantPicks(
             streakChallengeId,
-            selectedPlayer.opponent.userId,
+            matchup.userB.userId,
             selectedPlayer.picksFilter,
           )
         : Promise.resolve(null),
     ])
-      .then(([playerData, opponentData]) => {
+      .then(([leftData, rightData]) => {
         if (!cancelled) {
-          setPlayerPicks(playerData.picks);
-          setOpponentPicks(opponentData?.picks ?? []);
+          setPlayerPicks(leftData.picks);
+          setMatchupRightPicks(rightData?.picks ?? []);
         }
       })
       .catch((e) => {
@@ -711,27 +747,30 @@ export function StreakChallengeView({
     }
   }
 
-  function renderMatchupOutcomeMark(
-    outcome: MatchupOutcome,
-    playerName: string,
-  ) {
-    const label =
-      outcome === 'correct'
-        ? `${playerName} answered correctly`
-        : outcome === 'wrong'
-          ? `${playerName} answered incorrectly`
-          : `${playerName} did not make a scored pick`;
-    const symbol = outcome === 'correct' ? '✓' : outcome === 'wrong' ? '✕' : '—';
-    const className =
-      outcome === 'correct'
-        ? 'streak-player-picks__mark streak-player-picks__mark--correct'
-        : outcome === 'wrong'
-          ? 'streak-player-picks__mark streak-player-picks__mark--wrong'
-          : 'streak-player-picks__mark streak-player-picks__mark--none';
-
+  function renderMatchupOutcomeMark(outcome: MatchupOutcome) {
+    if (outcome === 'correct') {
+      return (
+        <span
+          className="streak-choice__mark streak-choice__mark--correct streak-player-picks__h2h-mark"
+          aria-hidden
+        >
+          ✓
+        </span>
+      );
+    }
+    if (outcome === 'wrong') {
+      return (
+        <span
+          className="streak-choice__mark streak-choice__mark--wrong streak-player-picks__h2h-mark"
+          aria-hidden
+        >
+          ✗
+        </span>
+      );
+    }
     return (
-      <span className={className} aria-label={label} title={label}>
-        {symbol}
+      <span className="streak-player-picks__h2h-mark streak-player-picks__h2h-mark--none">
+        —
       </span>
     );
   }
@@ -756,7 +795,7 @@ export function StreakChallengeView({
   }
 
   if (selectedPlayer != null) {
-    const matchupOpponent = selectedPlayer.opponent;
+    const matchup = selectedPlayer.matchup;
     const rootClassName = `${streakThemeClass} streak-view${
       hasScheduledKnockout ? ' streak-view--wide' : ''
     }`;
@@ -771,8 +810,8 @@ export function StreakChallengeView({
         </button>
         <section className="card streak-view__panel">
           <h2 className="streak-player-picks__title">
-            {matchupOpponent
-              ? `${selectedPlayer.displayName} vs ${matchupOpponent.displayName}`
+            {matchup && headToHeadLabels
+              ? `${headToHeadLabels.userA} vs ${headToHeadLabels.userB}`
               : `${selectedPlayer.displayName}'s picks`}
           </h2>
           {playerPicksErr ? (
@@ -780,18 +819,18 @@ export function StreakChallengeView({
           ) : null}
           {playerPicksBusy ? (
             <p className="streak-view__muted">Loading…</p>
-          ) : matchupOpponent ? (
+          ) : matchup && headToHeadLabels ? (
             headToHeadRows.length === 0 ? (
               <p className="streak-view__muted">No resolved picks yet.</p>
             ) : (
               <>
                 <div className="streak-player-picks__h2h-head" aria-hidden>
                   <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--left">
-                    {selectedPlayer.displayName}
+                    {headToHeadLabels.userA}
                   </span>
                   <span className="streak-player-picks__h2h-head-gap" />
                   <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--right">
-                    {matchupOpponent.displayName}
+                    {headToHeadLabels.userB}
                   </span>
                 </div>
                 <ul className="streak-player-picks__list">
@@ -802,70 +841,32 @@ export function StreakChallengeView({
                     >
                       <div className="streak-player-picks__h2h-grid">
                         <div className="streak-player-picks__h2h-mark-col">
-                          {renderMatchupOutcomeMark(
-                            row.selectedOutcome,
-                            selectedPlayer.displayName,
-                          )}
+                          {renderMatchupOutcomeMark(row.leftOutcome)}
                         </div>
                         <div className="streak-player-picks__h2h-main">
                           <p className="streak-player-picks__question">{row.text}</p>
                           <p className="streak-player-picks__meta">
                             Closed {formatDeadlineEst(row.closesAt)}
                           </p>
-                          <div className="streak-player-picks__h2h-choices">
-                            {row.choices.map((choice) => {
-                              const selectedPicked =
-                                row.selectedPickChoiceId === choice.id;
-                              const opponentPicked =
-                                row.opponentPickChoiceId === choice.id;
-                              const isCorrectChoice =
-                                row.correctChoiceId != null &&
-                                row.correctChoiceId === choice.id;
-                              const isWrongPick =
-                                !isCorrectChoice &&
-                                (selectedPicked || opponentPicked);
-
-                              const choiceClassName = isCorrectChoice
-                                ? 'streak-player-picks__h2h-choice streak-player-picks__h2h-choice--correct'
-                                : isWrongPick
-                                  ? 'streak-player-picks__h2h-choice streak-player-picks__h2h-choice--wrong'
-                                  : 'streak-player-picks__h2h-choice';
-
-                              return (
-                                <div key={choice.id} className={choiceClassName}>
-                                  <span
-                                    className={
-                                      selectedPicked
-                                        ? 'streak-player-picks__h2h-choice-pick streak-player-picks__h2h-choice-pick--active'
-                                        : 'streak-player-picks__h2h-choice-pick'
-                                    }
-                                    aria-hidden
-                                  >
-                                    {selectedPicked ? '●' : ''}
-                                  </span>
-                                  <span className="streak-player-picks__h2h-choice-label">
-                                    {choice.label}
-                                  </span>
-                                  <span
-                                    className={
-                                      opponentPicked
-                                        ? 'streak-player-picks__h2h-choice-pick streak-player-picks__h2h-choice-pick--active'
-                                        : 'streak-player-picks__h2h-choice-pick'
-                                    }
-                                    aria-hidden
-                                  >
-                                    {opponentPicked ? '●' : ''}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <StreakQuestionChoices
+                            choices={row.choices}
+                            userChoiceId={null}
+                            correctChoiceId={row.correctChoiceId}
+                            resolved
+                            disabled
+                            statsMode
+                            h2h={{
+                              leftPickChoiceId: row.leftPickChoiceId,
+                              rightPickChoiceId: row.rightPickChoiceId,
+                              leftBadge: headToHeadLabels.userA,
+                              rightBadge: headToHeadLabels.userB,
+                              leftBadgeShort: headToHeadLabels.userAShort,
+                              rightBadgeShort: headToHeadLabels.userBShort,
+                            }}
+                          />
                         </div>
                         <div className="streak-player-picks__h2h-mark-col streak-player-picks__h2h-mark-col--right">
-                          {renderMatchupOutcomeMark(
-                            row.opponentOutcome,
-                            matchupOpponent.displayName,
-                          )}
+                          {renderMatchupOutcomeMark(row.rightOutcome)}
                         </div>
                       </div>
                     </li>

@@ -8,6 +8,15 @@ import './StreakQuestionChoices.css';
 
 type ChoiceRow = StreakQuestionChoiceInfo | StreakStatsChoice;
 
+type H2hPickLabels = {
+  leftPickChoiceId: number | null;
+  rightPickChoiceId: number | null;
+  leftBadge: string;
+  rightBadge: string;
+  leftBadgeShort: string;
+  rightBadgeShort: string;
+};
+
 type Props = {
   choices: ChoiceRow[];
   userChoiceId: number | null;
@@ -16,6 +25,7 @@ type Props = {
   showPickPct?: boolean;
   showPickStats?: boolean;
   statsMode?: boolean;
+  h2h?: H2hPickLabels;
   expandableStats?: boolean;
   expandedKey?: string | null;
   questionId?: number;
@@ -41,6 +51,7 @@ export function StreakQuestionChoices({
   showPickPct = false,
   showPickStats = false,
   statsMode = false,
+  h2h,
   expandableStats = false,
   expandedKey = null,
   questionId,
@@ -134,6 +145,16 @@ export function StreakQuestionChoices({
                   ✗
                 </span>
               ) : null}
+              {h2h && h2h.leftPickChoiceId === choice.id ? (
+                <span className="streak-choice__h2h-badges streak-choice__h2h-badges--left">
+                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
+                    {h2h.leftBadge}
+                  </span>
+                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
+                    {h2h.leftBadgeShort}
+                  </span>
+                </span>
+              ) : null}
               <span className="streak-choice__label">{choice.label}</span>
               {showPickStats &&
               choice.pick_count != null &&
@@ -143,6 +164,16 @@ export function StreakQuestionChoices({
                 </span>
               ) : showPickPct && choice.pick_pct != null ? (
                 <span className="streak-choice__pct">{choice.pick_pct}%</span>
+              ) : null}
+              {h2h && h2h.rightPickChoiceId === choice.id ? (
+                <span className="streak-choice__h2h-badges streak-choice__h2h-badges--right">
+                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--desktop">
+                    {h2h.rightBadge}
+                  </span>
+                  <span className="streak-choice__h2h-badge streak-choice__h2h-badge--mobile">
+                    {h2h.rightBadgeShort}
+                  </span>
+                </span>
               ) : null}
             </button>
           );

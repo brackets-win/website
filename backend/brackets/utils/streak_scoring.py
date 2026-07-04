@@ -157,11 +157,6 @@ def current_broken_win_streak(participant: StreakParticipant) -> int:
 
 
 def recalculate_streak_challenge(streak_challenge_id: int) -> None:
-    from brackets.models import StreakChallenge
-
-    challenge = StreakChallenge.objects.filter(pk=streak_challenge_id).first()
-    if challenge is not None and challenge.is_knockout:
-        return
     with transaction.atomic():
         for participant in StreakParticipant.objects.filter(
             streak_challenge_id=streak_challenge_id
@@ -172,11 +167,10 @@ def recalculate_streak_challenge(streak_challenge_id: int) -> None:
 def recalculate_streak_competition(streak_competition_id: int) -> None:
     from brackets.models import StreakChallenge
 
-    challenges = list(
-        StreakChallenge.objects.filter(streak_competition_id=streak_competition_id)
-    )
-    streak_ids = [c.id for c in challenges if not c.is_knockout]
-    for challenge_id in streak_ids:
+    challenge_ids = StreakChallenge.objects.filter(
+        streak_competition_id=streak_competition_id
+    ).values_list("id", flat=True)
+    for challenge_id in challenge_ids:
         recalculate_streak_challenge(challenge_id)
 
 

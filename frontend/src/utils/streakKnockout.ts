@@ -1,3 +1,5 @@
+import type { StreakKnockoutPayload, StreakQuestionInfo } from './api';
+
 export function knockoutRoundLabel(
   roundIndex: number,
   totalRounds: number,
@@ -22,6 +24,65 @@ function questionPhaseKey(question: {
   const label = question.knockout_phase_label ?? null;
   if (!startsAt || !label) return null;
   return `${startsAt}\0${label}`;
+}
+
+export function activeKnockoutRoundIndex(
+  knockout: StreakKnockoutPayload,
+): number | null {
+  for (const round of knockout.rounds) {
+    if (round.matches.some((match) => match.is_live)) {
+      return round.round_index;
+    }
+  }
+  if (knockout.status === 'IN_PROGRESS') {
+    return knockout.current_round;
+  }
+  return null;
+}
+
+export function stageQuestionProgress(
+  questions: StreakQuestionInfo[],
+  phaseStartsAt: string,
+): { resolved: number; total: number } {
+  const stageQuestions = questions.filter(
+    (question) => question.knockout_phase_starts_at === phaseStartsAt,
+  );
+  return {
+    total: stageQuestions.length,
+    resolved: stageQuestions.filter((question) => question.resolved_at != null)
+      .length,
+  };
+}
+
+export function uniquePlayerAbbreviations(
+  nameA: string,
+  nameB: string,
+): [string, string] {
+  const compactA = nameA.trim().replace(/\s+/g, '');
+  const compactB = nameB.trim().replace(/\s+/g, '');
+  if (!compactA || !compactB) {
+    return [compactA.toUpperCase(), compactB.toUpperCase()];
+  }
+
+  let lenA = 1;
+  let lenB = 1;
+  while (lenA <= compactA.length || lenB <= compactB.length) {
+    const abbrA = compactA.slice(0, lenA).toUpperCase();
+    const abbrB = compactB.slice(0, lenB).toUpperCase();
+    if (abbrA !== abbrB) {
+      return [abbrA, abbrB];
+    }
+    if (lenA <= lenB && lenA < compactA.length) {
+      lenA += 1;
+    } else if (lenB < compactB.length) {
+      lenB += 1;
+    } else if (lenA < compactA.length) {
+      lenA += 1;
+    } else {
+      break;
+    }
+  }
+  return [compactA.toUpperCase(), compactB.toUpperCase()];
 }
 
 export function makePickPhaseDividers<T extends {

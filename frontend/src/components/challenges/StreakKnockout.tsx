@@ -9,18 +9,30 @@ import {
 import {
   ApiError,
   advanceStreakKnockout,
+  getStreakChallenge,
   getStreakKnockout,
   getStreakLeaderboard,
   swapStreakKnockoutSetup,
   type StreakKnockoutMatch,
   type StreakKnockoutPayload,
   type StreakLeaderboardEntry,
+  type StreakQuestionInfo,
 } from '../../utils/api';
 
 import '../bracket/BracketFill.css';
 import './StreakKnockout.css';
 import { columnMatchupCenterPct } from '../bracket/bracketMirrorLayout';
-import { knockoutRoundLabel as roundLabel } from '../../utils/streakKnockout';
+import {
+  activeKnockoutRoundIndex,
+  knockoutRoundLabel as roundLabel,
+  stageQuestionProgress,
+  type KnockoutPhaseInfo,
+} from '../../utils/streakKnockout';
+
+type MatchupPlayer = {
+  userId: number;
+  displayName: string;
+};
 
 type Props = {
   streakChallengeId: number;
@@ -28,7 +40,10 @@ type Props = {
     userId: number,
     displayName: string,
     filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
-    opponent?: { userId: number; displayName: string },
+    matchup?: {
+      userA: MatchupPlayer;
+      userB: MatchupPlayer;
+    },
   ) => void;
 };
 
@@ -68,16 +83,23 @@ function BracketSlot({
 }: {
   match: StreakKnockoutMatch;
   side: 'a' | 'b';
-  onSelectPlayer: (
-    userId: number,
-    displayName: string,
-    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
-    opponent?: { userId: number; displayName: string },
-  ) => void;
+  onSelectPlayer: Props['onSelectPlayer'];
 }) {
   const { player, seed, correct, bonus } = scoreParts({ match, side });
-  const opponent = side === 'a' ? match.player_b : match.player_a;
   const isWinner = player != null && match.winner_user_id === player.user_id;
+  const matchup =
+    match.player_a && match.player_b
+      ? {
+          userA: {
+            userId: match.player_a.user_id,
+            displayName: match.player_a.display_name,
+          },
+          userB: {
+            userId: match.player_b.user_id,
+            displayName: match.player_b.display_name,
+          },
+        }
+      : undefined;
 
   if (!player) {
     return (
@@ -103,15 +125,15 @@ function BracketSlot({
           type="button"
           className="streak-bf__name streak-leaderboard__player"
           onClick={() =>
-            onSelectPlayer(player.user_id, player.display_name, {
-              scope: 'round',
-              roundIndex: match.round_index,
-            }, opponent
-              ? {
-                  userId: opponent.user_id,
-                  displayName: opponent.display_name,
-                }
-              : undefined)
+            onSelectPlayer(
+              player.user_id,
+              player.display_name,
+              {
+                scope: 'round',
+                roundIndex: match.round_index,
+              },
+              matchup,
+            )
           }
         >
           {player.display_name}
@@ -129,12 +151,7 @@ function BracketMatchup({
   onSelectPlayer,
 }: {
   match: StreakKnockoutMatch;
-  onSelectPlayer: (
-    userId: number,
-    displayName: string,
-    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
-    opponent?: { userId: number; displayName: string },
-  ) => void;
+  onSelectPlayer: Props['onSelectPlayer'];
 }) {
   return (
     <div
@@ -144,12 +161,32 @@ function BracketMatchup({
           : 'bf-matchup streak-bf__matchup'
       }
     >
-      {match.is_live ? (
-        <span className="streak-bf__live" aria-label="Live" title="Live" />
-      ) : null}
       <BracketSlot match={match} side="a" onSelectPlayer={onSelectPlayer} />
       <BracketSlot match={match} side="b" onSelectPlayer={onSelectPlayer} />
     </div>
+  );
+}
+
+function StageTitle({
+  label,
+  isActive,
+  progress,
+}: {
+  label: string;
+  isActive: boolean;
+  progress: { resolved: number; total: number } | null;
+}) {
+  if (!isActive || progress == null) {
+    return <p className="bf-stage-title">{label}</p>;
+  }
+
+  return (
+    <p className="bf-stage-title bf-stage-title--active streak-bf__stage-title">
+      <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
+      <span>
+        {label} ({progress.resolved}/{progress.total})
+      </span>
+    </p>
   );
 }
 
@@ -227,12 +264,7 @@ function ChampionColumn({
   onSelectPlayer,
 }: {
   knockout: StreakKnockoutPayload;
-  onSelectPlayer: (
-    userId: number,
-    displayName: string,
-    filter?: { scope?: 'consolation' | 'round'; roundIndex?: number },
-    opponent?: { userId: number; displayName: string },
-  ) => void;
+  onSelectPlayer: Props['onSelectPlayer'];
 }) {
   const finalMatch =
     knockout.rounds.length > 0
@@ -244,12 +276,19 @@ function ChampionColumn({
       : finalMatch?.player_b?.user_id === knockout.champion_user_id
         ? finalMatch.player_b
         : null;
-  const runnerUp =
-    champion && finalMatch
-      ? finalMatch.player_a?.user_id === champion.user_id
-        ? finalMatch.player_b
-        : finalMatch.player_a
-      : null;
+  const finalMatchup =
+    finalMatch?.player_a && finalMatch.player_b
+      ? {
+          userA: {
+            userId: finalMatch.player_a.user_id,
+            displayName: finalMatch.player_a.display_name,
+          },
+          userB: {
+            userId: finalMatch.player_b.user_id,
+            displayName: finalMatch.player_b.display_name,
+          },
+        }
+      : undefined;
 
   return (
     <div className="bf-stage-col bf-stage-col--champion">
@@ -272,15 +311,15 @@ function ChampionColumn({
                   type="button"
                   className="streak-bf__champion-name streak-leaderboard__player"
                   onClick={() =>
-                    onSelectPlayer(champion.user_id, champion.display_name, {
-                      scope: 'round',
-                      roundIndex: knockout.rounds.length,
-                    }, runnerUp
-                      ? {
-                          userId: runnerUp.user_id,
-                          displayName: runnerUp.display_name,
-                        }
-                      : undefined)
+                    onSelectPlayer(
+                      champion.user_id,
+                      champion.display_name,
+                      {
+                        scope: 'round',
+                        roundIndex: knockout.rounds.length,
+                      },
+                      finalMatchup,
+                    )
                   }
                 >
                   {champion.display_name}
@@ -304,6 +343,8 @@ export function StreakKnockout({
   onSelectPlayer,
 }: Props) {
   const [knockout, setKnockout] = useState<StreakKnockoutPayload | null>(null);
+  const [questions, setQuestions] = useState<StreakQuestionInfo[]>([]);
+  const [knockoutPhases, setKnockoutPhases] = useState<KnockoutPhaseInfo[]>([]);
   const [entries, setEntries] = useState<StreakLeaderboardEntry[]>([]);
   const [loadErr, setLoadErr] = useState('');
   const [setupErr, setSetupErr] = useState('');
@@ -312,11 +353,14 @@ export function StreakKnockout({
   const reload = useCallback(async () => {
     setLoadErr('');
     try {
-      const [data, board] = await Promise.all([
+      const [data, board, detail] = await Promise.all([
         getStreakKnockout(streakChallengeId),
         getStreakLeaderboard(streakChallengeId),
+        getStreakChallenge(streakChallengeId),
       ]);
       setKnockout(data.knockout);
+      setQuestions(detail.questions);
+      setKnockoutPhases(detail.knockout_phases ?? []);
       setEntries(board.entries);
     } catch (e) {
       setLoadErr(
@@ -374,6 +418,7 @@ export function StreakKnockout({
 
   const totalRounds = knockout.total_rounds || knockout.rounds.length;
   const isProjected = knockout.projected === true;
+  const activeRoundIndex = activeKnockoutRoundIndex(knockout);
   const openingMatchCount = knockout.rounds[0]?.matches.length ?? 0;
   const boardHeightPx = Math.max(
     520,
@@ -424,12 +469,24 @@ export function StreakKnockout({
           <div className="bf-ko-desktop bf-scroll">
             <div className="bf-ko-touch-zoom">
               <div className="bf-board-inner">
-                {knockout.rounds.map((round, stageIdx) => (
+                {knockout.rounds.map((round, stageIdx) => {
+                  const phase = knockoutPhases.find(
+                    (entry) => entry.round_index === round.round_index,
+                  );
+                  const isActive = activeRoundIndex === round.round_index;
+                  const progress =
+                    phase != null
+                      ? stageQuestionProgress(questions, phase.starts_at)
+                      : null;
+
+                  return (
                   <Fragment key={round.round_index}>
                     <div className="bf-stage-col">
-                      <p className="bf-stage-title">
-                        {roundLabel(round.round_index, totalRounds)}
-                      </p>
+                      <StageTitle
+                        label={roundLabel(round.round_index, totalRounds)}
+                        isActive={isActive}
+                        progress={progress}
+                      />
                       <div className="bf-stage-track">
                         {round.matches.map((match) => (
                           <div
@@ -461,7 +518,8 @@ export function StreakKnockout({
                       />
                     ) : null}
                   </Fragment>
-                ))}
+                  );
+                })}
                 <ChampionColumn
                   knockout={knockout}
                   onSelectPlayer={onSelectPlayer}

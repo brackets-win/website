@@ -208,15 +208,22 @@
   border-radius: 10px;
 }
 
-.streak-bf__live {
-  position: absolute;
-  top: 0.38rem;
-  left: 0.38rem;
-  z-index: 2;
+.streak-bf__stage-title {
+  gap: 0.35rem;
+  justify-content: flex-start;
+  padding-left: 0.15rem;
+}
+
+.bf-stage-title--active {
+  color: var(--bf-text);
+}
+
+.streak-bf__stage-live {
+  flex-shrink: 0;
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
-  background: rgba(74, 222, 128, 0.78);
+  background: #16a34a;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
