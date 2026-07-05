@@ -136,14 +136,14 @@ export function makePickPhaseDividers<T extends {
   return rows;
 }
 
-function comparePickClosesAtAsc(
+function comparePickClosesAtDesc(
   a: StreakParticipantPickRow,
   b: StreakParticipantPickRow,
 ): number {
   const timeA = new Date(a.closes_at).getTime();
   const timeB = new Date(b.closes_at).getTime();
-  if (timeA !== timeB) return timeA - timeB;
-  return a.question_id - b.question_id;
+  if (timeA !== timeB) return timeB - timeA;
+  return b.question_id - a.question_id;
 }
 
 export function playerPickPhaseDividers(
@@ -154,7 +154,7 @@ export function playerPickPhaseDividers(
 > {
   if (picks.length === 0) return [];
 
-  const sorted = [...picks].sort(comparePickClosesAtAsc);
+  const sorted = [...picks].sort(comparePickClosesAtDesc);
   const rows: Array<
     | { type: 'divider'; label: string; key: string }
     | { type: 'pick'; pick: StreakParticipantPickRow }
