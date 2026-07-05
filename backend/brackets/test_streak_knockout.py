@@ -685,8 +685,8 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(len(picks), 2)
         self.assertEqual(picks[0]["section_label"], "Streak")
         self.assertEqual(picks[0]["section_key"], "streak")
-        self.assertEqual(picks[1]["section_label"], "Knockout")
-        self.assertEqual(picks[1]["section_key"], "knockout")
+        self.assertTrue(picks[1]["section_label"].startswith("Knockout: "))
+        self.assertTrue(picks[1]["section_key"].startswith("knockout:"))
 
         res_consolation = self.client.get(
             f"/brackets/api/streak-challenges/{self.challenge.id}/players/{self.alice.id}/picks?scope=consolation"

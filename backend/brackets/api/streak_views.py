@@ -283,13 +283,20 @@ def _participant_pick_section(
     challenge: StreakChallenge,
     participant: StreakParticipant,
     question: StreakQuestion,
+    *,
+    participant_count: int,
 ) -> tuple[str, str]:
     transition = streak_season_cutoff_at(challenge)
     if transition is None or question.closes_at < transition:
         return ("streak", "Streak")
 
     if participant_in_knockout_bracket_at(participant, question.closes_at):
-        return ("knockout", "Knockout")
+        phase = knockout_phase_for_closes_at(
+            challenge, question.closes_at, participant_count
+        )
+        stage = phase["label"] if phase else "Knockout"
+        starts_at = phase["starts_at"] if phase else question.closes_at
+        return (f"knockout:{starts_at.isoformat()}", f"Knockout: {stage}")
 
     return ("consolation", "Consolation")
 
@@ -888,6 +895,10 @@ def streak_participant_picks(
     if target is None:
         return _json_error("Player not found", 404)
 
+    participant_count = StreakParticipant.objects.filter(
+        streak_challenge=challenge
+    ).count()
+
     picks_qs = StreakPick.objects.filter(
         streak_challenge=challenge,
         user_id=user_id,
@@ -941,6 +952,7 @@ def streak_participant_picks(
             challenge,
             target,
             q,
+            participant_count=participant_count,
         )
         rows.append(
             {
