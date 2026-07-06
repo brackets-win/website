@@ -817,6 +817,35 @@ export function StreakChallengeView({
     );
   }
 
+  function renderMatchupOutcomeCard(
+    name: string,
+    shortName: string,
+    outcome: MatchupOutcome,
+  ) {
+    const statusLabel =
+      outcome === 'correct'
+        ? 'correct'
+        : outcome === 'wrong'
+          ? 'incorrect'
+          : 'no result';
+    return (
+      <div
+        className="streak-player-picks__h2h-outcome-card"
+        aria-label={`${name}: ${statusLabel}`}
+      >
+        <span className="streak-player-picks__h2h-outcome-name" title={name}>
+          <span className="streak-player-picks__h2h-outcome-name--full">
+            {name}
+          </span>
+          <span className="streak-player-picks__h2h-outcome-name--short">
+            {shortName}
+          </span>
+        </span>
+        {renderMatchupOutcomeMark(outcome)}
+      </div>
+    );
+  }
+
   if (loadErr && !summary) {
     return (
       <div className={`${streakThemeClass} streak-view`}>
@@ -881,56 +910,51 @@ export function StreakChallengeView({
             headToHeadRows.length === 0 ? (
               <p className="streak-view__muted">No resolved picks yet.</p>
             ) : (
-              <>
-                <div className="streak-player-picks__h2h-head" aria-hidden>
-                  <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--left">
-                    {headToHeadLabels.userA}
-                  </span>
-                  <span className="streak-player-picks__h2h-head-gap" />
-                  <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--right">
-                    {headToHeadLabels.userB}
-                  </span>
-                </div>
-                <ul className="streak-player-picks__list">
-                  {headToHeadRows.map((row) => (
-                    <li
-                      key={row.questionId}
-                      className="streak-player-picks__item streak-player-picks__item--h2h"
-                    >
-                      <div className="streak-player-picks__h2h-grid">
-                        <div className="streak-player-picks__h2h-mark-col">
-                          {renderMatchupOutcomeMark(row.leftOutcome)}
-                        </div>
-                        <div className="streak-player-picks__h2h-main">
-                          <p className="streak-player-picks__question">{row.text}</p>
-                          <p className="streak-player-picks__meta">
-                            Closed {formatDeadlineEst(row.closesAt)}
-                          </p>
-                          <StreakQuestionChoices
-                            choices={row.choices}
-                            userChoiceId={null}
-                            correctChoiceId={row.correctChoiceId}
-                            resolved
-                            disabled
-                            statsMode
-                            h2h={{
-                              leftPickChoiceId: row.leftPickChoiceId,
-                              rightPickChoiceId: row.rightPickChoiceId,
-                              leftBadge: headToHeadLabels.userA,
-                              rightBadge: headToHeadLabels.userB,
-                              leftBadgeShort: headToHeadLabels.userAShort,
-                              rightBadgeShort: headToHeadLabels.userBShort,
-                            }}
-                          />
-                        </div>
-                        <div className="streak-player-picks__h2h-mark-col streak-player-picks__h2h-mark-col--right">
-                          {renderMatchupOutcomeMark(row.rightOutcome)}
-                        </div>
+              <ul className="streak-player-picks__list">
+                {headToHeadRows.map((row) => (
+                  <li
+                    key={row.questionId}
+                    className="streak-player-picks__item streak-player-picks__item--h2h"
+                  >
+                    <div className="streak-player-picks__h2h-grid">
+                      <div className="streak-player-picks__h2h-main">
+                        <p className="streak-player-picks__question">{row.text}</p>
+                        <p className="streak-player-picks__meta">
+                          Closed {formatDeadlineEst(row.closesAt)}
+                        </p>
+                        <StreakQuestionChoices
+                          choices={row.choices}
+                          userChoiceId={null}
+                          correctChoiceId={row.correctChoiceId}
+                          resolved
+                          disabled
+                          statsMode
+                          h2h={{
+                            leftPickChoiceId: row.leftPickChoiceId,
+                            rightPickChoiceId: row.rightPickChoiceId,
+                            leftBadge: headToHeadLabels.userA,
+                            rightBadge: headToHeadLabels.userB,
+                            leftBadgeShort: headToHeadLabels.userAShort,
+                            rightBadgeShort: headToHeadLabels.userBShort,
+                          }}
+                        />
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              </>
+                      <div className="streak-player-picks__h2h-outcomes">
+                        {renderMatchupOutcomeCard(
+                          headToHeadLabels.userA,
+                          headToHeadLabels.userAShort,
+                          row.leftOutcome,
+                        )}
+                        {renderMatchupOutcomeCard(
+                          headToHeadLabels.userB,
+                          headToHeadLabels.userBShort,
+                          row.rightOutcome,
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )
           ) : isComprehensivePlayerPicks ? (
             comprehensivePlayerPickRows.length === 0 ? (

@@ -386,57 +386,57 @@
   color: var(--app-muted);
 }
 
-.streak-player-picks__h2h-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-  padding: 0 2.5rem;
-}
-
-.streak-player-picks__h2h-head-name {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--app-text);
-  flex: 1 1 0;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.streak-player-picks__h2h-head-name--left {
-  text-align: left;
-}
-
-.streak-player-picks__h2h-head-name--right {
-  text-align: right;
-}
-
-.streak-player-picks__h2h-head-gap {
-  display: none;
-}
-
 .streak-player-picks__item--h2h {
   padding: 0.95rem 1rem;
 }
 
 .streak-player-picks__h2h-grid {
   display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
   align-items: flex-start;
-}
-
-.streak-player-picks__h2h-mark-col {
-  display: flex;
-  justify-content: center;
-  padding-top: 0.05rem;
 }
 
 .streak-player-picks__h2h-main {
   min-width: 0;
+}
+
+.streak-player-picks__h2h-outcomes {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  align-self: stretch;
+}
+
+.streak-player-picks__h2h-outcome-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  min-width: 4.75rem;
+  max-width: 6.5rem;
+  padding: 0.55rem 0.5rem;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius, 0.5rem);
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.04);
+  box-shadow: var(--app-shadow);
+}
+
+.streak-player-picks__h2h-outcome-name {
+  width: 100%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--app-text);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.streak-player-picks__h2h-outcome-name--short {
+  display: none;
 }
 
 .streak-player-picks__h2h-mark {
@@ -483,17 +483,31 @@
     gap: 0;
   }
 
-  .streak-player-picks__h2h-head {
-    padding: 0 2.2rem;
-  }
-
-  .streak-player-picks__h2h-head-name {
-    font-size: 0.9rem;
-  }
-
   .streak-player-picks__h2h-grid {
-    grid-template-columns: 2.2rem minmax(0, 1fr) 2.2rem;
-    gap: 0.6rem;
+    gap: 0.65rem;
+  }
+
+  .streak-player-picks__h2h-outcomes {
+    gap: 0.4rem;
+  }
+
+  .streak-player-picks__h2h-outcome-card {
+    min-width: 3.6rem;
+    max-width: 4.5rem;
+    padding: 0.45rem 0.35rem;
+    gap: 0.3rem;
+  }
+
+  .streak-player-picks__h2h-outcome-name {
+    font-size: 0.68rem;
+  }
+
+  .streak-player-picks__h2h-outcome-name--full {
+    display: none;
+  }
+
+  .streak-player-picks__h2h-outcome-name--short {
+    display: inline;
   }
 
   .streak-player-picks__h2h-mark,
