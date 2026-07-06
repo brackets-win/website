@@ -14,6 +14,7 @@ from brackets.models import (
     KnockoutStage,
     UserBracket,
 )
+from brackets.utils.bracket_similarity import build_bracket_similarity_tree
 from brackets.utils.sync_group_knockout import (
     contestants_credited_for_knockout_score,
     contestants_in_stage_for_scoring,
@@ -105,12 +106,16 @@ def _read_entries_cache(
     group_teams = cache.get("group_teams")
     knockout = cache.get("knockout")
     bracket = cache.get("bracket")
+    if "similarity" not in cache:
+        return None
+    similarity = cache.get("similarity")
     if (
         not isinstance(submitted_count, int)
         or not isinstance(group_teams, list)
         or not isinstance(knockout, dict)
         # Older caches predate the bracket pick-distribution block; recompute.
         or not isinstance(bracket, dict)
+        or (similarity is not None and not isinstance(similarity, dict))
     ):
         return None
     # Older caches stored the whole blob under "group_stage"; force recompute.
@@ -154,6 +159,7 @@ def _read_entries_cache(
         "group_teams": group_teams,
         "knockout": knockout,
         "bracket": bracket,
+        "similarity": similarity,
     }
 
 
@@ -189,6 +195,7 @@ def _write_entries_cache(
         "group_teams": entries_part["group_teams"],
         "knockout": entries_part["knockout"],
         "bracket": entries_part["bracket"],
+        "similarity": entries_part["similarity"],
     }
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
@@ -278,6 +285,7 @@ def _merge_stats_parts(
         "group_stage": group_stage,
         "knockout": entries_part["knockout"],
         "bracket": entries_part["bracket"],
+        "similarity": entries_part["similarity"],
     }
 
 
@@ -1037,11 +1045,19 @@ def _compute_stats_parts(
         submitted_count=submitted_count,
     )
 
+    similarity = build_bracket_similarity_tree(
+        user_brackets,
+        bracket=bracket,
+        main_knockout_stages=main_knockout_stages,
+        contestant_info=contestant_info,
+    )
+
     entries_part = {
         "submitted_count": submitted_count,
         "group_teams": group_teams,
         "knockout": {"columns": columns, "rows": knockout_rows},
         "bracket": bracket_slots,
+        "similarity": similarity,
     }
     points_part = {"group_points": group_points}
     return entries_part, points_part

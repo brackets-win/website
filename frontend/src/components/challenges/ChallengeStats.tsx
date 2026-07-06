@@ -9,6 +9,7 @@ import type {
 } from '../../utils/api';
 
 import { BracketDistribution } from './BracketDistribution';
+import { BracketSimilarity } from './BracketSimilarity';
 
 import './ChallengeStats.css';
 
@@ -27,12 +28,13 @@ type SortState = {
   direction: 'asc' | 'desc';
 };
 
-type StatsSubtab = 'teams' | 'groups' | 'knockout';
+type StatsSubtab = 'teams' | 'groups' | 'knockout' | 'top8';
 
 const SUBTAB_LABELS: Record<StatsSubtab, string> = {
   teams: 'Teams',
   groups: 'Groups',
   knockout: 'Knockout',
+  top8: 'Top 8',
 };
 
 function TeamChip({
@@ -370,18 +372,20 @@ export function ChallengeStats({
   bracketId,
   masterUserBracketId,
 }: Props) {
-  const { submitted_count, group_stage, knockout, bracket } = stats;
+  const { submitted_count, group_stage, knockout, bracket, similarity } = stats;
   const bracketSlotCount = Object.keys(bracket?.slots ?? {}).length;
   const hasTeams = knockout.columns.length > 0;
   const hasGroups = group_stage.length > 0;
   const hasKnockout = bracketSlotCount > 0 && bracketId != null;
+  const hasSimilar = similarity != null;
   const availableSubtabs = useMemo<StatsSubtab[]>(() => {
     const tabs: StatsSubtab[] = [];
     if (hasTeams) tabs.push('teams');
     if (hasGroups) tabs.push('groups');
     if (hasKnockout) tabs.push('knockout');
+    if (hasSimilar) tabs.push('top8');
     return tabs;
-  }, [hasTeams, hasGroups, hasKnockout]);
+  }, [hasTeams, hasGroups, hasKnockout, hasSimilar]);
   const [activeSubtab, setActiveSubtab] = useState<StatsSubtab>('teams');
   const currentSubtab = availableSubtabs.includes(activeSubtab)
     ? activeSubtab
@@ -825,6 +829,23 @@ export function ChallengeStats({
             bracketId={bracketId}
             masterUserBracketId={masterUserBracketId ?? null}
             slots={bracket.slots}
+          />
+        </section>
+      ) : null}
+
+      {currentSubtab === 'top8' && hasSimilar && similarity != null ? (
+        <section className="challenge-stats__section">
+          <h2 className="challenge-stats__heading">Top 8</h2>
+          <p className="challenge-stats__section-note">
+            Entries grouped by the same predicted champion, runner-up, top four,
+            and quarter-finalists. Larger flags are shared by more entries in
+            that branch.
+          </p>
+          <BracketSimilarity
+            hasThirdPlace={similarity.has_third_place}
+            tree={similarity.tree}
+            onSelectPlayer={onSelectPlayer}
+            viewerUsername={viewerUsername}
           />
         </section>
       ) : null}

@@ -872,6 +872,53 @@ export type ChallengeStatsBracket = {
   slots: Record<string, ChallengeStatsBracketSlotEntry[]>;
 };
 
+export type ChallengeStatsSimilarityTeam = {
+  bracket_contestant_id: number;
+  display_name: string;
+  image_url: string | null;
+};
+
+export type ChallengeStatsSimilarityEntry = {
+  user_bracket_id: number;
+  display_name: string;
+  username?: string;
+};
+
+export type ChallengeStatsSimilarityLeaf = {
+  quarter_finalists: ChallengeStatsSimilarityTeam[];
+  count: number;
+  entries: ChallengeStatsSimilarityEntry[];
+};
+
+export type ChallengeStatsSimilarityFourthBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  count: number;
+  children: ChallengeStatsSimilarityLeaf[];
+};
+
+export type ChallengeStatsSimilarityThirdBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  count: number;
+  children: ChallengeStatsSimilarityFourthBranch[];
+};
+
+export type ChallengeStatsSimilarityRunnerUpBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  count: number;
+  children: ChallengeStatsSimilarityThirdBranch[];
+};
+
+export type ChallengeStatsSimilarityBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  count: number;
+  children: ChallengeStatsSimilarityRunnerUpBranch[];
+};
+
+export type ChallengeStatsSimilarity = {
+  has_third_place: boolean;
+  tree: ChallengeStatsSimilarityBranch[];
+};
+
 export type ChallengeStats = {
   submitted_count: number;
   group_stage: ChallengeStatsGroup[];
@@ -880,6 +927,7 @@ export type ChallengeStats = {
     rows: ChallengeStatsKnockoutRow[];
   };
   bracket: ChallengeStatsBracket;
+  similarity: ChallengeStatsSimilarity | null;
 };
 
 export async function getChallengeStats(
