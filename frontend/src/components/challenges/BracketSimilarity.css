@@ -247,57 +247,138 @@
 }
 
 @media (max-width: 640px) {
+  .challenge-stats__sim-cards {
+    gap: 0.75rem;
+  }
+
+  .challenge-stats__sim-card {
+    border-radius: 10px;
+  }
+
+  .challenge-stats__sim-table {
+    width: auto;
+    table-layout: fixed;
+  }
+
+  .challenge-stats__sim--no-third .challenge-stats__sim-table {
+    min-width: 21.5rem;
+  }
+
+  .challenge-stats__sim:not(.challenge-stats__sim--no-third) .challenge-stats__sim-table {
+    min-width: 25.5rem;
+  }
+
   .challenge-stats__sim-table th,
   .challenge-stats__sim-table td {
-    padding: 0.45rem 0.2rem;
+    padding: 0.3rem 0.12rem;
+  }
+
+  .challenge-stats__sim-table thead th {
+    font-size: 0.52rem;
+    letter-spacing: 0.02em;
+    line-height: 1.15;
+    padding: 0.28rem 0.12rem;
   }
 
   .challenge-stats__sim-td--entries {
-    padding: 0.6rem 0.5rem 0.6rem 0.85rem;
+    padding: 0.4rem 0.35rem 0.4rem 0.5rem;
+    min-width: 6.5rem;
   }
 
-  .challenge-stats__sim-flag--lg .challenge-stats__sim-flag-img {
-    width: 2.35rem;
-    height: 1.65rem;
+  .challenge-stats__sim-entries {
+    line-height: 1.3;
   }
 
-  .challenge-stats__sim-flag--md .challenge-stats__sim-flag-img {
-    width: 2rem;
-    height: 1.4rem;
-  }
-
-  .challenge-stats__sim-flag--sm .challenge-stats__sim-flag-img {
-    width: 1.75rem;
-    height: 1.2rem;
-  }
-
-  .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img,
-  .challenge-stats__sim-flag--xs.challenge-stats__sim-flag--image-only {
-    width: 1.4rem;
-  }
-
-  .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
-    height: 0.95rem;
+  .challenge-stats__sim-entries .challenge-stats__group-points-name,
+  .challenge-stats__sim-entries .challenge-stats__group-points-name--btn {
+    font-size: 0.625rem;
   }
 
   .challenge-stats__sim-col--champ {
-    width: 12%;
+    width: 2.25rem;
   }
 
   .challenge-stats__sim-col--ru {
-    width: 12%;
+    width: 2.1rem;
   }
 
   .challenge-stats__sim-col--third,
   .challenge-stats__sim-col--fourth {
-    width: 11%;
+    width: 1.9rem;
   }
 
   .challenge-stats__sim--no-third .challenge-stats__sim-col--semi {
-    width: 18%;
+    width: 3.25rem;
   }
 
   .challenge-stats__sim-col--qf {
-    width: 24%;
+    width: 4.25rem;
+  }
+
+  .challenge-stats__sim-col--entries {
+    width: 6.5rem;
+  }
+
+  .challenge-stats__sim-flag {
+    gap: 0.08rem;
+  }
+
+  .challenge-stats__sim-flag--image-only {
+    gap: 0.06rem;
+  }
+
+  .challenge-stats__sim-flag--lg .challenge-stats__sim-flag-img {
+    width: 1.6rem;
+    height: 1.1rem;
+  }
+
+  .challenge-stats__sim-flag--md .challenge-stats__sim-flag-img {
+    width: 1.4rem;
+    height: 0.95rem;
+  }
+
+  .challenge-stats__sim-flag--sm .challenge-stats__sim-flag-img {
+    width: 1.2rem;
+    height: 0.8rem;
+  }
+
+  .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img,
+  .challenge-stats__sim-flag--xs.challenge-stats__sim-flag--image-only {
+    width: 1rem;
+  }
+
+  .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
+    height: 0.68rem;
+  }
+
+  .challenge-stats__sim-flag-img {
+    border-radius: 4px;
+  }
+
+  .challenge-stats__sim-flag-img--ph {
+    font-size: 0.48rem;
+  }
+
+  .challenge-stats__sim-flag-name {
+    font-size: 0.52rem;
+    line-height: 1.1;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  .challenge-stats__sim-flag--lg .challenge-stats__sim-flag-name {
+    font-size: 0.55rem;
+  }
+
+  .challenge-stats__sim-flag-count {
+    font-size: 0.48rem;
+  }
+
+  .challenge-stats__sim-semifinalists-pair {
+    gap: 0.15rem;
+  }
+
+  .challenge-stats__sim-qf-flags {
+    gap: 0.1rem;
   }
 }
