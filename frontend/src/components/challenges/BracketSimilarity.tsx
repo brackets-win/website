@@ -115,6 +115,29 @@ function semiKey(row: FlattenedRow): string {
   return `${ruKey(row)}-s:${a?.bracket_contestant_id ?? 0}-${b?.bracket_contestant_id ?? 0}`;
 }
 
+function rowDividerLevel(
+  rows: FlattenedRow[],
+  rowIndex: number,
+  hasThirdPlace: boolean,
+): number {
+  if (rowIndex === 0) return 0;
+  const prev = rows[rowIndex - 1];
+  const curr = rows[rowIndex];
+  if (champKey(prev) !== champKey(curr)) return 5;
+  if (ruKey(prev) !== ruKey(curr)) return 4;
+  if (hasThirdPlace) {
+    if (thirdKey(prev) !== thirdKey(curr)) return 3;
+    if (fourthKey(prev) !== fourthKey(curr)) return 2;
+  } else if (semiKey(prev) !== semiKey(curr)) {
+    return 3;
+  }
+  return 1;
+}
+
+function teamHasImage(team: ChallengeStatsSimilarityTeam): boolean {
+  return Boolean(team.image_url?.trim());
+}
+
 function TeamFlag({
   team,
   size,
@@ -124,9 +147,16 @@ function TeamFlag({
   size: 'lg' | 'md' | 'sm' | 'xs';
   count?: number;
 }) {
+  const showName = !teamHasImage(team);
   return (
     <div
-      className={`challenge-stats__sim-flag challenge-stats__sim-flag--${size}`}
+      className={[
+        'challenge-stats__sim-flag',
+        `challenge-stats__sim-flag--${size}`,
+        showName ? '' : 'challenge-stats__sim-flag--image-only',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       title={team.display_name}
     >
       <ContestantAvatar
@@ -135,7 +165,9 @@ function TeamFlag({
         className="challenge-stats__sim-flag-img"
         placeholderClassName="challenge-stats__sim-flag-img challenge-stats__sim-flag-img--ph"
       />
-      <span className="challenge-stats__sim-flag-name">{team.display_name}</span>
+      {showName ? (
+        <span className="challenge-stats__sim-flag-name">{team.display_name}</span>
+      ) : null}
       {count != null && count > 1 ? (
         <span className="challenge-stats__sim-flag-count">{count}</span>
       ) : null}
@@ -258,10 +290,16 @@ export function BracketSimilarity({
               const semi = !hasThirdPlace
                 ? cellSpan(rows, rowIndex, semiKey)
                 : null;
+              const dividerLevel = rowDividerLevel(rows, rowIndex, hasThirdPlace);
 
               return (
                 <tr
                   key={`${hasThirdPlace ? fourthKey(row) : semiKey(row)}-qf:${row.quarterFinalists.map((t) => t.bracket_contestant_id).join('-')}`}
+                  className={
+                    dividerLevel > 0
+                      ? `challenge-stats__sim-row challenge-stats__sim-row--div-${dividerLevel}`
+                      : 'challenge-stats__sim-row'
+                  }
                 >
                   {champ.show ? (
                     <td rowSpan={champ.span}>
