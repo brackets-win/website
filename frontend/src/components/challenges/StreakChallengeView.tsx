@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
@@ -898,107 +898,135 @@ export function StreakChallengeView({
                   style={{ gridColumn: 1, gridRow: 1 }}
                   aria-hidden
                 />
-                <div
-                  className="streak-player-picks__h2h-col-head streak-player-picks__h2h-col-head--a"
-                  style={{ gridColumn: 2, gridRow: 1 }}
-                >
-                  <span
-                    className="streak-player-picks__h2h-col-name"
-                    title={headToHeadLabels.userA}
-                  >
-                    <span className="streak-player-picks__h2h-col-name--full">
-                      {headToHeadLabels.userA}
-                    </span>
-                    <span className="streak-player-picks__h2h-col-name--short">
-                      {headToHeadLabels.userAShort}
-                    </span>
-                  </span>
-                </div>
-                <div
-                  className="streak-player-picks__h2h-col-head streak-player-picks__h2h-col-head--b"
-                  style={{ gridColumn: 3, gridRow: 1 }}
-                >
-                  <span
-                    className="streak-player-picks__h2h-col-name"
-                    title={headToHeadLabels.userB}
-                  >
-                    <span className="streak-player-picks__h2h-col-name--full">
-                      {headToHeadLabels.userB}
-                    </span>
-                    <span className="streak-player-picks__h2h-col-name--short">
-                      {headToHeadLabels.userBShort}
-                    </span>
-                  </span>
-                </div>
                 {headToHeadRows.map((row, rowIndex) => {
                   const gridRow = rowIndex + 2;
-                  const isLast = rowIndex === headToHeadRows.length - 1;
                   const rowGapClass =
                     rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
                   return (
-                    <Fragment key={row.questionId}>
+                    <div
+                      key={row.questionId}
+                      className={[
+                        'streak-player-picks__item',
+                        'streak-player-picks__item--h2h',
+                        rowGapClass,
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={{ gridColumn: 1, gridRow }}
+                    >
+                      <p className="streak-player-picks__question">{row.text}</p>
+                      <p className="streak-player-picks__meta">
+                        Closed {formatDeadlineEst(row.closesAt)}
+                      </p>
+                      <StreakQuestionChoices
+                        choices={row.choices}
+                        userChoiceId={null}
+                        correctChoiceId={row.correctChoiceId}
+                        resolved
+                        disabled
+                        statsMode
+                        h2h={{
+                          leftPickChoiceId: row.leftPickChoiceId,
+                          rightPickChoiceId: row.rightPickChoiceId,
+                          leftBadge: headToHeadLabels.userA,
+                          rightBadge: headToHeadLabels.userB,
+                          leftBadgeShort: headToHeadLabels.userAShort,
+                          rightBadgeShort: headToHeadLabels.userBShort,
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+                <aside
+                  className="streak-player-picks__h2h-player-col"
+                  style={{
+                    gridColumn: 2,
+                    gridRow: `1 / ${headToHeadRows.length + 2}`,
+                  }}
+                  aria-label={headToHeadLabels.userA}
+                >
+                  <div
+                    className="streak-player-picks__h2h-col-head"
+                    style={{ gridRow: 1 }}
+                  >
+                    <span
+                      className="streak-player-picks__h2h-col-name"
+                      title={headToHeadLabels.userA}
+                    >
+                      <span className="streak-player-picks__h2h-col-name--full">
+                        {headToHeadLabels.userA}
+                      </span>
+                      <span className="streak-player-picks__h2h-col-name--short">
+                        {headToHeadLabels.userAShort}
+                      </span>
+                    </span>
+                  </div>
+                  {headToHeadRows.map((row, rowIndex) => {
+                    const gridRow = rowIndex + 2;
+                    const rowGapClass =
+                      rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+                    return (
                       <div
-                        className={[
-                          'streak-player-picks__item',
-                          'streak-player-picks__item--h2h',
-                          rowGapClass,
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        style={{ gridColumn: 1, gridRow }}
-                      >
-                        <p className="streak-player-picks__question">{row.text}</p>
-                        <p className="streak-player-picks__meta">
-                          Closed {formatDeadlineEst(row.closesAt)}
-                        </p>
-                        <StreakQuestionChoices
-                          choices={row.choices}
-                          userChoiceId={null}
-                          correctChoiceId={row.correctChoiceId}
-                          resolved
-                          disabled
-                          statsMode
-                          h2h={{
-                            leftPickChoiceId: row.leftPickChoiceId,
-                            rightPickChoiceId: row.rightPickChoiceId,
-                            leftBadge: headToHeadLabels.userA,
-                            rightBadge: headToHeadLabels.userB,
-                            leftBadgeShort: headToHeadLabels.userAShort,
-                            rightBadgeShort: headToHeadLabels.userBShort,
-                          }}
-                        />
-                      </div>
-                      <div
+                        key={row.questionId}
                         className={[
                           'streak-player-picks__h2h-col-cell',
-                          'streak-player-picks__h2h-col-cell--a',
                           rowGapClass,
-                          isLast ? 'streak-player-picks__h2h-col-cell--last' : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        style={{ gridColumn: 2, gridRow }}
+                        style={{ gridRow }}
                         aria-label={`${headToHeadLabels.userA}: ${matchupOutcomeStatusLabel(row.leftOutcome)}`}
                       >
                         {renderMatchupOutcomeMark(row.leftOutcome)}
                       </div>
+                    );
+                  })}
+                </aside>
+                <aside
+                  className="streak-player-picks__h2h-player-col"
+                  style={{
+                    gridColumn: 3,
+                    gridRow: `1 / ${headToHeadRows.length + 2}`,
+                  }}
+                  aria-label={headToHeadLabels.userB}
+                >
+                  <div
+                    className="streak-player-picks__h2h-col-head"
+                    style={{ gridRow: 1 }}
+                  >
+                    <span
+                      className="streak-player-picks__h2h-col-name"
+                      title={headToHeadLabels.userB}
+                    >
+                      <span className="streak-player-picks__h2h-col-name--full">
+                        {headToHeadLabels.userB}
+                      </span>
+                      <span className="streak-player-picks__h2h-col-name--short">
+                        {headToHeadLabels.userBShort}
+                      </span>
+                    </span>
+                  </div>
+                  {headToHeadRows.map((row, rowIndex) => {
+                    const gridRow = rowIndex + 2;
+                    const rowGapClass =
+                      rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+                    return (
                       <div
+                        key={row.questionId}
                         className={[
                           'streak-player-picks__h2h-col-cell',
-                          'streak-player-picks__h2h-col-cell--b',
                           rowGapClass,
-                          isLast ? 'streak-player-picks__h2h-col-cell--last' : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        style={{ gridColumn: 3, gridRow }}
+                        style={{ gridRow }}
                         aria-label={`${headToHeadLabels.userB}: ${matchupOutcomeStatusLabel(row.rightOutcome)}`}
                       >
                         {renderMatchupOutcomeMark(row.rightOutcome)}
                       </div>
-                    </Fragment>
-                  );
-                })}
+                    );
+                  })}
+                </aside>
               </div>
             )
           ) : isComprehensivePlayerPicks ? (
