@@ -474,6 +474,55 @@
   line-height: 1;
 }
 
+.streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0 2.5rem;
+}
+
+.streak-player-picks__h2h-head-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--app-text);
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.streak-player-picks__h2h-head-name--left {
+  text-align: left;
+}
+
+.streak-player-picks__h2h-head-name--right {
+  text-align: right;
+}
+
+.streak-player-picks__h2h-head-gap {
+  display: none;
+}
+
+.streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-grid {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.streak-player-picks__h2h-mark-col {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.05rem;
+}
+
+.streak-player-picks__h2h-main {
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
   .streak-leaderboard__table {
     font-size: 0.8125rem;
@@ -500,34 +549,53 @@
     gap: 0;
   }
 
-  .streak-player-picks__h2h-layout {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked) {
     grid-template-columns: minmax(0, 1fr) 4.25rem 4.25rem;
     column-gap: 0.5rem;
   }
 
-  .streak-player-picks__h2h-row-gap {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-row-gap {
     margin-top: 0.55rem;
   }
 
-  .streak-player-picks__h2h-col-head {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-col-head {
     min-height: 2.75rem;
     padding: 0.6rem 0.35rem;
   }
 
-  .streak-player-picks__h2h-col-name {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-col-name {
     font-size: 0.82rem;
   }
 
-  .streak-player-picks__h2h-col-name--full {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-col-name--full {
     display: none;
   }
 
-  .streak-player-picks__h2h-col-name--short {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-col-name--short {
     display: inline;
   }
 
-  .streak-player-picks__h2h-col-cell {
+  .streak-player-picks__h2h-layout:not(.streak-player-picks__h2h-layout--stacked)
+    .streak-player-picks__h2h-col-cell {
     padding: 0.5rem 0.3rem;
+  }
+
+  .streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-head {
+    padding: 0 2.2rem;
+  }
+
+  .streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-head-name {
+    font-size: 0.9rem;
+  }
+
+  .streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-grid {
+    grid-template-columns: 2.2rem minmax(0, 1fr) 2.2rem;
+    gap: 0.6rem;
   }
 
   .streak-player-picks__h2h-mark,

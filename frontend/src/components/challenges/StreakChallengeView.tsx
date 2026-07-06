@@ -229,6 +229,259 @@ function playerPicksTitle(player: SelectedPlayer): string {
   return `${player.displayName}'s picks`;
 }
 
+const H2H_MOBILE_PORTRAIT_MQ = '(max-width: 640px) and (orientation: portrait)';
+
+function useH2hMobilePortrait(): boolean {
+  const [mobilePortrait, setMobilePortrait] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia(H2H_MOBILE_PORTRAIT_MQ).matches
+      : false,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(H2H_MOBILE_PORTRAIT_MQ);
+    const sync = () => setMobilePortrait(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  return mobilePortrait;
+}
+
+function renderMatchupOutcomeMark(outcome: MatchupOutcome) {
+  if (outcome === 'correct') {
+    return (
+      <span
+        className="streak-choice__mark streak-choice__mark--correct streak-player-picks__h2h-mark"
+        aria-hidden
+      >
+        ✓
+      </span>
+    );
+  }
+  if (outcome === 'wrong') {
+    return (
+      <span
+        className="streak-choice__mark streak-choice__mark--wrong streak-player-picks__h2h-mark"
+        aria-hidden
+      >
+        ✗
+      </span>
+    );
+  }
+  return (
+    <span className="streak-player-picks__h2h-mark streak-player-picks__h2h-mark--none">
+      —
+    </span>
+  );
+}
+
+function matchupOutcomeStatusLabel(outcome: MatchupOutcome): string {
+  if (outcome === 'correct') return 'correct';
+  if (outcome === 'wrong') return 'incorrect';
+  return 'no result';
+}
+
+type HeadToHeadLabels = {
+  userA: string;
+  userB: string;
+  userAShort: string;
+  userBShort: string;
+};
+
+function HeadToHeadQuestionBody({
+  row,
+  labels,
+}: {
+  row: HeadToHeadQuestionRow;
+  labels: HeadToHeadLabels;
+}) {
+  return (
+    <>
+      <p className="streak-player-picks__question">{row.text}</p>
+      <p className="streak-player-picks__meta">
+        Closed {formatDeadlineEst(row.closesAt)}
+      </p>
+      <StreakQuestionChoices
+        choices={row.choices}
+        userChoiceId={null}
+        correctChoiceId={row.correctChoiceId}
+        resolved
+        disabled
+        statsMode
+        h2h={{
+          leftPickChoiceId: row.leftPickChoiceId,
+          rightPickChoiceId: row.rightPickChoiceId,
+          leftBadge: labels.userA,
+          rightBadge: labels.userB,
+          leftBadgeShort: labels.userAShort,
+          rightBadgeShort: labels.userBShort,
+        }}
+      />
+    </>
+  );
+}
+
+function HeadToHeadResults({
+  rows,
+  labels,
+  stacked,
+}: {
+  rows: HeadToHeadQuestionRow[];
+  labels: HeadToHeadLabels;
+  stacked: boolean;
+}) {
+  if (stacked) {
+    return (
+      <div className="streak-player-picks__h2h-layout streak-player-picks__h2h-layout--stacked">
+        <div className="streak-player-picks__h2h-head" aria-hidden>
+          <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--left">
+            {labels.userA}
+          </span>
+          <span className="streak-player-picks__h2h-head-gap" />
+          <span className="streak-player-picks__h2h-head-name streak-player-picks__h2h-head-name--right">
+            {labels.userB}
+          </span>
+        </div>
+        <ul className="streak-player-picks__list">
+          {rows.map((row) => (
+            <li
+              key={row.questionId}
+              className="streak-player-picks__item streak-player-picks__item--h2h"
+            >
+              <div className="streak-player-picks__h2h-grid">
+                <div
+                  className="streak-player-picks__h2h-mark-col"
+                  aria-label={`${labels.userA}: ${matchupOutcomeStatusLabel(row.leftOutcome)}`}
+                >
+                  {renderMatchupOutcomeMark(row.leftOutcome)}
+                </div>
+                <div className="streak-player-picks__h2h-main">
+                  <HeadToHeadQuestionBody row={row} labels={labels} />
+                </div>
+                <div
+                  className="streak-player-picks__h2h-mark-col streak-player-picks__h2h-mark-col--right"
+                  aria-label={`${labels.userB}: ${matchupOutcomeStatusLabel(row.rightOutcome)}`}
+                >
+                  {renderMatchupOutcomeMark(row.rightOutcome)}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="streak-player-picks__h2h-layout"
+      style={{
+        gridTemplateRows: `auto repeat(${rows.length}, auto)`,
+      }}
+    >
+      <div
+        className="streak-player-picks__h2h-head-spacer"
+        style={{ gridColumn: 1, gridRow: 1 }}
+        aria-hidden
+      />
+      {rows.map((row, rowIndex) => {
+        const gridRow = rowIndex + 2;
+        const rowGapClass =
+          rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+        return (
+          <div
+            key={row.questionId}
+            className={[
+              'streak-player-picks__item',
+              'streak-player-picks__item--h2h',
+              rowGapClass,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={{ gridColumn: 1, gridRow }}
+          >
+            <HeadToHeadQuestionBody row={row} labels={labels} />
+          </div>
+        );
+      })}
+      <aside
+        className="streak-player-picks__h2h-player-col"
+        style={{
+          gridColumn: 2,
+          gridRow: `1 / ${rows.length + 2}`,
+        }}
+        aria-label={labels.userA}
+      >
+        <div className="streak-player-picks__h2h-col-head" style={{ gridRow: 1 }}>
+          <span className="streak-player-picks__h2h-col-name" title={labels.userA}>
+            <span className="streak-player-picks__h2h-col-name--full">
+              {labels.userA}
+            </span>
+            <span className="streak-player-picks__h2h-col-name--short">
+              {labels.userAShort}
+            </span>
+          </span>
+        </div>
+        {rows.map((row, rowIndex) => {
+          const gridRow = rowIndex + 2;
+          const rowGapClass =
+            rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+          return (
+            <div
+              key={row.questionId}
+              className={['streak-player-picks__h2h-col-cell', rowGapClass]
+                .filter(Boolean)
+                .join(' ')}
+              style={{ gridRow }}
+              aria-label={`${labels.userA}: ${matchupOutcomeStatusLabel(row.leftOutcome)}`}
+            >
+              {renderMatchupOutcomeMark(row.leftOutcome)}
+            </div>
+          );
+        })}
+      </aside>
+      <aside
+        className="streak-player-picks__h2h-player-col"
+        style={{
+          gridColumn: 3,
+          gridRow: `1 / ${rows.length + 2}`,
+        }}
+        aria-label={labels.userB}
+      >
+        <div className="streak-player-picks__h2h-col-head" style={{ gridRow: 1 }}>
+          <span className="streak-player-picks__h2h-col-name" title={labels.userB}>
+            <span className="streak-player-picks__h2h-col-name--full">
+              {labels.userB}
+            </span>
+            <span className="streak-player-picks__h2h-col-name--short">
+              {labels.userBShort}
+            </span>
+          </span>
+        </div>
+        {rows.map((row, rowIndex) => {
+          const gridRow = rowIndex + 2;
+          const rowGapClass =
+            rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+          return (
+            <div
+              key={row.questionId}
+              className={['streak-player-picks__h2h-col-cell', rowGapClass]
+                .filter(Boolean)
+                .join(' ')}
+              style={{ gridRow }}
+              aria-label={`${labels.userB}: ${matchupOutcomeStatusLabel(row.rightOutcome)}`}
+            >
+              {renderMatchupOutcomeMark(row.rightOutcome)}
+            </div>
+          );
+        })}
+      </aside>
+    </div>
+  );
+}
+
 export function StreakChallengeView({
   streakChallengeId,
   tab,
@@ -592,6 +845,8 @@ export function StreakChallengeView({
     };
   }, [selectedPlayer?.matchup]);
 
+  const h2hMobilePortrait = useH2hMobilePortrait();
+
   useEffect(() => {
     if (selectedPlayer == null) {
       setPlayerPicks([]);
@@ -789,40 +1044,6 @@ export function StreakChallengeView({
     }
   }
 
-  function renderMatchupOutcomeMark(outcome: MatchupOutcome) {
-    if (outcome === 'correct') {
-      return (
-        <span
-          className="streak-choice__mark streak-choice__mark--correct streak-player-picks__h2h-mark"
-          aria-hidden
-        >
-          ✓
-        </span>
-      );
-    }
-    if (outcome === 'wrong') {
-      return (
-        <span
-          className="streak-choice__mark streak-choice__mark--wrong streak-player-picks__h2h-mark"
-          aria-hidden
-        >
-          ✗
-        </span>
-      );
-    }
-    return (
-      <span className="streak-player-picks__h2h-mark streak-player-picks__h2h-mark--none">
-        —
-      </span>
-    );
-  }
-
-  function matchupOutcomeStatusLabel(outcome: MatchupOutcome): string {
-    if (outcome === 'correct') return 'correct';
-    if (outcome === 'wrong') return 'incorrect';
-    return 'no result';
-  }
-
   if (loadErr && !summary) {
     return (
       <div className={`${streakThemeClass} streak-view`}>
@@ -887,147 +1108,11 @@ export function StreakChallengeView({
             headToHeadRows.length === 0 ? (
               <p className="streak-view__muted">No resolved picks yet.</p>
             ) : (
-              <div
-                className="streak-player-picks__h2h-layout"
-                style={{
-                  gridTemplateRows: `auto repeat(${headToHeadRows.length}, auto)`,
-                }}
-              >
-                <div
-                  className="streak-player-picks__h2h-head-spacer"
-                  style={{ gridColumn: 1, gridRow: 1 }}
-                  aria-hidden
-                />
-                {headToHeadRows.map((row, rowIndex) => {
-                  const gridRow = rowIndex + 2;
-                  const rowGapClass =
-                    rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
-                  return (
-                    <div
-                      key={row.questionId}
-                      className={[
-                        'streak-player-picks__item',
-                        'streak-player-picks__item--h2h',
-                        rowGapClass,
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      style={{ gridColumn: 1, gridRow }}
-                    >
-                      <p className="streak-player-picks__question">{row.text}</p>
-                      <p className="streak-player-picks__meta">
-                        Closed {formatDeadlineEst(row.closesAt)}
-                      </p>
-                      <StreakQuestionChoices
-                        choices={row.choices}
-                        userChoiceId={null}
-                        correctChoiceId={row.correctChoiceId}
-                        resolved
-                        disabled
-                        statsMode
-                        h2h={{
-                          leftPickChoiceId: row.leftPickChoiceId,
-                          rightPickChoiceId: row.rightPickChoiceId,
-                          leftBadge: headToHeadLabels.userA,
-                          rightBadge: headToHeadLabels.userB,
-                          leftBadgeShort: headToHeadLabels.userAShort,
-                          rightBadgeShort: headToHeadLabels.userBShort,
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-                <aside
-                  className="streak-player-picks__h2h-player-col"
-                  style={{
-                    gridColumn: 2,
-                    gridRow: `1 / ${headToHeadRows.length + 2}`,
-                  }}
-                  aria-label={headToHeadLabels.userA}
-                >
-                  <div
-                    className="streak-player-picks__h2h-col-head"
-                    style={{ gridRow: 1 }}
-                  >
-                    <span
-                      className="streak-player-picks__h2h-col-name"
-                      title={headToHeadLabels.userA}
-                    >
-                      <span className="streak-player-picks__h2h-col-name--full">
-                        {headToHeadLabels.userA}
-                      </span>
-                      <span className="streak-player-picks__h2h-col-name--short">
-                        {headToHeadLabels.userAShort}
-                      </span>
-                    </span>
-                  </div>
-                  {headToHeadRows.map((row, rowIndex) => {
-                    const gridRow = rowIndex + 2;
-                    const rowGapClass =
-                      rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
-                    return (
-                      <div
-                        key={row.questionId}
-                        className={[
-                          'streak-player-picks__h2h-col-cell',
-                          rowGapClass,
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        style={{ gridRow }}
-                        aria-label={`${headToHeadLabels.userA}: ${matchupOutcomeStatusLabel(row.leftOutcome)}`}
-                      >
-                        {renderMatchupOutcomeMark(row.leftOutcome)}
-                      </div>
-                    );
-                  })}
-                </aside>
-                <aside
-                  className="streak-player-picks__h2h-player-col"
-                  style={{
-                    gridColumn: 3,
-                    gridRow: `1 / ${headToHeadRows.length + 2}`,
-                  }}
-                  aria-label={headToHeadLabels.userB}
-                >
-                  <div
-                    className="streak-player-picks__h2h-col-head"
-                    style={{ gridRow: 1 }}
-                  >
-                    <span
-                      className="streak-player-picks__h2h-col-name"
-                      title={headToHeadLabels.userB}
-                    >
-                      <span className="streak-player-picks__h2h-col-name--full">
-                        {headToHeadLabels.userB}
-                      </span>
-                      <span className="streak-player-picks__h2h-col-name--short">
-                        {headToHeadLabels.userBShort}
-                      </span>
-                    </span>
-                  </div>
-                  {headToHeadRows.map((row, rowIndex) => {
-                    const gridRow = rowIndex + 2;
-                    const rowGapClass =
-                      rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
-                    return (
-                      <div
-                        key={row.questionId}
-                        className={[
-                          'streak-player-picks__h2h-col-cell',
-                          rowGapClass,
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        style={{ gridRow }}
-                        aria-label={`${headToHeadLabels.userB}: ${matchupOutcomeStatusLabel(row.rightOutcome)}`}
-                      >
-                        {renderMatchupOutcomeMark(row.rightOutcome)}
-                      </div>
-                    );
-                  })}
-                </aside>
-              </div>
+              <HeadToHeadResults
+                rows={headToHeadRows}
+                labels={headToHeadLabels}
+                stacked={h2hMobilePortrait}
+              />
             )
           ) : isComprehensivePlayerPicks ? (
             comprehensivePlayerPickRows.length === 0 ? (
