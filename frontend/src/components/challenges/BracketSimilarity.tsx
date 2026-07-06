@@ -208,11 +208,13 @@ function EntryList({
 }
 
 function ChampionTable({
+  champ,
   rows,
   hasThirdPlace,
   onSelectPlayer,
   viewerUsername,
 }: {
+  champ: ChallengeStatsSimilarityBranch;
   rows: FlattenedRow[];
   hasThirdPlace: boolean;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
@@ -222,6 +224,7 @@ function ChampionTable({
     <div className="challenge-stats__sim-scroll">
       <table className="challenge-stats__sim-table">
         <colgroup>
+          <col className="challenge-stats__sim-col challenge-stats__sim-col--champ" />
           <col className="challenge-stats__sim-col challenge-stats__sim-col--ru" />
           {hasThirdPlace ? (
             <>
@@ -236,6 +239,7 @@ function ChampionTable({
         </colgroup>
         <thead>
           <tr>
+            <th scope="col">Champion</th>
             <th scope="col">Runner-Up</th>
             {hasThirdPlace ? (
               <>
@@ -274,6 +278,18 @@ function ChampionTable({
                     : 'challenge-stats__sim-row'
                 }
               >
+                {rowIndex === 0 ? (
+                  <td
+                    rowSpan={rows.length}
+                    className="challenge-stats__sim-td--champ"
+                  >
+                    <TeamFlag
+                      team={champ.team}
+                      size="lg"
+                      count={champ.count}
+                    />
+                  </td>
+                ) : null}
                 {ru.show ? (
                   <td rowSpan={ru.span}>
                     <TeamFlag
@@ -363,11 +379,8 @@ function ChampionCard({
 
   return (
     <section className="challenge-stats__sim-card">
-      <div className="challenge-stats__sim-card-champ">
-        <p className="challenge-stats__sim-card-champ-label">Champion</p>
-        <TeamFlag team={champ.team} size="lg" count={champ.count} />
-      </div>
       <ChampionTable
+        champ={champ}
         rows={rows}
         hasThirdPlace={hasThirdPlace}
         onSelectPlayer={onSelectPlayer}

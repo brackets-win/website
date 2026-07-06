@@ -19,26 +19,6 @@
   overflow: hidden;
 }
 
-.challenge-stats__sim-card-champ {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border, #d8dde3);
-  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.05);
-}
-
-.challenge-stats__sim-card-champ-label {
-  margin: 0;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted, #64748b);
-  line-height: 1.2;
-}
-
 .challenge-stats__sim-scroll {
   width: 100%;
   overflow-x: auto;
@@ -52,8 +32,12 @@
   table-layout: fixed;
 }
 
+.challenge-stats__sim-col--champ {
+  width: 11%;
+}
+
 .challenge-stats__sim-col--ru {
-  width: 12%;
+  width: 11%;
 }
 
 .challenge-stats__sim-col--third,
@@ -119,6 +103,11 @@
 
 .challenge-stats__sim-th--entries {
   padding: 0;
+}
+
+.challenge-stats__sim-td--champ {
+  vertical-align: middle;
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.04);
 }
 
 .challenge-stats__sim-td--entries {
@@ -258,10 +247,6 @@
 }
 
 @media (max-width: 640px) {
-  .challenge-stats__sim-card-champ {
-    padding: 0.7rem 0.75rem;
-  }
-
   .challenge-stats__sim-table th,
   .challenge-stats__sim-table td {
     padding: 0.45rem 0.2rem;
@@ -295,8 +280,12 @@
     height: 0.95rem;
   }
 
+  .challenge-stats__sim-col--champ {
+    width: 12%;
+  }
+
   .challenge-stats__sim-col--ru {
-    width: 13%;
+    width: 12%;
   }
 
   .challenge-stats__sim-col--third,
