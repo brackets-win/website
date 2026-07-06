@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { DeleteConfirmDialog } from '../admin/DeleteConfirmDialog';
@@ -817,33 +817,10 @@ export function StreakChallengeView({
     );
   }
 
-  function renderMatchupOutcomeCard(
-    name: string,
-    shortName: string,
-    outcome: MatchupOutcome,
-  ) {
-    const statusLabel =
-      outcome === 'correct'
-        ? 'correct'
-        : outcome === 'wrong'
-          ? 'incorrect'
-          : 'no result';
-    return (
-      <div
-        className="streak-player-picks__h2h-outcome-card"
-        aria-label={`${name}: ${statusLabel}`}
-      >
-        <span className="streak-player-picks__h2h-outcome-name" title={name}>
-          <span className="streak-player-picks__h2h-outcome-name--full">
-            {name}
-          </span>
-          <span className="streak-player-picks__h2h-outcome-name--short">
-            {shortName}
-          </span>
-        </span>
-        {renderMatchupOutcomeMark(outcome)}
-      </div>
-    );
+  function matchupOutcomeStatusLabel(outcome: MatchupOutcome): string {
+    if (outcome === 'correct') return 'correct';
+    if (outcome === 'wrong') return 'incorrect';
+    return 'no result';
   }
 
   if (loadErr && !summary) {
@@ -910,14 +887,66 @@ export function StreakChallengeView({
             headToHeadRows.length === 0 ? (
               <p className="streak-view__muted">No resolved picks yet.</p>
             ) : (
-              <ul className="streak-player-picks__list">
-                {headToHeadRows.map((row) => (
-                  <li
-                    key={row.questionId}
-                    className="streak-player-picks__item streak-player-picks__item--h2h"
+              <div
+                className="streak-player-picks__h2h-layout"
+                style={{
+                  gridTemplateRows: `auto repeat(${headToHeadRows.length}, auto)`,
+                }}
+              >
+                <div
+                  className="streak-player-picks__h2h-head-spacer"
+                  style={{ gridColumn: 1, gridRow: 1 }}
+                  aria-hidden
+                />
+                <div
+                  className="streak-player-picks__h2h-col-head streak-player-picks__h2h-col-head--a"
+                  style={{ gridColumn: 2, gridRow: 1 }}
+                >
+                  <span
+                    className="streak-player-picks__h2h-col-name"
+                    title={headToHeadLabels.userA}
                   >
-                    <div className="streak-player-picks__h2h-grid">
-                      <div className="streak-player-picks__h2h-main">
+                    <span className="streak-player-picks__h2h-col-name--full">
+                      {headToHeadLabels.userA}
+                    </span>
+                    <span className="streak-player-picks__h2h-col-name--short">
+                      {headToHeadLabels.userAShort}
+                    </span>
+                  </span>
+                </div>
+                <div
+                  className="streak-player-picks__h2h-col-head streak-player-picks__h2h-col-head--b"
+                  style={{ gridColumn: 3, gridRow: 1 }}
+                >
+                  <span
+                    className="streak-player-picks__h2h-col-name"
+                    title={headToHeadLabels.userB}
+                  >
+                    <span className="streak-player-picks__h2h-col-name--full">
+                      {headToHeadLabels.userB}
+                    </span>
+                    <span className="streak-player-picks__h2h-col-name--short">
+                      {headToHeadLabels.userBShort}
+                    </span>
+                  </span>
+                </div>
+                {headToHeadRows.map((row, rowIndex) => {
+                  const gridRow = rowIndex + 2;
+                  const isLast = rowIndex === headToHeadRows.length - 1;
+                  const rowGapClass =
+                    rowIndex > 0 ? 'streak-player-picks__h2h-row-gap' : '';
+                  return (
+                    <Fragment key={row.questionId}>
+                      <div
+                        className={[
+                          'streak-player-picks__item',
+                          'streak-player-picks__item--h2h',
+                          rowGapClass,
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ gridColumn: 1, gridRow }}
+                      >
                         <p className="streak-player-picks__question">{row.text}</p>
                         <p className="streak-player-picks__meta">
                           Closed {formatDeadlineEst(row.closesAt)}
@@ -939,22 +968,38 @@ export function StreakChallengeView({
                           }}
                         />
                       </div>
-                      <div className="streak-player-picks__h2h-outcomes">
-                        {renderMatchupOutcomeCard(
-                          headToHeadLabels.userA,
-                          headToHeadLabels.userAShort,
-                          row.leftOutcome,
-                        )}
-                        {renderMatchupOutcomeCard(
-                          headToHeadLabels.userB,
-                          headToHeadLabels.userBShort,
-                          row.rightOutcome,
-                        )}
+                      <div
+                        className={[
+                          'streak-player-picks__h2h-col-cell',
+                          'streak-player-picks__h2h-col-cell--a',
+                          rowGapClass,
+                          isLast ? 'streak-player-picks__h2h-col-cell--last' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ gridColumn: 2, gridRow }}
+                        aria-label={`${headToHeadLabels.userA}: ${matchupOutcomeStatusLabel(row.leftOutcome)}`}
+                      >
+                        {renderMatchupOutcomeMark(row.leftOutcome)}
                       </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                      <div
+                        className={[
+                          'streak-player-picks__h2h-col-cell',
+                          'streak-player-picks__h2h-col-cell--b',
+                          rowGapClass,
+                          isLast ? 'streak-player-picks__h2h-col-cell--last' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ gridColumn: 3, gridRow }}
+                        aria-label={`${headToHeadLabels.userB}: ${matchupOutcomeStatusLabel(row.rightOutcome)}`}
+                      >
+                        {renderMatchupOutcomeMark(row.rightOutcome)}
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
             )
           ) : isComprehensivePlayerPicks ? (
             comprehensivePlayerPickRows.length === 0 ? (
