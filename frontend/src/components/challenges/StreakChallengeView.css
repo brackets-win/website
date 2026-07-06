@@ -342,8 +342,17 @@
   padding-left: 0;
 }
 
+.streak-player-picks__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
 .streak-player-picks__title {
-  margin: 0 0 1rem;
+  margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
 }
@@ -387,7 +396,7 @@
 }
 
 .streak-player-picks__h2h-head-name {
-  font-size: 1.35rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--app-text);
   flex: 1 1 0;
@@ -479,7 +488,7 @@
   }
 
   .streak-player-picks__h2h-head-name {
-    font-size: 1.1rem;
+    font-size: 0.9rem;
   }
 
   .streak-player-picks__h2h-grid {

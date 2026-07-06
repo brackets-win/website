@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -6,8 +6,10 @@ import {
   type StreakChallengeStatsPayload,
 } from '../../utils/api';
 import { formatDeadlineEst } from '../../utils/est';
+import { compareClosesAt, type PickResultsSort } from '../../utils/streakKnockout';
 
 import { StreakQuestionChoices } from './StreakQuestionChoices';
+import { StreakResultsSortToggle } from './StreakResultsSortToggle';
 import './StreakChallengeStats.css';
 
 type Props = {
@@ -15,6 +17,8 @@ type Props = {
   viewerUserId: number;
   userChoiceByQuestionId: Record<number, number | null>;
   onSelectPlayer: (userId: number, displayName: string) => void;
+  sortOrder: PickResultsSort;
+  onSortOrderChange: (sort: PickResultsSort) => void;
 };
 
 type PickStatus = 'correct' | 'wrong' | 'none';
@@ -70,6 +74,8 @@ export function StreakChallengeStats({
   viewerUserId,
   userChoiceByQuestionId,
   onSelectPlayer,
+  sortOrder,
+  onSortOrderChange,
 }: Props) {
   const [stats, setStats] = useState<StreakChallengeStatsPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +104,17 @@ export function StreakChallengeStats({
       });
   }, [streakChallengeId]);
 
+  const sortedQuestions = useMemo(() => {
+    if (!stats?.questions.length) return [];
+    return [...stats.questions].sort((a, b) =>
+      compareClosesAt(
+        { closes_at: a.closes_at, id: a.question_id },
+        { closes_at: b.closes_at, id: b.question_id },
+        sortOrder,
+      ),
+    );
+  }, [stats?.questions, sortOrder]);
+
   function toggleExpanded(questionId: number, choiceId: number) {
     const key = `${questionId}-${choiceId}`;
     setExpandedKey((prev) => (prev === key ? null : key));
@@ -117,8 +134,16 @@ export function StreakChallengeStats({
 
   return (
     <section className="streak-view__questions streak-challenge-stats">
+      {stats.questions.length >= 2 ? (
+        <div className="streak-challenge-stats__head">
+          <StreakResultsSortToggle
+            value={sortOrder}
+            onChange={onSortOrderChange}
+          />
+        </div>
+      ) : null}
       <ul className="streak-question-list">
-        {stats.questions.map((question) => {
+        {sortedQuestions.map((question) => {
           const userChoiceId =
             userChoiceByQuestionId[question.question_id] ?? null;
           const status = pickStatus(userChoiceId, question.correct_choice_id);

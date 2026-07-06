@@ -136,25 +136,41 @@ export function makePickPhaseDividers<T extends {
   return rows;
 }
 
-function comparePickClosesAtDesc(
-  a: StreakParticipantPickRow,
-  b: StreakParticipantPickRow,
+export type PickResultsSort = 'desc' | 'asc';
+
+type ClosesAtRow = {
+  closes_at: string;
+  id?: number;
+  question_id?: number;
+};
+
+export function compareClosesAt(
+  a: ClosesAtRow,
+  b: ClosesAtRow,
+  sort: PickResultsSort,
 ): number {
   const timeA = new Date(a.closes_at).getTime();
   const timeB = new Date(b.closes_at).getTime();
-  if (timeA !== timeB) return timeB - timeA;
-  return b.question_id - a.question_id;
+  const idA = a.id ?? a.question_id ?? 0;
+  const idB = b.id ?? b.question_id ?? 0;
+  if (sort === 'desc') {
+    if (timeA !== timeB) return timeB - timeA;
+    return idB - idA;
+  }
+  if (timeA !== timeB) return timeA - timeB;
+  return idA - idB;
 }
 
 export function playerPickPhaseDividers(
   picks: StreakParticipantPickRow[],
+  sort: PickResultsSort = 'desc',
 ): Array<
   | { type: 'divider'; label: string; key: string }
   | { type: 'pick'; pick: StreakParticipantPickRow }
 > {
   if (picks.length === 0) return [];
 
-  const sorted = [...picks].sort(comparePickClosesAtDesc);
+  const sorted = [...picks].sort((a, b) => compareClosesAt(a, b, sort));
   const rows: Array<
     | { type: 'divider'; label: string; key: string }
     | { type: 'pick'; pick: StreakParticipantPickRow }

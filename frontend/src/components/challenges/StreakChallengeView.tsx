@@ -25,9 +25,11 @@ import { streakEmoji } from '../../utils/challengeTypes';
 import { challengeThemeClass } from '../../utils/challengeThemes';
 import { estLocalInputToIso, formatDeadlineEst, isoToEstLocalInput } from '../../utils/est';
 import {
+  compareClosesAt,
   knockoutRoundLabel,
   makePickPhaseDividers,
   playerPickPhaseDividers,
+  type PickResultsSort,
   uniquePlayerAbbreviations,
 } from '../../utils/streakKnockout';
 import {
@@ -46,6 +48,7 @@ import { StreakChallengeStats } from './StreakChallengeStats';
 import { StreakKnockout } from './StreakKnockout';
 import { StreakLeaderboard } from './StreakLeaderboard';
 import { StreakQuestionChoices } from './StreakQuestionChoices';
+import { StreakResultsSortToggle } from './StreakResultsSortToggle';
 import './challengeThemes.css';
 import './StreakChallengeView.css';
 import '../challenges/ChallengeView.css';
@@ -68,20 +71,7 @@ function compareClosesAtAsc(
   a: { closes_at: string; id: number },
   b: { closes_at: string; id: number },
 ): number {
-  const diff =
-    new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime();
-  if (diff !== 0) return diff;
-  return a.id - b.id;
-}
-
-function compareClosesAtDesc(
-  a: { closes_at: string; id: number },
-  b: { closes_at: string; id: number },
-): number {
-  const diff =
-    new Date(b.closes_at).getTime() - new Date(a.closes_at).getTime();
-  if (diff !== 0) return diff;
-  return b.id - a.id;
+  return compareClosesAt(a, b, 'asc');
 }
 
 type MatchupPlayer = {
@@ -140,6 +130,7 @@ function mergeHeadToHeadPicks(
   leftRows: StreakParticipantPickRow[],
   rightRows: StreakParticipantPickRow[],
   baseQuestions: StreakQuestionInfo[] = [],
+  sort: PickResultsSort = 'desc',
 ): HeadToHeadQuestionRow[] {
   const byQuestionId = new Map<number, HeadToHeadQuestionRow>();
 
@@ -223,9 +214,10 @@ function mergeHeadToHeadPicks(
   }
 
   return [...byQuestionId.values()].sort((a, b) =>
-    compareClosesAtAsc(
+    compareClosesAt(
       { closes_at: a.closesAt, id: a.questionId },
       { closes_at: b.closesAt, id: b.questionId },
+      sort,
     ),
   );
 }
@@ -337,6 +329,7 @@ export function StreakChallengeView({
   >([]);
   const [playerPicksBusy, setPlayerPicksBusy] = useState(false);
   const [playerPicksErr, setPlayerPicksErr] = useState('');
+  const [resultsSort, setResultsSort] = useState<PickResultsSort>('desc');
 
   const reload = useCallback(async () => {
     setLoadErr('');
@@ -523,12 +516,13 @@ export function StreakChallengeView({
   const sortedPlayerPicks = useMemo(
     () =>
       [...playerPicks].sort((a, b) =>
-        compareClosesAtDesc(
+        compareClosesAt(
           { closes_at: a.closes_at, id: a.question_id },
           { closes_at: b.closes_at, id: b.question_id },
+          resultsSort,
         ),
       ),
-    [playerPicks],
+    [playerPicks, resultsSort],
   );
 
   const isComprehensivePlayerPicks =
@@ -538,8 +532,11 @@ export function StreakChallengeView({
     !selectedPlayer.picksFilter;
 
   const comprehensivePlayerPickRows = useMemo(
-    () => (isComprehensivePlayerPicks ? playerPickPhaseDividers(playerPicks) : []),
-    [isComprehensivePlayerPicks, playerPicks],
+    () =>
+      isComprehensivePlayerPicks
+        ? playerPickPhaseDividers(playerPicks, resultsSort)
+        : [],
+    [isComprehensivePlayerPicks, playerPicks, resultsSort],
   );
 
   const headToHeadBaseQuestions = useMemo(() => {
@@ -575,8 +572,9 @@ export function StreakChallengeView({
         playerPicks,
         matchupRightPicks,
         headToHeadBaseQuestions,
+        resultsSort,
       ),
-    [headToHeadBaseQuestions, playerPicks, matchupRightPicks],
+    [headToHeadBaseQuestions, playerPicks, matchupRightPicks, resultsSort],
   );
 
   const headToHeadLabels = useMemo(() => {
@@ -853,11 +851,27 @@ export function StreakChallengeView({
           ← {selectedPlayer.fromTab === 'knockout' ? 'Knockout' : 'Leaderboard'}
         </button>
         <section className="card streak-view__panel">
-          <h2 className="streak-player-picks__title">
-            {matchup && headToHeadLabels
-              ? `${headToHeadLabels.userA} vs ${headToHeadLabels.userB}`
-              : playerPicksTitle(selectedPlayer)}
-          </h2>
+          <div className="streak-player-picks__head">
+            <h2 className="streak-player-picks__title">
+              {matchup && headToHeadLabels
+                ? `${headToHeadLabels.userA} vs ${headToHeadLabels.userB}`
+                : playerPicksTitle(selectedPlayer)}
+            </h2>
+            {!playerPicksBusy &&
+            !playerPicksErr &&
+            ((matchup && headToHeadRows.length >= 2) ||
+              (isComprehensivePlayerPicks &&
+                comprehensivePlayerPickRows.filter((row) => row.type === 'pick')
+                  .length >= 2) ||
+              (!matchup &&
+                !isComprehensivePlayerPicks &&
+                sortedPlayerPicks.length >= 2)) ? (
+              <StreakResultsSortToggle
+                value={resultsSort}
+                onChange={setResultsSort}
+              />
+            ) : null}
+          </div>
           {playerPicksErr ? (
             <div className="alert alert--error">{playerPicksErr}</div>
           ) : null}
@@ -1217,6 +1231,8 @@ export function StreakChallengeView({
           viewerUserId={currentUser.id}
           userChoiceByQuestionId={userChoiceByQuestionId}
           onSelectPlayer={onSelectLeaderboardPlayer}
+          sortOrder={resultsSort}
+          onSortOrderChange={setResultsSort}
         />
       ) : null}
 
