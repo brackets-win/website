@@ -837,9 +837,8 @@ export function ChallengeStats({
         <section className="challenge-stats__section">
           <h2 className="challenge-stats__heading">Top 8</h2>
           <p className="challenge-stats__section-note">
-            Entries grouped by the same predicted champion, runner-up, top four,
-            and quarter-finalists. Larger flags are shared by more entries in
-            that branch.
+            Predictions grouped by shared champion, runner-up, semi-finalists,
+            and quarter-finalists.
           </p>
           <BracketSimilarity
             hasThirdPlace={similarity.has_third_place}
