@@ -474,6 +474,11 @@
   line-height: 1;
 }
 
+.streak-player-picks__h2h-layout--stacked {
+  display: block;
+  width: 100%;
+}
+
 .streak-player-picks__h2h-layout--stacked .streak-player-picks__h2h-head {
   display: flex;
   justify-content: space-between;
