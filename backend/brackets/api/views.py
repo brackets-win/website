@@ -696,28 +696,10 @@ def bracket_materialize_scores(
     if not _user_can_materialize_bracket_scores(user, bracket):
         return _json_error("Forbidden", 403)
 
-    from brackets.utils.leaderboard_scoring import (
-        count_stale_submitted_leaderboard_scores,
-        is_master_scoring_pending,
-        materialize_leaderboard_scores_batch,
-    )
-    from brackets.utils.next_match import is_next_match_pending
+    from brackets.utils.leaderboard_scoring import materialize_leaderboard_scores_batch
     from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
 
     bracket.refresh_from_db(fields=["metadata"])
-    stale_count = count_stale_submitted_leaderboard_scores(bracket)
-    if (
-        not is_master_scoring_pending(bracket)
-        and not is_next_match_pending(bracket)
-        and stale_count == 0
-    ):
-        return JsonResponse(
-            {
-                "updated_count": 0,
-                "remaining_count": 0,
-                "leaderboard_scores_pending": False,
-            }
-        )
 
     try:
         result = materialize_leaderboard_scores_batch(bracket)

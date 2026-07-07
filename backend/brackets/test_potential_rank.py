@@ -10,6 +10,7 @@ from brackets.utils.group_results_mode import set_group_results_mode_on_metadata
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 from brackets.utils.leaderboard_scoring import (
     load_leaderboard_scoring_context,
+    materialize_leaderboard_scores_for_bracket,
     on_master_bracket_changed,
     read_stored_leaderboard_scores,
     refresh_all_submitted_leaderboard_scores_for_bracket,
@@ -327,6 +328,92 @@ class PotentialRankTests(TestCase):
         # Without the rank column, the points column keeps its plain label.
         self.assertEqual(cols["potential"], "Potential")
         self.assertIsNone(res.json()["entries"][0]["potential_rank"])
+
+    def test_apply_materializes_potential_rank_after_deferred_master_change(self):
+        """Apply (materialize) must persist rank when the QF+ gate is open."""
+        t1, t2, t3, t4 = self.teams
+        self._set_master_partial(sf1_winner=t1)
+        ub = self._submit("player_apply", sf1=t1, sf2=t3, final_winner=t1)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+        UserBracket.objects.filter(pk=ub.pk).update(leaderboard_potential_rank=None)
+
+        self._set_master_partial(sf1_winner=t1, sf2_winner=t3)
+        on_master_bracket_changed(self.bracket, materialize=False)
+        ub.refresh_from_db()
+        self.assertIsNone(ub.leaderboard_potential_rank)
+
+        materialize_leaderboard_scores_for_bracket(self.bracket)
+        ub.refresh_from_db()
+        self.assertIsNotNone(ub.leaderboard_potential_rank)
+
+        self.client.login(username="player_apply", password="x")
+        res = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("potential_rank", [c["key"] for c in res.json()["columns"]])
+        self.assertIsNotNone(res.json()["entries"][0]["potential_rank"])
+
+    def test_apply_opens_potential_rank_when_qf_becomes_earliest_incomplete(self):
+        """Rank stays off through R16; Apply after R16 completes surfaces it."""
+        from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
+
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "pot-rank-apply-qf",
+            "Apply QF Rank",
+            16,
+            self.host,
+        )
+        teams = [
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"Q{i + 1}", seed=i + 1
+            )
+            for i in range(16)
+        ]
+        challenge = BracketChallenge.objects.create(
+            name="QF Pool",
+            bracket=bracket,
+            created_by=self.host,
+            join_code="APPLYQF1",
+        )
+        master = bracket.get_master_bracket()
+        ensure_knockout_structure_for_user_bracket(master)
+        r16 = bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        for m in master.matchup_set.filter(stage=r16).order_by("position"):
+            i = (m.position - 1) * 2
+            m.contestant1 = teams[i]
+            m.contestant2 = teams[i + 1]
+            m.winner = None
+            m.save(update_fields=["contestant1", "contestant2", "winner"])
+
+        player = User.objects.create_user(username="qf_player", password="x")
+        ub = UserBracket.objects.create(
+            user=player,
+            bracket=bracket,
+            challenge=challenge,
+            submitted_at=timezone.now(),
+        )
+        refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+        ub.refresh_from_db()
+        self.assertFalse(potential_rank_allowed_for_bracket(bracket))
+        self.assertIsNone(ub.leaderboard_potential_rank)
+
+        for m in master.matchup_set.filter(stage=r16):
+            m.winner = m.contestant1
+            m.save(update_fields=["winner"])
+        on_master_bracket_changed(bracket, materialize=False)
+        self.assertTrue(potential_rank_allowed_for_bracket(bracket))
+
+        materialize_leaderboard_scores_for_bracket(bracket)
+        ub.refresh_from_db()
+        self.assertIsNotNone(ub.leaderboard_potential_rank)
+
+        self.client.login(username="qf_player", password="x")
+        res = self.client.get(f"/brackets/api/challenges/{challenge.id}/leaderboard")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("potential_rank", [c["key"] for c in res.json()["columns"]])
+        self.assertIsNotNone(res.json()["entries"][0]["potential_rank"])
 
 
 class PotentialRankBatchHelpersTests(TestCase):

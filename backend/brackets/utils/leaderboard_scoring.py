@@ -193,13 +193,13 @@ def materialize_leaderboard_scores_batch(
         from brackets.utils.next_match_pick import (
             persist_next_match_picks_for_bracket,
         )
-        from brackets.utils.potential_score import persist_potential_scores_for_bracket
+        from brackets.utils.potential_score import persist_all_potential_for_bracket
 
         try:
-            persist_potential_scores_for_bracket(bracket)
+            persist_all_potential_for_bracket(bracket)
         except Exception:
             logger.exception(
-                "Potential score persist failed for bracket %s", bracket.pk
+                "Potential persist failed for bracket %s", bracket.pk
             )
         try:
             persist_next_match_picks_for_bracket(bracket)
