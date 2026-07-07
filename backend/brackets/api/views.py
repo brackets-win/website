@@ -1286,19 +1286,51 @@ def challenge_leaderboard(
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     omit_potential = omit_leaderboard_potential_for_bracket(bracket)
-    from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
+    from brackets.utils.potential_rank import (
+        compute_potential_ranks_for_users,
+        potential_rank_allowed_for_bracket,
+    )
 
-    # Only surface Potential Rank at quarter-finals or later on the master bracket.
-    show_potential_rank = not omit_potential and (
-        master is not None
-        and potential_rank_allowed_for_bracket(bracket)
-        and UserBracket.objects.filter(
+    matchup_prefetch = Matchup.objects.select_related(
+        "winner__contestant",
+        "contestant1__contestant",
+        "contestant2__contestant",
+        "stage",
+    ).prefetch_related(
+        "winner__contestant__tags",
+        "contestant1__contestant__tags",
+        "contestant2__contestant__tags",
+    )
+    submitted_qs = (
+        UserBracket.objects.filter(
             challenge=challenge,
             is_master=False,
             submitted_at__isnull=False,
-            leaderboard_scores_revision=scoring_revision,
-            leaderboard_potential_rank__isnull=False,
-        ).exists()
+        )
+        .select_related(
+            "user",
+            "bracket",
+            "leaderboard_next_match_pick__contestant",
+        )
+        .prefetch_related(
+            Prefetch("matchup_set", queryset=matchup_prefetch),
+        )
+        .order_by("user__username")
+    )
+    submitted_entries = list(submitted_qs)
+
+    rank_gate_open = (
+        not omit_potential
+        and master is not None
+        and potential_rank_allowed_for_bracket(bracket)
+    )
+    challenge_ranks: dict[int, int | None] = {}
+    if rank_gate_open and submitted_entries:
+        challenge_ranks = compute_potential_ranks_for_users(ctx, submitted_entries) or {}
+
+    # Only surface Potential Rank at quarter-finals or later on the master bracket.
+    show_potential_rank = rank_gate_open and any(
+        rank is not None for rank in challenge_ranks.values()
     )
     columns = []
     if not omit_potential:
@@ -1354,33 +1386,8 @@ def challenge_leaderboard(
         serializers.leaderboard_column(key="champion", name="Champions")
     )
 
-    matchup_prefetch = Matchup.objects.select_related(
-        "winner__contestant",
-        "contestant1__contestant",
-        "contestant2__contestant",
-        "stage",
-    ).prefetch_related(
-        "winner__contestant__tags",
-        "contestant1__contestant__tags",
-        "contestant2__contestant__tags",
-    )
     entries = []
-    for ub in (
-        UserBracket.objects.filter(
-            challenge=challenge,
-            is_master=False,
-            submitted_at__isnull=False,
-        )
-        .select_related(
-            "user",
-            "bracket",
-            "leaderboard_next_match_pick__contestant",
-        )
-        .prefetch_related(
-            Prefetch("matchup_set", queryset=matchup_prefetch),
-        )
-        .order_by("user__username")
-    ):
+    for ub in submitted_entries:
         if master:
             scores = read_stored_leaderboard_scores(
                 ub,
@@ -1390,7 +1397,7 @@ def challenge_leaderboard(
             score = scores.score
             potential = None if omit_potential else scores.potential
             potential_rank = (
-                scores.potential_rank if show_potential_rank else None
+                challenge_ranks.get(ub.id) if show_potential_rank else None
             )
         else:
             stage_scores = {col["key"]: None for col in columns}

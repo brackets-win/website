@@ -415,6 +415,64 @@ class PotentialRankTests(TestCase):
         self.assertIn("potential_rank", [c["key"] for c in res.json()["columns"]])
         self.assertIsNotNone(res.json()["entries"][0]["potential_rank"])
 
+    def test_potential_rank_scoped_per_challenge_not_across_bracket(self):
+        """Reusable brackets: rank is relative within each challenge pool only."""
+        t1, t2, t3, t4 = self.teams
+        self._set_master_partial(sf1_winner=t1)
+
+        challenge_b = BracketChallenge.objects.create(
+            name="Pool B",
+            bracket=self.bracket,
+            created_by=self.host,
+            join_code="POTRANK2",
+        )
+        for username, sf1, sf2, champ in (
+            ("a1", t1, t3, t1),
+            ("a2", t1, t4, t4),
+            ("a3", t2, t3, t3),
+        ):
+            self._submit(username, sf1=sf1, sf2=sf2, final_winner=champ)
+        for username, sf1, sf2, champ in (
+            ("b1", t1, t3, t1),
+            ("b2", t2, t4, t4),
+        ):
+            user = User.objects.create_user(username=username, password="x")
+            ub = UserBracket.objects.create(
+                user=user,
+                bracket=self.bracket,
+                challenge=challenge_b,
+                submitted_at=timezone.now(),
+            )
+            self._fill_user_bracket(ub, sf1=sf1, sf2=sf2, final_winner=champ)
+
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+
+        self.client.login(username="a1", password="x")
+        res_a = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res_a.status_code, 200)
+        ranks_a = [
+            e["potential_rank"]
+            for e in res_a.json()["entries"]
+            if e["potential_rank"] is not None
+        ]
+        self.assertTrue(ranks_a)
+        self.assertLessEqual(max(ranks_a), 3)
+
+        self.client.login(username="b1", password="x")
+        res_b = self.client.get(
+            f"/brackets/api/challenges/{challenge_b.id}/leaderboard"
+        )
+        self.assertEqual(res_b.status_code, 200)
+        ranks_b = [
+            e["potential_rank"]
+            for e in res_b.json()["entries"]
+            if e["potential_rank"] is not None
+        ]
+        self.assertTrue(ranks_b)
+        self.assertLessEqual(max(ranks_b), 2)
+
 
 class PotentialRankBatchHelpersTests(TestCase):
     def _pairwise_competition_ranks(self, totals):

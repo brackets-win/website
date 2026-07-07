@@ -28,6 +28,7 @@ __all__ = [
     "MAX_UNDECIDED_MATCHUPS",
     "competition_ranks_batch",
     "compute_potential_ranks_for_bracket",
+    "compute_potential_ranks_for_challenge",
     "persist_potential_ranks_for_bracket",
     "potential_rank_allowed_for_bracket",
     "potential_rank_allowed_for_context",
@@ -74,6 +75,68 @@ def potential_rank_allowed_for_bracket(bracket: Bracket) -> bool:
     return potential_rank_allowed_for_context(ctx)
 
 
+def _submitted_pools_for_bracket(bracket: Bracket) -> list[list[UserBracket]]:
+    """
+    Submitted entry pools for rank — one pool per challenge (or one pool for
+    entries with no challenge). Rank is always relative within a pool only.
+    """
+    ubs = list(
+        UserBracket.objects.filter(
+            bracket=bracket,
+            is_master=False,
+            submitted_at__isnull=False,
+        )
+        .prefetch_related("matchup_set")
+        .order_by("challenge_id", "id")
+    )
+    if not ubs:
+        return []
+
+    pools: list[list[UserBracket]] = []
+    current_key = ubs[0].challenge_id
+    current: list[UserBracket] = []
+    for ub in ubs:
+        if ub.challenge_id != current_key:
+            pools.append(current)
+            current_key = ub.challenge_id
+            current = []
+        current.append(ub)
+    if current:
+        pools.append(current)
+    return pools
+
+
+def compute_potential_ranks_for_challenge(
+    challenge,
+) -> dict[int, int | None] | None:
+    """Best achievable rank per submitted entry in one challenge pool."""
+    from brackets.models import BracketChallenge
+
+    if not isinstance(challenge, BracketChallenge):
+        raise TypeError("challenge must be a BracketChallenge")
+
+    bracket = challenge.bracket
+    if not potential_rank_allowed_for_bracket(bracket):
+        return {
+            ub.id: None
+            for ub in UserBracket.objects.filter(
+                challenge=challenge,
+                is_master=False,
+                submitted_at__isnull=False,
+            )
+        }
+
+    ctx = load_leaderboard_scoring_context(bracket)
+    ubs = list(
+        UserBracket.objects.filter(
+            challenge=challenge,
+            is_master=False,
+            submitted_at__isnull=False,
+        ).prefetch_related("matchup_set")
+    )
+    return compute_potential_ranks_for_users(ctx, ubs)
+
+
 def compute_potential_ranks_for_bracket(
     bracket: Bracket,
     *,
@@ -82,25 +145,28 @@ def compute_potential_ranks_for_bracket(
     """
     Return best achievable rank per submitted user bracket id.
 
+    Ranks are computed separately within each challenge pool on a reusable
+    bracket — never across challenges.
+
     Returns ``None`` when rank cannot be enumerated (gate closed or tree not ready).
     """
     del cap
+    submitted = UserBracket.objects.filter(
+        bracket=bracket,
+        is_master=False,
+        submitted_at__isnull=False,
+    )
     if not potential_rank_allowed_for_bracket(bracket):
-        return {ub.id: None for ub in UserBracket.objects.filter(
-            bracket=bracket,
-            is_master=False,
-            submitted_at__isnull=False,
-        )}
+        return {ub.id: None for ub in submitted}
 
     ctx = load_leaderboard_scoring_context(bracket)
-    ubs = list(
-        UserBracket.objects.filter(
-            bracket=bracket,
-            is_master=False,
-            submitted_at__isnull=False,
-        ).prefetch_related("matchup_set")
-    )
-    return compute_potential_ranks_for_users(ctx, ubs)
+    merged: dict[int, int | None] = {}
+    for pool in _submitted_pools_for_bracket(bracket):
+        pool_ranks = compute_potential_ranks_for_users(ctx, pool)
+        if pool_ranks is None:
+            return None
+        merged.update(pool_ranks)
+    return merged
 
 
 def compute_potential_ranks_for_users(
