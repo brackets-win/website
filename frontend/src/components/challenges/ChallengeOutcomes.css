@@ -26,13 +26,14 @@
 
 .challenge-outcomes__summary-winner {
   text-align: left;
-  font-weight: 600;
+  vertical-align: top;
 }
 
 .challenge-outcomes__summary-pct {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  vertical-align: top;
 }
 
 .challenge-outcomes__detail {
@@ -42,6 +43,23 @@
 
 .challenge-outcomes__table {
   min-width: 100%;
+}
+
+.challenge-outcomes__col--champ {
+  width: 12%;
+}
+
+.challenge-outcomes__col--placement {
+  width: 16%;
+}
+
+.challenge-outcomes__col--winner {
+  width: 14%;
+}
+
+.challenge-outcomes__td--winner,
+.challenge-outcomes__entries {
+  text-align: left;
 }
 
 .challenge-outcomes__team-cluster {
@@ -57,6 +75,28 @@
 .challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
   width: 1.35rem;
   height: 0.95rem;
+}
+
+.challenge-outcomes__all-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--surface-muted, #f1f5f9);
+  color: var(--text-muted, #64748b);
+}
+
+.challenge-outcomes__all-pill--md {
+  min-height: 1.75rem;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.875rem;
 }
 
 @media (min-width: 900px) {

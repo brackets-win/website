@@ -168,11 +168,12 @@ class ChallengeOutcomesTests(TestCase):
         payload = build_challenge_outcomes(self.challenge)
         self.assertIsNotNone(payload)
         self.assertGreater(payload["total_outcomes"], 0)
-        odds_by_name = {row["name"]: row for row in payload["winner_odds"]}
+        odds_by_name = {row["entries"][0]["display_name"]: row for row in payload["winner_odds"]}
         self.assertTrue(odds_by_name)
         total = payload["total_outcomes"]
         for row in payload["winner_odds"]:
             self.assertEqual(row["pct"], round(100.0 * row["outcome_count"] / total, 1))
+            self.assertIn("entries", row)
 
     def test_outcomes_are_cached_on_first_read(self):
         t1, _, t3, _ = self.teams

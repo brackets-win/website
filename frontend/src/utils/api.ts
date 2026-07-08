@@ -932,7 +932,7 @@ export type ChallengeStats = {
 };
 
 export type ChallengeOutcomesWinnerOdds = {
-  name: string;
+  entries: ChallengeOutcomesEntry[];
   outcome_count: number;
   pct: number;
 };
