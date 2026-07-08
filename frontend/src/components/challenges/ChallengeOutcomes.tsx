@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import type {
   ChallengeOutcomesChampionBranch,
   ChallengeOutcomesEntry,
@@ -10,6 +12,8 @@ import './BracketSimilarity.css';
 import './ChallengeOutcomes.css';
 import './ChallengeStats.css';
 
+type GroupMode = 'entry' | 'team';
+
 type Props = {
   hasThirdPlace: boolean;
   winnerOdds: ChallengeOutcomesWinnerOdds[];
@@ -18,7 +22,8 @@ type Props = {
   viewerUsername?: string | null;
 };
 
-type RawRow = {
+type LeafPath = {
+  champion: ChallengeStatsSimilarityTeam;
   runnerUp: ChallengeStatsSimilarityTeam;
   third?: ChallengeStatsSimilarityTeam;
   fourth?: ChallengeStatsSimilarityTeam;
@@ -27,49 +32,40 @@ type RawRow = {
 };
 
 type DisplayRow = {
+  champion: ChallengeStatsSimilarityTeam;
   runnerUpTeams: ChallengeStatsSimilarityTeam[];
   thirdTeams: ChallengeStatsSimilarityTeam[];
   fourthTeams: ChallengeStatsSimilarityTeam[];
   semiTeams: ChallengeStatsSimilarityTeam[];
-  winner: ChallengeOutcomesEntry;
-  outcomeCount: number;
-};
-
-type PlacementRow = {
-  thirdTeams: ChallengeStatsSimilarityTeam[];
-  fourthTeams: ChallengeStatsSimilarityTeam[];
-  outcomeCount: number;
-};
-
-type SemiPlacementRow = {
-  semiTeams: ChallengeStatsSimilarityTeam[];
-  outcomeCount: number;
-};
-
-type EntryGroup = {
-  winner: ChallengeOutcomesEntry;
-  entryRows: RawRow[];
-  rows: DisplayRow[];
+  winners: ChallengeOutcomesEntry[];
 };
 
 type TableRow = DisplayRow & {
-  showWinnerCell: boolean;
-  winnerRowSpan: number;
+  showChampCell: boolean;
+  champRowSpan: number;
   showRuCell: boolean;
   ruRowSpan: number;
+  showThirdCell: boolean;
+  thirdRowSpan: number;
 };
 
 function teamSortKey(team: ChallengeStatsSimilarityTeam): string {
   return team.display_name.toLocaleLowerCase();
 }
 
-function sortTeams(teams: Iterable<ChallengeStatsSimilarityTeam>): ChallengeStatsSimilarityTeam[] {
+function sortTeams(
+  teams: Iterable<ChallengeStatsSimilarityTeam>,
+): ChallengeStatsSimilarityTeam[] {
   return [...teams].sort((a, b) =>
-    teamSortKey(a).localeCompare(teamSortKey(b), undefined, { sensitivity: 'base' }),
+    teamSortKey(a).localeCompare(teamSortKey(b), undefined, {
+      sensitivity: 'base',
+    }),
   );
 }
 
-function dedupeTeams(teams: ChallengeStatsSimilarityTeam[]): ChallengeStatsSimilarityTeam[] {
+function dedupeTeams(
+  teams: ChallengeStatsSimilarityTeam[],
+): ChallengeStatsSimilarityTeam[] {
   const byId = new Map<number, ChallengeStatsSimilarityTeam>();
   for (const team of teams) {
     byId.set(team.bracket_contestant_id, team);
@@ -84,364 +80,493 @@ function teamSetKey(teams: ChallengeStatsSimilarityTeam[]): string {
     .join(',');
 }
 
-function collectRawRows(
-  champ: ChallengeOutcomesChampionBranch,
+function winnersKey(winners: ChallengeOutcomesEntry[]): string {
+  return winners
+    .map((entry) => entry.user_bracket_id)
+    .sort((a, b) => a - b)
+    .join(',');
+}
+
+function sortWinners(winners: ChallengeOutcomesEntry[]): ChallengeOutcomesEntry[] {
+  return [...winners].sort((a, b) =>
+    a.display_name.localeCompare(b.display_name, undefined, {
+      sensitivity: 'base',
+    }),
+  );
+}
+
+function collectAllLeafPaths(
+  tree: ChallengeOutcomesChampionBranch[],
   hasThirdPlace: boolean,
-): RawRow[] {
-  const rows: RawRow[] = [];
-  for (const ru of champ.children) {
-    if (hasThirdPlace) {
-      for (const third of ru.children) {
-        for (const fourth of third.children) {
-          for (const leaf of fourth.children) {
-            rows.push({
-              runnerUp: ru.team,
-              third: third.team,
-              fourth: fourth.team,
-              winners: leaf.winners,
-            });
+): LeafPath[] {
+  const rows: LeafPath[] = [];
+  for (const champ of tree) {
+    for (const ru of champ.children) {
+      if (hasThirdPlace) {
+        for (const third of ru.children) {
+          for (const fourth of third.children) {
+            for (const leaf of fourth.children) {
+              rows.push({
+                champion: champ.team,
+                runnerUp: ru.team,
+                third: third.team,
+                fourth: fourth.team,
+                winners: sortWinners(leaf.winners),
+              });
+            }
           }
         }
-      }
-    } else {
-      for (const third of ru.children) {
-        const fourth = third.children[0];
-        if (!fourth) continue;
-        for (const leaf of fourth.children) {
-          rows.push({
-            runnerUp: ru.team,
-            semifinalists: [third.team, fourth.team],
-            winners: leaf.winners,
-          });
+      } else {
+        for (const third of ru.children) {
+          const fourth = third.children[0];
+          if (!fourth) continue;
+          for (const leaf of fourth.children) {
+            rows.push({
+              champion: champ.team,
+              runnerUp: ru.team,
+              semifinalists: [third.team, fourth.team],
+              winners: sortWinners(leaf.winners),
+            });
+          }
         }
       }
     }
   }
   return rows;
-}
-
-function expandRowsByEntry(champRows: RawRow[]): Map<number, RawRow[]> {
-  const byEntry = new Map<number, RawRow[]>();
-  for (const row of champRows) {
-    for (const winner of row.winners) {
-      const bucket = byEntry.get(winner.user_bracket_id) ?? [];
-      bucket.push({ ...row, winners: [winner] });
-      byEntry.set(winner.user_bracket_id, bucket);
-    }
-  }
-  return byEntry;
 }
 
 function isExhaustiveCluster(
   teams: ChallengeStatsSimilarityTeam[],
   universe: ChallengeStatsSimilarityTeam[],
 ): boolean {
-  if (teams.length <= 1 || universe.length <= 1) return false;
+  if (teams.length === 0 || universe.length === 0) return false;
+  if (universe.length <= 1) return false;
   return teamSetKey(teams) === teamSetKey(universe);
 }
 
-function thirdsForRunnerUpCluster(
-  entryRows: RawRow[],
-  runnerUpTeams: ChallengeStatsSimilarityTeam[],
-): ChallengeStatsSimilarityTeam[] {
-  const ruIds = new Set(runnerUpTeams.map((team) => team.bracket_contestant_id));
-  return dedupeTeams(
-    entryRows
-      .filter((row) => ruIds.has(row.runnerUp.bracket_contestant_id) && row.third)
-      .map((row) => row.third!),
-  );
-}
+/** Global remaining teams under a prefix — from the FULL outcome tree. */
+class GlobalUniverse {
+  constructor(private readonly allLeaves: LeafPath[]) {}
 
-function fourthsForRunnerUpThirdCluster(
-  entryRows: RawRow[],
-  runnerUpTeams: ChallengeStatsSimilarityTeam[],
-  thirdTeams: ChallengeStatsSimilarityTeam[],
-): ChallengeStatsSimilarityTeam[] {
-  const ruIds = new Set(runnerUpTeams.map((team) => team.bracket_contestant_id));
-  const thirdIds = new Set(thirdTeams.map((team) => team.bracket_contestant_id));
-  return dedupeTeams(
-    entryRows
-      .filter(
-        (row) =>
-          ruIds.has(row.runnerUp.bracket_contestant_id) &&
-          row.third &&
-          thirdIds.has(row.third.bracket_contestant_id) &&
-          row.fourth,
-      )
-      .map((row) => row.fourth!),
-  );
-}
-
-function semiTeamsForRunnerUpCluster(
-  entryRows: RawRow[],
-  runnerUpTeams: ChallengeStatsSimilarityTeam[],
-): ChallengeStatsSimilarityTeam[] {
-  const ruIds = new Set(runnerUpTeams.map((team) => team.bracket_contestant_id));
-  const teams: ChallengeStatsSimilarityTeam[] = [];
-  for (const row of entryRows) {
-    if (!ruIds.has(row.runnerUp.bracket_contestant_id) || !row.semifinalists) continue;
-    teams.push(...row.semifinalists);
-  }
-  return dedupeTeams(teams);
-}
-
-function placementSignature(placementRows: PlacementRow[]): string {
-  return placementRows
-    .map((row) => `${teamSetKey(row.thirdTeams)}:${teamSetKey(row.fourthTeams)}`)
-    .join('|');
-}
-
-function semiPlacementSignature(placementRows: SemiPlacementRow[]): string {
-  return placementRows.map((row) => teamSetKey(row.semiTeams)).join('|');
-}
-
-function buildPlacementRowsForRu(
-  ruRows: RawRow[],
-  entryRows: RawRow[],
-): PlacementRow[] {
-  const runnerUp = ruRows[0].runnerUp;
-  const byThird = new Map<number, RawRow[]>();
-  for (const row of ruRows) {
-    if (!row.third || !row.fourth) continue;
-    const thirdId = row.third.bracket_contestant_id;
-    const bucket = byThird.get(thirdId) ?? [];
-    bucket.push(row);
-    byThird.set(thirdId, bucket);
+  runnerUps(championId: number): ChallengeStatsSimilarityTeam[] {
+    return dedupeTeams(
+      this.allLeaves
+        .filter((row) => row.champion.bracket_contestant_id === championId)
+        .map((row) => row.runnerUp),
+    );
   }
 
-  const byFourthKey = new Map<
-    string,
-    { thirdTeams: ChallengeStatsSimilarityTeam[]; fourthTeams: ChallengeStatsSimilarityTeam[]; outcomeCount: number }
-  >();
+  thirds(championId: number, runnerUpIds: Set<number>): ChallengeStatsSimilarityTeam[] {
+    return dedupeTeams(
+      this.allLeaves
+        .filter(
+          (row) =>
+            row.champion.bracket_contestant_id === championId &&
+            runnerUpIds.has(row.runnerUp.bracket_contestant_id) &&
+            row.third,
+        )
+        .map((row) => row.third!),
+    );
+  }
 
-  for (const thirdRows of byThird.values()) {
-    const fourthTeams = dedupeTeams(thirdRows.map((row) => row.fourth!));
-    const third = thirdRows[0].third!;
-    const fourthUniverse = fourthsForRunnerUpThirdCluster(entryRows, [runnerUp], [third]);
-    const key = isExhaustiveCluster(fourthTeams, fourthUniverse)
-      ? '__ALL__'
-      : teamSetKey(fourthTeams);
-    const existing = byFourthKey.get(key);
-    if (existing) {
-      existing.thirdTeams.push(third);
-      existing.fourthTeams = dedupeTeams([...existing.fourthTeams, ...fourthTeams]);
-      existing.outcomeCount += thirdRows.length;
-    } else {
-      byFourthKey.set(key, {
-        thirdTeams: [third],
-        fourthTeams,
-        outcomeCount: thirdRows.length,
-      });
+  fourths(
+    championId: number,
+    runnerUpIds: Set<number>,
+    thirdIds: Set<number>,
+  ): ChallengeStatsSimilarityTeam[] {
+    return dedupeTeams(
+      this.allLeaves
+        .filter(
+          (row) =>
+            row.champion.bracket_contestant_id === championId &&
+            runnerUpIds.has(row.runnerUp.bracket_contestant_id) &&
+            row.third &&
+            thirdIds.has(row.third.bracket_contestant_id) &&
+            row.fourth,
+        )
+        .map((row) => row.fourth!),
+    );
+  }
+
+  semis(championId: number, runnerUpIds: Set<number>): ChallengeStatsSimilarityTeam[] {
+    const teams: ChallengeStatsSimilarityTeam[] = [];
+    for (const row of this.allLeaves) {
+      if (
+        row.champion.bracket_contestant_id !== championId ||
+        !runnerUpIds.has(row.runnerUp.bracket_contestant_id) ||
+        !row.semifinalists
+      ) {
+        continue;
+      }
+      teams.push(...row.semifinalists);
+    }
+    return dedupeTeams(teams);
+  }
+}
+
+type PlacementSlice = {
+  thirdTeams: ChallengeStatsSimilarityTeam[];
+  fourthTeams: ChallengeStatsSimilarityTeam[];
+  winners: ChallengeOutcomesEntry[];
+};
+
+type SemiSlice = {
+  semiTeams: ChallengeStatsSimilarityTeam[];
+  winners: ChallengeOutcomesEntry[];
+};
+
+/**
+ * Under one (champion, runner-up) for one entry: merge thirds that share the
+ * same fourth pattern + winner set. ALL uses the GLOBAL remaining teams.
+ */
+function buildPlacementSlices(
+  ruLeaves: LeafPath[],
+  universe: GlobalUniverse,
+  championId: number,
+  runnerUpId: number,
+): PlacementSlice[] {
+  const ruIds = new Set([runnerUpId]);
+  const byThird = new Map<number, LeafPath[]>();
+  for (const leaf of ruLeaves) {
+    if (!leaf.third || !leaf.fourth) continue;
+    const id = leaf.third.bracket_contestant_id;
+    const bucket = byThird.get(id) ?? [];
+    bucket.push(leaf);
+    byThird.set(id, bucket);
+  }
+
+  type Acc = {
+    thirdTeams: ChallengeStatsSimilarityTeam[];
+    fourthTeams: ChallengeStatsSimilarityTeam[];
+    winners: ChallengeOutcomesEntry[];
+  };
+  const byKey = new Map<string, Acc>();
+
+  for (const thirdLeaves of byThird.values()) {
+    const third = thirdLeaves[0].third!;
+    // Group this third's leaves by winner-set, collecting fourths under each.
+    const byWinners = new Map<string, LeafPath[]>();
+    for (const leaf of thirdLeaves) {
+      const key = winnersKey(leaf.winners);
+      const bucket = byWinners.get(key) ?? [];
+      bucket.push(leaf);
+      byWinners.set(key, bucket);
+    }
+
+    for (const winnerLeaves of byWinners.values()) {
+      const groupFourths = dedupeTeams(winnerLeaves.map((leaf) => leaf.fourth!));
+      const groupWinners = sortWinners(winnerLeaves[0].winners);
+      const fourthUniverse = universe.fourths(
+        championId,
+        ruIds,
+        new Set([third.bracket_contestant_id]),
+      );
+      const fourthKey = isExhaustiveCluster(groupFourths, fourthUniverse)
+        ? '__ALL__'
+        : teamSetKey(groupFourths);
+      const mergeKey = `${fourthKey}|${winnersKey(groupWinners)}`;
+      const existing = byKey.get(mergeKey);
+      if (existing) {
+        existing.thirdTeams.push(third);
+        existing.fourthTeams = dedupeTeams([
+          ...existing.fourthTeams,
+          ...groupFourths,
+        ]);
+      } else {
+        byKey.set(mergeKey, {
+          thirdTeams: [third],
+          fourthTeams: groupFourths,
+          winners: groupWinners,
+        });
+      }
     }
   }
 
-  return [...byFourthKey.values()]
+  return [...byKey.values()]
     .map((group) => ({
       thirdTeams: dedupeTeams(group.thirdTeams),
       fourthTeams: group.fourthTeams,
-      outcomeCount: group.outcomeCount,
+      winners: group.winners,
     }))
     .sort((a, b) =>
-      teamSortKey(a.thirdTeams[0]).localeCompare(teamSortKey(b.thirdTeams[0]), undefined, {
-        sensitivity: 'base',
-      }),
+      teamSortKey(a.thirdTeams[0]).localeCompare(
+        teamSortKey(b.thirdTeams[0]),
+        undefined,
+        { sensitivity: 'base' },
+      ),
     );
 }
 
-function buildSemiPlacementRowsForRu(ruRows: RawRow[]): SemiPlacementRow[] {
-  const bySemi = new Map<string, RawRow[]>();
-  for (const row of ruRows) {
-    if (!row.semifinalists) continue;
-    const key = teamSetKey(sortTeams(row.semifinalists));
-    const bucket = bySemi.get(key) ?? [];
-    bucket.push(row);
-    bySemi.set(key, bucket);
+function buildSemiSlices(ruLeaves: LeafPath[]): SemiSlice[] {
+  const byKey = new Map<string, SemiSlice>();
+  for (const leaf of ruLeaves) {
+    if (!leaf.semifinalists) continue;
+    const semis = sortTeams(leaf.semifinalists);
+    const key = `${teamSetKey(semis)}|${winnersKey(leaf.winners)}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        semiTeams: semis,
+        winners: sortWinners(leaf.winners),
+      });
+    }
   }
-
-  return [...bySemi.values()]
-    .map((semiRows) => ({
-      semiTeams: sortTeams(semiRows[0].semifinalists!),
-      outcomeCount: semiRows.length,
-    }))
-    .sort((a, b) =>
-      teamSortKey(a.semiTeams[0]).localeCompare(teamSortKey(b.semiTeams[0]), undefined, {
-        sensitivity: 'base',
-      }),
-    );
+  return [...byKey.values()].sort((a, b) =>
+    teamSortKey(a.semiTeams[0]).localeCompare(
+      teamSortKey(b.semiTeams[0]),
+      undefined,
+      { sensitivity: 'base' },
+    ),
+  );
 }
 
-function buildDisplayRows(entryRows: RawRow[], hasThirdPlace: boolean): DisplayRow[] {
-  if (entryRows.length === 0) return [];
+function placementSignature(slices: PlacementSlice[]): string {
+  return slices
+    .map(
+      (slice) =>
+        `${teamSetKey(slice.thirdTeams)}:${teamSetKey(slice.fourthTeams)}:${winnersKey(slice.winners)}`,
+    )
+    .join('|');
+}
 
-  const winner = entryRows[0].winners[0];
-  const byRu = new Map<number, RawRow[]>();
-  for (const row of entryRows) {
-    const ruId = row.runnerUp.bracket_contestant_id;
-    const bucket = byRu.get(ruId) ?? [];
-    bucket.push(row);
-    byRu.set(ruId, bucket);
+function semiSignature(slices: SemiSlice[]): string {
+  return slices
+    .map(
+      (slice) => `${teamSetKey(slice.semiTeams)}:${winnersKey(slice.winners)}`,
+    )
+    .join('|');
+}
+
+/**
+ * Build compact display rows from a leaf set (one entry's leaves, or every leaf).
+ * ALL uses GLOBAL remaining teams from the full tree — never only this leaf set —
+ * so "ALL" never hides a path that belongs to someone else.
+ */
+function buildDisplayRows(
+  workingLeaves: LeafPath[],
+  hasThirdPlace: boolean,
+  universe: GlobalUniverse,
+): DisplayRow[] {
+  if (workingLeaves.length === 0) return [];
+
+  const byChamp = new Map<number, LeafPath[]>();
+  for (const leaf of workingLeaves) {
+    const id = leaf.champion.bracket_contestant_id;
+    const bucket = byChamp.get(id) ?? [];
+    bucket.push(leaf);
+    byChamp.set(id, bucket);
   }
 
-  const sortedRuIds = [...byRu.keys()].sort((a, b) => {
-    const ruA = byRu.get(a)![0].runnerUp;
-    const ruB = byRu.get(b)![0].runnerUp;
-    return teamSortKey(ruA).localeCompare(teamSortKey(ruB), undefined, {
+  const champIds = [...byChamp.keys()].sort((a, b) => {
+    const ca = byChamp.get(a)![0].champion;
+    const cb = byChamp.get(b)![0].champion;
+    return teamSortKey(ca).localeCompare(teamSortKey(cb), undefined, {
       sensitivity: 'base',
     });
   });
 
-  if (!hasThirdPlace) {
-    const bySignature = new Map<
-      string,
-      {
-        runnerUpTeams: ChallengeStatsSimilarityTeam[];
-        placementRows: SemiPlacementRow[];
-      }
-    >();
-
-    for (const ruId of sortedRuIds) {
-      const ruRows = byRu.get(ruId)!;
-      const runnerUp = ruRows[0].runnerUp;
-      const placementRows = buildSemiPlacementRowsForRu(ruRows);
-      const signature = semiPlacementSignature(placementRows);
-      const existing = bySignature.get(signature);
-      if (existing) {
-        existing.runnerUpTeams.push(runnerUp);
-        existing.placementRows = existing.placementRows.map((row, index) => ({
-          ...row,
-          outcomeCount: row.outcomeCount + placementRows[index].outcomeCount,
-        }));
-      } else {
-        bySignature.set(signature, {
-          runnerUpTeams: [runnerUp],
-          placementRows,
-        });
-      }
-    }
-
-    const rows: DisplayRow[] = [];
-    for (const group of [...bySignature.values()].sort((a, b) =>
-      teamSortKey(a.runnerUpTeams[0]).localeCompare(teamSortKey(b.runnerUpTeams[0]), undefined, {
-        sensitivity: 'base',
-      }),
-    )) {
-      const runnerUpTeams = dedupeTeams(group.runnerUpTeams);
-      for (const placement of group.placementRows) {
-        rows.push({
-          runnerUpTeams,
-          thirdTeams: [],
-          fourthTeams: [],
-          semiTeams: placement.semiTeams,
-          winner,
-          outcomeCount: placement.outcomeCount,
-        });
-      }
-    }
-    return rows;
-  }
-
-  const bySignature = new Map<
-    string,
-    {
-      runnerUpTeams: ChallengeStatsSimilarityTeam[];
-      placementRows: PlacementRow[];
-    }
-  >();
-
-  for (const ruId of sortedRuIds) {
-    const ruRows = byRu.get(ruId)!;
-    const runnerUp = ruRows[0].runnerUp;
-    const placementRows = buildPlacementRowsForRu(ruRows, entryRows);
-    const signature = placementSignature(placementRows);
-    const existing = bySignature.get(signature);
-    if (existing) {
-      existing.runnerUpTeams.push(runnerUp);
-      existing.placementRows = existing.placementRows.map((row, index) => ({
-        ...row,
-        outcomeCount: row.outcomeCount + placementRows[index].outcomeCount,
-      }));
-    } else {
-      bySignature.set(signature, {
-        runnerUpTeams: [runnerUp],
-        placementRows,
-      });
-    }
-  }
-
   const rows: DisplayRow[] = [];
-  for (const group of [...bySignature.values()].sort((a, b) =>
-    teamSortKey(a.runnerUpTeams[0]).localeCompare(teamSortKey(b.runnerUpTeams[0]), undefined, {
-      sensitivity: 'base',
-    }),
-  )) {
-    const runnerUpTeams = dedupeTeams(group.runnerUpTeams);
-    for (const placement of group.placementRows) {
-      rows.push({
-        runnerUpTeams,
-        thirdTeams: placement.thirdTeams,
-        fourthTeams: placement.fourthTeams,
-        semiTeams: [],
-        winner,
-        outcomeCount: placement.outcomeCount,
+
+  for (const champId of champIds) {
+    const champLeaves = byChamp.get(champId)!;
+    const champion = champLeaves[0].champion;
+
+    const byRu = new Map<number, LeafPath[]>();
+    for (const leaf of champLeaves) {
+      const id = leaf.runnerUp.bracket_contestant_id;
+      const bucket = byRu.get(id) ?? [];
+      bucket.push(leaf);
+      byRu.set(id, bucket);
+    }
+
+    const ruIds = [...byRu.keys()].sort((a, b) => {
+      const ra = byRu.get(a)![0].runnerUp;
+      const rb = byRu.get(b)![0].runnerUp;
+      return teamSortKey(ra).localeCompare(teamSortKey(rb), undefined, {
+        sensitivity: 'base',
       });
+    });
+
+    if (hasThirdPlace) {
+      // Cluster runner-ups that share identical third/fourth/winner structure.
+      const bySig = new Map<
+        string,
+        {
+          runnerUpTeams: ChallengeStatsSimilarityTeam[];
+          slices: PlacementSlice[];
+        }
+      >();
+
+      for (const ruId of ruIds) {
+        const ruLeaves = byRu.get(ruId)!;
+        const runnerUp = ruLeaves[0].runnerUp;
+        const slices = buildPlacementSlices(
+          ruLeaves,
+          universe,
+          champId,
+          ruId,
+        );
+        const sig = placementSignature(slices);
+        const existing = bySig.get(sig);
+        if (existing) {
+          existing.runnerUpTeams.push(runnerUp);
+        } else {
+          bySig.set(sig, {
+            runnerUpTeams: [runnerUp],
+            slices,
+          });
+        }
+      }
+
+      // Also: if every RU under this champion for this entry has a single
+      // ALL/ALL (or identical) slice with the same winners, and those RUs
+      // cover the GLOBAL runner-up set, they already share a signature and
+      // are clustered above. Emit rows.
+      const groups = [...bySig.values()].sort((a, b) =>
+        teamSortKey(a.runnerUpTeams[0]).localeCompare(
+          teamSortKey(b.runnerUpTeams[0]),
+          undefined,
+          { sensitivity: 'base' },
+        ),
+      );
+
+      for (const group of groups) {
+        const runnerUpTeams = dedupeTeams(group.runnerUpTeams);
+        for (const slice of group.slices) {
+          rows.push({
+            champion,
+            runnerUpTeams,
+            thirdTeams: slice.thirdTeams,
+            fourthTeams: slice.fourthTeams,
+            semiTeams: [],
+            winners: slice.winners,
+          });
+        }
+      }
+    } else {
+      const bySig = new Map<
+        string,
+        {
+          runnerUpTeams: ChallengeStatsSimilarityTeam[];
+          slices: SemiSlice[];
+        }
+      >();
+
+      for (const ruId of ruIds) {
+        const ruLeaves = byRu.get(ruId)!;
+        const runnerUp = ruLeaves[0].runnerUp;
+        const slices = buildSemiSlices(ruLeaves);
+        const sig = semiSignature(slices);
+        const existing = bySig.get(sig);
+        if (existing) {
+          existing.runnerUpTeams.push(runnerUp);
+        } else {
+          bySig.set(sig, {
+            runnerUpTeams: [runnerUp],
+            slices,
+          });
+        }
+      }
+
+      const groups = [...bySig.values()].sort((a, b) =>
+        teamSortKey(a.runnerUpTeams[0]).localeCompare(
+          teamSortKey(b.runnerUpTeams[0]),
+          undefined,
+          { sensitivity: 'base' },
+        ),
+      );
+
+      for (const group of groups) {
+        const runnerUpTeams = dedupeTeams(group.runnerUpTeams);
+        for (const slice of group.slices) {
+          rows.push({
+            champion,
+            runnerUpTeams,
+            thirdTeams: [],
+            fourthTeams: [],
+            semiTeams: slice.semiTeams,
+            winners: slice.winners,
+          });
+        }
+      }
     }
   }
 
   return rows;
 }
 
-function buildEntryGroups(champRows: RawRow[], hasThirdPlace: boolean): EntryGroup[] {
-  const byEntry = expandRowsByEntry(champRows);
-  const groups: EntryGroup[] = [];
-
-  for (const entryRows of byEntry.values()) {
-    const winner = entryRows[0].winners[0];
-    groups.push({
-      winner,
-      entryRows,
-      rows: buildDisplayRows(entryRows, hasThirdPlace),
-    });
-  }
-
-  return groups.sort((a, b) => {
-    if (b.entryRows.length !== a.entryRows.length) {
-      return b.entryRows.length - a.entryRows.length;
-    }
-    return a.winner.display_name.localeCompare(b.winner.display_name, undefined, {
-      sensitivity: 'base',
-    });
-  });
-}
-
-function flattenTableRows(groups: EntryGroup[]): TableRow[] {
-  const flat: TableRow[] = [];
-
-  for (const group of groups) {
-    const rows = group.rows;
-    rows.forEach((row, rowIndex) => {
-      const prevRuKey =
-        rowIndex > 0 ? teamSetKey(rows[rowIndex - 1].runnerUpTeams) : null;
-      const ruKey = teamSetKey(row.runnerUpTeams);
-      const showRu = rowIndex === 0 || prevRuKey !== ruKey;
-      let ruSpan = 1;
-      if (showRu) {
-        for (let i = rowIndex + 1; i < rows.length; i++) {
-          if (teamSetKey(rows[i].runnerUpTeams) !== ruKey) break;
-          ruSpan++;
+function flattenTableRows(rows: DisplayRow[]): TableRow[] {
+  return rows.map((row, rowIndex) => {
+    const prevChampId =
+      rowIndex > 0 ? rows[rowIndex - 1].champion.bracket_contestant_id : null;
+    const showChamp =
+      rowIndex === 0 ||
+      prevChampId !== row.champion.bracket_contestant_id;
+    let champSpan = 1;
+    if (showChamp) {
+      for (let i = rowIndex + 1; i < rows.length; i++) {
+        if (rows[i].champion.bracket_contestant_id !== row.champion.bracket_contestant_id) {
+          break;
         }
+        champSpan++;
       }
+    }
 
-      flat.push({
-        ...row,
-        showWinnerCell: rowIndex === 0,
-        winnerRowSpan: rows.length,
-        showRuCell: showRu,
-        ruRowSpan: ruSpan,
-      });
-    });
-  }
+    const sameChampAsPrev =
+      rowIndex > 0 &&
+      rows[rowIndex - 1].champion.bracket_contestant_id ===
+        row.champion.bracket_contestant_id;
+    const prevRuKey = sameChampAsPrev
+      ? teamSetKey(rows[rowIndex - 1].runnerUpTeams)
+      : null;
+    const ruKey = teamSetKey(row.runnerUpTeams);
+    const showRu = showChamp || prevRuKey !== ruKey;
+    let ruSpan = 1;
+    if (showRu) {
+      for (let i = rowIndex + 1; i < rows.length; i++) {
+        if (
+          rows[i].champion.bracket_contestant_id !==
+            row.champion.bracket_contestant_id ||
+          teamSetKey(rows[i].runnerUpTeams) !== ruKey
+        ) {
+          break;
+        }
+        ruSpan++;
+      }
+    }
 
-  return flat;
+    const thirdKey = teamSetKey(row.thirdTeams);
+    const sameRuAsPrev = sameChampAsPrev && prevRuKey === ruKey;
+    const prevThirdKey = sameRuAsPrev
+      ? teamSetKey(rows[rowIndex - 1].thirdTeams)
+      : null;
+    const showThird = row.thirdTeams.length === 0
+      ? false
+      : showRu || prevThirdKey !== thirdKey;
+    let thirdSpan = 1;
+    if (showThird && row.thirdTeams.length > 0) {
+      for (let i = rowIndex + 1; i < rows.length; i++) {
+        if (
+          rows[i].champion.bracket_contestant_id !==
+            row.champion.bracket_contestant_id ||
+          teamSetKey(rows[i].runnerUpTeams) !== ruKey ||
+          teamSetKey(rows[i].thirdTeams) !== thirdKey
+        ) {
+          break;
+        }
+        thirdSpan++;
+      }
+    }
+
+    return {
+      ...row,
+      showChampCell: showChamp,
+      champRowSpan: champSpan,
+      showRuCell: showRu,
+      ruRowSpan: ruSpan,
+      showThirdCell: showThird,
+      thirdRowSpan: thirdSpan,
+    };
+  });
 }
 
 function teamHasImage(team: ChallengeStatsSimilarityTeam): boolean {
@@ -574,6 +699,31 @@ function WinnerName({
   return <span className={nameClass}>{winner.display_name}</span>;
 }
 
+function WinnerList({
+  winners,
+  onSelectPlayer,
+  viewerUsername,
+}: {
+  winners: ChallengeOutcomesEntry[];
+  onSelectPlayer?: (userBracketId: number, displayName: string) => void;
+  viewerUsername?: string | null;
+}) {
+  return (
+    <span className="challenge-outcomes__winner-list">
+      {winners.map((winner, index) => (
+        <span key={winner.user_bracket_id}>
+          {index > 0 ? <span className="challenge-outcomes__winner-sep">, </span> : null}
+          <WinnerName
+            winner={winner}
+            onSelectPlayer={onSelectPlayer}
+            viewerUsername={viewerUsername}
+          />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function WinnerOddsTable({
   winnerOdds,
   onSelectPlayer,
@@ -595,7 +745,12 @@ function WinnerOddsTable({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col">Winner</th>
+              <th
+                scope="col"
+                className="challenge-outcomes__summary-th--winner"
+              >
+                Winner
+              </th>
               <th scope="col" className="challenge-outcomes__summary-th--pct">
                 % of Outcomes
               </th>
@@ -627,30 +782,28 @@ function rowDividerLevel(rows: TableRow[], rowIndex: number): number {
   if (rowIndex === 0) return 0;
   const prev = rows[rowIndex - 1];
   const curr = rows[rowIndex];
-  if (prev.winner.user_bracket_id !== curr.winner.user_bracket_id) return 4;
-  if (teamSetKey(prev.runnerUpTeams) !== teamSetKey(curr.runnerUpTeams)) return 3;
+  if (prev.champion.bracket_contestant_id !== curr.champion.bracket_contestant_id) {
+    return 3;
+  }
+  if (teamSetKey(prev.runnerUpTeams) !== teamSetKey(curr.runnerUpTeams)) {
+    return 2;
+  }
   return 1;
 }
 
-function ChampionTable({
-  champ,
-  groups,
+function PathsTable({
   rows,
   hasThirdPlace,
+  universe,
   onSelectPlayer,
   viewerUsername,
 }: {
-  champ: ChallengeOutcomesChampionBranch;
-  groups: EntryGroup[];
   rows: TableRow[];
   hasThirdPlace: boolean;
+  universe: GlobalUniverse;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
 }) {
-  const entryRowsByWinner = new Map(
-    groups.map((group) => [group.winner.user_bracket_id, group.entryRows]),
-  );
-
   return (
     <div className="challenge-stats__sim-scroll">
       <table
@@ -687,42 +840,43 @@ function ChampionTable({
             ) : (
               <th scope="col">Semi Final</th>
             )}
-            <th scope="col" className="challenge-stats__sim-th--entries">
+            <th scope="col" className="challenge-outcomes__th--winner">
               Winner
             </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => {
-            const entryRows = entryRowsByWinner.get(row.winner.user_bracket_id) ?? [];
-            const thirdUniverse = thirdsForRunnerUpCluster(entryRows, row.runnerUpTeams);
-            const fourthUniverse = fourthsForRunnerUpThirdCluster(
-              entryRows,
-              row.runnerUpTeams,
-              row.thirdTeams,
+            const champId = row.champion.bracket_contestant_id;
+            const ruIds = new Set(
+              row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+            );
+            const thirdIds = new Set(
+              row.thirdTeams.map((team) => team.bracket_contestant_id),
             );
 
             return (
               <tr
-                key={`${teamSetKey(row.runnerUpTeams)}-${teamSetKey(row.thirdTeams)}-${teamSetKey(row.fourthTeams)}-${teamSetKey(row.semiTeams)}-w:${row.winner.user_bracket_id}`}
+                key={`${champId}-${teamSetKey(row.runnerUpTeams)}-${teamSetKey(row.thirdTeams)}-${teamSetKey(row.fourthTeams)}-${teamSetKey(row.semiTeams)}-${winnersKey(row.winners)}`}
                 className={
                   rowDividerLevel(rows, rowIndex) > 0
                     ? `challenge-stats__sim-row challenge-stats__sim-row--div-${rowDividerLevel(rows, rowIndex)}`
                     : 'challenge-stats__sim-row'
                 }
               >
-                {rowIndex === 0 ? (
-                  <td rowSpan={rows.length} className="challenge-stats__sim-td--champ">
-                    <TeamFlag team={champ.team} size="lg" />
+                {row.showChampCell ? (
+                  <td
+                    rowSpan={row.champRowSpan}
+                    className="challenge-stats__sim-td--champ"
+                  >
+                    <TeamFlag team={row.champion} size="lg" />
                   </td>
                 ) : null}
                 {row.showRuCell ? (
                   <td rowSpan={row.ruRowSpan}>
                     <PlacementCell
                       teams={row.runnerUpTeams}
-                      universe={dedupeTeams(
-                        entryRows.map((entryRow) => entryRow.runnerUp),
-                      )}
+                      universe={universe.runnerUps(champId)}
                       singleSize="md"
                       allLabel="Any remaining runner-up"
                     />
@@ -730,18 +884,20 @@ function ChampionTable({
                 ) : null}
                 {hasThirdPlace ? (
                   <>
-                    <td>
-                      <PlacementCell
-                        teams={row.thirdTeams}
-                        universe={thirdUniverse}
-                        allLabel="Any third-place finish for this runner-up"
-                      />
-                    </td>
+                    {row.showThirdCell ? (
+                      <td rowSpan={row.thirdRowSpan}>
+                        <PlacementCell
+                          teams={row.thirdTeams}
+                          universe={universe.thirds(champId, ruIds)}
+                          allLabel="Any remaining third-place finish"
+                        />
+                      </td>
+                    ) : null}
                     <td>
                       <PlacementCell
                         teams={row.fourthTeams}
-                        universe={fourthUniverse}
-                        allLabel="Any fourth-place finish for this path"
+                        universe={universe.fourths(champId, ruIds, thirdIds)}
+                        allLabel="Any remaining fourth-place finish"
                       />
                     </td>
                   </>
@@ -749,24 +905,19 @@ function ChampionTable({
                   <td>
                     <PlacementCell
                       teams={row.semiTeams}
-                      universe={semiTeamsForRunnerUpCluster(entryRows, row.runnerUpTeams)}
+                      universe={universe.semis(champId, ruIds)}
                       singleSize="sm"
-                      allLabel="Any semi-finalist for this runner-up"
+                      allLabel="Any remaining semi-finalists"
                     />
                   </td>
                 )}
-                {row.showWinnerCell ? (
-                  <td
-                    rowSpan={row.winnerRowSpan}
-                    className="challenge-stats__sim-td--entries challenge-outcomes__td--winner"
-                  >
-                    <WinnerName
-                      winner={row.winner}
-                      onSelectPlayer={onSelectPlayer}
-                      viewerUsername={viewerUsername}
-                    />
-                  </td>
-                ) : null}
+                <td className="challenge-outcomes__td--winner">
+                  <WinnerList
+                    winners={row.winners}
+                    onSelectPlayer={onSelectPlayer}
+                    viewerUsername={viewerUsername}
+                  />
+                </td>
               </tr>
             );
           })}
@@ -783,12 +934,60 @@ export function ChallengeOutcomes({
   onSelectPlayer,
   viewerUsername,
 }: Props) {
+  const [groupMode, setGroupMode] = useState<GroupMode>('entry');
+
   if (tree.length === 0) {
     return (
       <p className="challenge-stats__group-points-empty">
         No remaining outcomes to show yet.
       </p>
     );
+  }
+
+  const allLeaves = collectAllLeafPaths(tree, hasThirdPlace);
+  const universe = new GlobalUniverse(allLeaves);
+
+  const entryCards = winnerOdds
+    .map((odds) => {
+      const entryLeaves = allLeaves.filter((leaf) =>
+        leaf.winners.some(
+          (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
+        ),
+      );
+      const displayRows = buildDisplayRows(entryLeaves, hasThirdPlace, universe);
+      return {
+        odds,
+        rows: flattenTableRows(displayRows),
+      };
+    })
+    .filter((card) => card.rows.length > 0);
+
+  const teamRows = flattenTableRows(
+    buildDisplayRows(allLeaves, hasThirdPlace, universe),
+  );
+
+  const teamChampionCards: { champId: number; rows: TableRow[] }[] = [];
+  {
+    const byChamp = new Map<number, DisplayRow[]>();
+    for (const row of teamRows) {
+      const id = row.champion.bracket_contestant_id;
+      const bucket = byChamp.get(id) ?? [];
+      bucket.push({
+        champion: row.champion,
+        runnerUpTeams: row.runnerUpTeams,
+        thirdTeams: row.thirdTeams,
+        fourthTeams: row.fourthTeams,
+        semiTeams: row.semiTeams,
+        winners: row.winners,
+      });
+      byChamp.set(id, bucket);
+    }
+    for (const [champId, displayRows] of byChamp) {
+      teamChampionCards.push({
+        champId,
+        rows: flattenTableRows(displayRows),
+      });
+    }
   }
 
   return (
@@ -809,29 +1008,71 @@ export function ChallengeOutcomes({
           .filter(Boolean)
           .join(' ')}
       >
-        <div className="challenge-stats__sim-cards">
-          {tree.map((champ) => {
-            const champRows = collectRawRows(champ, hasThirdPlace);
-            const groups = buildEntryGroups(champRows, hasThirdPlace);
-            const rows = flattenTableRows(groups);
-            if (rows.length === 0) return null;
-            return (
+        <div
+          className="challenge-outcomes__mode segmented"
+          role="group"
+          aria-label="Outcomes grouping"
+        >
+          <button
+            type="button"
+            aria-pressed={groupMode === 'entry'}
+            onClick={() => setGroupMode('entry')}
+          >
+            Entry
+          </button>
+          <button
+            type="button"
+            aria-pressed={groupMode === 'team'}
+            onClick={() => setGroupMode('team')}
+          >
+            Team
+          </button>
+        </div>
+
+        {groupMode === 'entry' ? (
+          <div className="challenge-outcomes__entry-cards">
+            {entryCards.map(({ odds, rows }) => (
               <article
-                key={champ.team.bracket_contestant_id}
-                className="challenge-stats__sim-card"
+                key={odds.entry.user_bracket_id}
+                className="challenge-stats__sim-card challenge-outcomes__entry-card"
               >
-                <ChampionTable
-                  champ={champ}
-                  groups={groups}
+                <header className="challenge-outcomes__entry-card-header">
+                  <h3 className="challenge-outcomes__entry-card-title">
+                    <WinnerName
+                      winner={odds.entry}
+                      onSelectPlayer={onSelectPlayer}
+                      viewerUsername={viewerUsername}
+                    />
+                  </h3>
+                  <span className="challenge-outcomes__entry-card-pct">
+                    {odds.pct.toFixed(1)}%
+                  </span>
+                </header>
+                <PathsTable
                   rows={rows}
                   hasThirdPlace={hasThirdPlace}
+                  universe={universe}
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
                 />
               </article>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="challenge-stats__sim-cards">
+            {teamChampionCards.map(({ champId, rows }) => (
+              <article key={champId} className="challenge-stats__sim-card">
+                <PathsTable
+                  rows={rows}
+                  hasThirdPlace={hasThirdPlace}
+                  universe={universe}
+                  onSelectPlayer={onSelectPlayer}
+                  viewerUsername={viewerUsername}
+                />
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

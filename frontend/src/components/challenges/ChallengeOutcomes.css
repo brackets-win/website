@@ -21,6 +21,13 @@
   min-width: 5.75rem;
 }
 
+.challenge-outcomes__summary-table th.challenge-outcomes__summary-th--winner,
+.challenge-outcomes__summary-table th.challenge-outcomes__summary-th--pct,
+.challenge-outcomes__summary-table td.challenge-outcomes__summary-winner,
+.challenge-outcomes__summary-table td.challenge-outcomes__summary-pct {
+  text-align: left;
+}
+
 .challenge-outcomes__summary-th--pct,
 .challenge-outcomes__summary-pct {
   padding-left: 0.35rem;
@@ -31,9 +38,17 @@
   white-space: nowrap;
 }
 
+.challenge-outcomes__summary-th--winner,
 .challenge-outcomes__summary-winner {
-  text-align: left;
+  text-align: left !important;
   vertical-align: top;
+}
+
+.challenge-outcomes__summary-winner .challenge-stats__group-points-name,
+.challenge-outcomes__summary-winner .challenge-stats__group-points-name--btn {
+  display: block;
+  width: 100%;
+  text-align: left;
 }
 
 .challenge-outcomes__summary-pct {
@@ -41,11 +56,50 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   vertical-align: top;
+  text-align: left !important;
 }
 
 .challenge-outcomes__detail {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.challenge-outcomes__mode {
+  margin-bottom: 0.85rem;
+}
+
+.challenge-outcomes__entry-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.challenge-outcomes__entry-card {
+  margin: 0;
+}
+
+.challenge-outcomes__entry-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem 0.5rem;
+  border-bottom: 1px solid var(--border, #e8ecf1);
+}
+
+.challenge-outcomes__entry-card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.challenge-outcomes__entry-card-pct {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, #64748b);
 }
 
 .challenge-outcomes__table {
@@ -61,29 +115,38 @@
 }
 
 .challenge-outcomes__col--winner {
-  width: 16%;
-  min-width: 5.5rem;
+  width: 22%;
+  min-width: 6.5rem;
 }
 
-.challenge-outcomes__table .challenge-stats__sim-th--entries,
+.challenge-outcomes__table th.challenge-outcomes__th--winner,
 .challenge-outcomes__table td.challenge-outcomes__td--winner {
-  text-align: left;
+  text-align: left !important;
 }
 
-.challenge-outcomes__table .challenge-stats__sim-th--entries {
+.challenge-outcomes__table th.challenge-outcomes__th--winner {
   padding-left: 1rem;
 }
 
-.challenge-outcomes__td--winner,
-.challenge-outcomes__entries {
-  text-align: left;
+.challenge-outcomes__td--winner {
+  text-align: left !important;
+  vertical-align: top;
+  padding: 0.7rem 0.75rem 0.7rem 1rem;
 }
 
 .challenge-outcomes__td--winner .challenge-stats__group-points-name,
 .challenge-outcomes__td--winner .challenge-stats__group-points-name--btn {
-  display: block;
-  width: 100%;
+  display: inline;
   text-align: left;
+}
+
+.challenge-outcomes__winner-list {
+  display: inline;
+  text-align: left;
+}
+
+.challenge-outcomes__winner-sep {
+  color: var(--text-muted, #64748b);
 }
 
 .challenge-outcomes__team-cluster {
@@ -124,6 +187,18 @@
 }
 
 @media (max-width: 640px) {
+  .challenge-outcomes__entry-card-header {
+    padding: 0.55rem 0.55rem 0.4rem;
+  }
+
+  .challenge-outcomes__entry-card-title {
+    font-size: 0.8125rem;
+  }
+
+  .challenge-outcomes__entry-card-pct {
+    font-size: 0.7rem;
+  }
+
   .challenge-outcomes__table.challenge-stats__sim-table {
     width: auto;
     table-layout: fixed;
