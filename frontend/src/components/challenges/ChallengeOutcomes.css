@@ -99,6 +99,78 @@
   font-size: 0.875rem;
 }
 
+@media (max-width: 640px) {
+  .challenge-outcomes__table.challenge-stats__sim-table {
+    width: auto;
+    table-layout: fixed;
+  }
+
+  .challenge-stats__sim:not(.challenge-stats__sim--no-third) .challenge-outcomes__table {
+    min-width: 25.5rem;
+  }
+
+  .challenge-stats__sim--no-third .challenge-outcomes__table {
+    min-width: 21.5rem;
+  }
+
+  .challenge-outcomes__col--champ {
+    width: 2.25rem;
+  }
+
+  .challenge-outcomes__table .challenge-stats__sim-col--ru {
+    width: 2.1rem;
+  }
+
+  .challenge-outcomes__table .challenge-stats__sim-col--third,
+  .challenge-outcomes__table .challenge-stats__sim-col--fourth {
+    width: 1.9rem;
+  }
+
+  .challenge-stats__sim--no-third .challenge-outcomes__table .challenge-stats__sim-col--semi {
+    width: 3.25rem;
+  }
+
+  .challenge-outcomes__col--winner,
+  .challenge-outcomes__table .challenge-stats__sim-col--entries {
+    width: 6.5rem;
+  }
+
+  .challenge-outcomes__col--placement {
+    width: auto;
+  }
+
+  .challenge-outcomes__team-cluster {
+    gap: 0.1rem;
+  }
+
+  .challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img,
+  .challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs.challenge-stats__sim-flag--image-only {
+    width: 1rem;
+  }
+
+  .challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
+    height: 0.68rem;
+  }
+
+  .challenge-outcomes__all-pill {
+    min-height: 0.68rem;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+
+  .challenge-outcomes__all-pill--md {
+    min-height: 0.95rem;
+    padding: 0.18rem 0.5rem;
+    font-size: 0.625rem;
+  }
+
+  .challenge-outcomes__td--winner {
+    padding: 0.4rem 0.35rem 0.4rem 0.5rem;
+    min-width: 6.5rem;
+  }
+}
+
 @media (min-width: 900px) {
   .challenge-outcomes__layout {
     flex-direction: row;
