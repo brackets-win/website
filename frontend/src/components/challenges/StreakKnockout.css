@@ -16,7 +16,7 @@
 .streak-knockout__champion {
   margin: 0;
   font-weight: 700;
-  color: var(--app-accent);
+  color: #16a34a;
 }
 
 .streak-knockout__projected-note {
@@ -204,7 +204,7 @@
 }
 
 .streak-bf__matchup--decided {
-  box-shadow: 0 0 0 1px rgba(var(--app-accent-rgb, 87, 130, 168), 0.12);
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.18);
   border-radius: 10px;
 }
 
@@ -244,8 +244,8 @@
 }
 
 .streak-bf__slot--winner {
-  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.12);
-  box-shadow: inset 3px 0 0 rgba(var(--app-accent-rgb, 87, 130, 168), 0.8);
+  background: rgba(22, 163, 74, 0.12);
+  box-shadow: inset 3px 0 0 rgba(22, 163, 74, 0.85);
   font-weight: 600;
 }
 
