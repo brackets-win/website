@@ -43,6 +43,10 @@ urlpatterns = [
         views.challenge_stats,
     ),
     path(
+        "challenges/<int:challenge_id>/outcomes",
+        views.challenge_outcomes,
+    ),
+    path(
         "challenges/<int:challenge_id>/poll-votes",
         views.challenge_poll_votes,
     ),

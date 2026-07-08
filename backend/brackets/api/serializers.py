@@ -489,7 +489,18 @@ def challenge_summary(
             if c.instance_type == CHALLENGE
             else False
         ),
+        "show_outcomes_tab": (
+            _show_outcomes_tab_for_challenge(c)
+            if c.instance_type == CHALLENGE
+            else False
+        ),
     }
+
+
+def _show_outcomes_tab_for_challenge(c) -> bool:
+    from brackets.utils.challenge_outcomes import show_outcomes_tab_for_challenge
+
+    return show_outcomes_tab_for_challenge(c)
 
 
 def streak_display(streak_signed: int) -> str:

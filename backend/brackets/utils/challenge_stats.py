@@ -28,6 +28,7 @@ CHALLENGE_STATS_CACHE_KEY = "challenge_stats_cache"
 # group points block (max/avg points, difficulty) depends on the master.
 CHALLENGE_STATS_MASTER_REVISION_KEY = "challenge_stats_master_revision"
 CHALLENGE_STATS_POINTS_CACHE_KEY = "challenge_stats_points_cache"
+CHALLENGE_OUTCOMES_CACHE_KEY = "challenge_outcomes_cache"
 
 
 def get_challenge_stats_revision(challenge: BracketChallenge) -> int:
@@ -48,6 +49,7 @@ def bump_challenge_stats_revision(challenge: BracketChallenge) -> int:
     # The points block depends on entries too, so it is now stale as well.
     meta.pop(CHALLENGE_STATS_CACHE_KEY, None)
     meta.pop(CHALLENGE_STATS_POINTS_CACHE_KEY, None)
+    meta.pop(CHALLENGE_OUTCOMES_CACHE_KEY, None)
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
     return revision
@@ -59,6 +61,7 @@ def bump_challenge_stats_master_revision(challenge: BracketChallenge) -> int:
     revision = int(meta.get(CHALLENGE_STATS_MASTER_REVISION_KEY) or 0) + 1
     meta[CHALLENGE_STATS_MASTER_REVISION_KEY] = revision
     meta.pop(CHALLENGE_STATS_POINTS_CACHE_KEY, None)
+    meta.pop(CHALLENGE_OUTCOMES_CACHE_KEY, None)
     challenge.metadata = meta
     challenge.save(update_fields=["metadata"])
     return revision

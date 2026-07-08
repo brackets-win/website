@@ -90,6 +90,7 @@ export type ChallengeSummary = {
   teams_configured?: boolean | null;
   leaderboard_preview?: LeaderboardPreview;
   show_live_group_results_note?: boolean;
+  show_outcomes_tab?: boolean;
 };
 
 export type TournamentTeamRow = {
@@ -929,6 +930,25 @@ export type ChallengeStats = {
   bracket: ChallengeStatsBracket;
   similarity: ChallengeStatsSimilarity | null;
 };
+
+export type ChallengeOutcomesWinnerOdds = {
+  name: string;
+  outcome_count: number;
+  pct: number;
+};
+
+export type ChallengeOutcomesSimilarity = {
+  has_third_place: boolean;
+  total_outcomes: number;
+  winner_odds: ChallengeOutcomesWinnerOdds[];
+  tree: ChallengeStatsSimilarityBranch[];
+};
+
+export async function getChallengeOutcomes(
+  challengeId: number,
+): Promise<ChallengeOutcomesSimilarity> {
+  return apiFetch('GET', `challenges/${challengeId}/outcomes`);
+}
 
 export async function getChallengeStats(
   challengeId: number,

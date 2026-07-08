@@ -10,11 +10,13 @@ import {
   getChallenge,
   updateChallenge,
   getChallengeLeaderboard,
+  getChallengeOutcomes,
   getChallengeStats,
   joinChallenge,
   type ApiUser,
   type BracketDetail,
   type BracketStageInfo,
+  type ChallengeOutcomesSimilarity,
   type ChallengeStats,
   type ChallengeSummary,
   type LeaderboardColumn,
@@ -40,6 +42,7 @@ import {
 } from '../../routes';
 
 import { ChallengeLeaderboard } from './ChallengeLeaderboard';
+import { ChallengeOutcomes } from './ChallengeOutcomes';
 import { ChallengeStats as ChallengeStatsPanel } from './ChallengeStats';
 import { CopyJoinCode } from './CopyJoinCode';
 import { TournamentTeamsPanel } from './TournamentTeamsPanel';
@@ -124,6 +127,9 @@ export function ChallengeView({
   const [denominators, setDenominators] =
     useState<LeaderboardDenominators | null>(null);
   const [stats, setStats] = useState<ChallengeStats | null>(null);
+  const [outcomes, setOutcomes] = useState<ChallengeOutcomesSimilarity | null>(
+    null,
+  );
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardLoaded, setBoardLoaded] = useState(false);
   const boardFetchGen = useRef(0);
@@ -131,6 +137,9 @@ export function ChallengeView({
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsErr, setStatsErr] = useState('');
   const statsFetchGen = useRef(0);
+  const [outcomesLoading, setOutcomesLoading] = useState(false);
+  const [outcomesErr, setOutcomesErr] = useState('');
+  const outcomesFetchGen = useRef(0);
   const [loadErr, setLoadErr] = useState('');
   const entryFromUrl =
     parseRouteId(searchParams.get('entry')) ??
@@ -166,6 +175,10 @@ export function ChallengeView({
     setStatsErr('');
     setStatsLoading(false);
     statsFetchGen.current += 1;
+    setOutcomes(null);
+    setOutcomesErr('');
+    setOutcomesLoading(false);
+    outcomesFetchGen.current += 1;
     try {
       const { challenge: c } = await getChallenge(challengeId);
       setChallenge(c);
@@ -272,6 +285,33 @@ export function ChallengeView({
         setStatsLoading(false);
       });
   }, [tab, challenge, challengeId, stats, statsLoading]);
+
+  useEffect(() => {
+    if (tab !== 'outcomes') return;
+    if (!challenge || challenge.instance_type !== INSTANCE_BRACKET_CHALLENGE) return;
+    if (challenge.show_outcomes_tab !== true) return;
+    if (challenge.can_view_peer_brackets !== true) return;
+    if (outcomes != null || outcomesLoading) return;
+
+    const gen = outcomesFetchGen.current;
+    setOutcomesLoading(true);
+    setOutcomesErr('');
+    void getChallengeOutcomes(challengeId)
+      .then((data) => {
+        if (gen !== outcomesFetchGen.current) return;
+        setOutcomes(data);
+      })
+      .catch((e) => {
+        if (gen !== outcomesFetchGen.current) return;
+        setOutcomesErr(
+          e instanceof ApiError ? e.message : 'Unable to load outcomes.',
+        );
+      })
+      .finally(() => {
+        if (gen !== outcomesFetchGen.current) return;
+        setOutcomesLoading(false);
+      });
+  }, [tab, challenge, challengeId, outcomes, outcomesLoading]);
 
   useEffect(() => {
     autoTeamsTabDone.current = false;
@@ -502,6 +542,8 @@ export function ChallengeView({
       : 'My Bracket';
 
   const showLeaderboard = challenge.uses_prediction_leaderboard !== false;
+  const showOutcomesTab =
+    isBracketChallenge && challenge.show_outcomes_tab === true;
   const canViewPeerBrackets = challenge.can_view_peer_brackets === true;
   const showOfficial =
     isBracketChallenge && masterId != null && !isTournament;
@@ -580,6 +622,19 @@ export function ChallengeView({
             onClick={() => goToTab('leaderboard')}
           >
             Leaderboard
+          </button>
+        ) : null}
+        {showOutcomesTab ? (
+          <button
+            type="button"
+            className={
+              tab === 'outcomes'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('outcomes')}
+          >
+            Outcomes
           </button>
         ) : null}
         {showOfficial ? (
@@ -826,6 +881,33 @@ export function ChallengeView({
                 : undefined
             }
           />
+        </section>
+      ) : null}
+
+      {!viewingPlayer && tab === 'outcomes' && showOutcomesTab ? (
+        <section className="card challenge-view__stats">
+          <h2 className="challenge-view__settings-heading">Outcomes</h2>
+          <p className="challenge-view__muted challenge-view__outcomes-note">
+            Who would win the bracket challenge with each possible future
+            outcome? Here&apos;s your answer!
+          </p>
+          {!canViewPeerBrackets ? (
+            <p className="challenge-view__muted">
+              Submit a bracket to view outcomes.
+            </p>
+          ) : outcomesLoading ? (
+            <p className="challenge-view__muted">Loading…</p>
+          ) : outcomesErr ? (
+            <div className="alert alert--error" role="status">
+              {outcomesErr}
+            </div>
+          ) : outcomes ? (
+            <ChallengeOutcomes
+              hasThirdPlace={outcomes.has_third_place}
+              winnerOdds={outcomes.winner_odds ?? []}
+              tree={outcomes.tree}
+            />
+          ) : null}
         </section>
       ) : null}
 

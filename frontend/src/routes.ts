@@ -3,6 +3,7 @@ export const CHALLENGE_TABS = [
   'teams',
   'official',
   'leaderboard',
+  'outcomes',
   'stats',
   'rules',
   'settings',

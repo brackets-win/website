@@ -1334,18 +1334,18 @@ def challenge_leaderboard(
     )
     columns = []
     if not omit_potential:
-        columns.append(
-            serializers.leaderboard_column(
-                key="potential",
-                name="Potential Pts" if show_potential_rank else "Potential",
-            )
-        )
         if show_potential_rank:
             columns.append(
                 serializers.leaderboard_column(
                     key="potential_rank", name="Potential Rank"
                 )
             )
+        columns.append(
+            serializers.leaderboard_column(
+                key="potential",
+                name="Potential Pts" if show_potential_rank else "Potential",
+            )
+        )
     from brackets.utils.next_match import show_next_match_for_bracket
 
     show_next_match = show_next_match_for_bracket(bracket)
@@ -1471,6 +1471,44 @@ def challenge_stats(request: HttpRequest, challenge_id: int) -> JsonResponse:
         return _json_error("Submit your bracket to view stats.", 403)
 
     return JsonResponse(get_challenge_stats(challenge))
+
+
+@require_http_methods(["GET"])
+def challenge_outcomes(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    from brackets.utils.challenge_types import uses_prediction_scoring
+    from brackets.utils.challenge_outcomes import get_challenge_outcomes
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if not ChallengeParticipant.objects.filter(
+        challenge=challenge, user=user
+    ).exists():
+        ubs = UserBracket.objects.filter(challenge=challenge, is_master=False)
+        if not ubs.filter(user=user).exists():
+            return _json_error("Forbidden", 403)
+
+    if not uses_prediction_scoring(challenge.instance_type):
+        return JsonResponse(
+            {
+                "has_third_place": False,
+                "total_outcomes": 0,
+                "winner_odds": [],
+                "tree": [],
+            }
+        )
+
+    from brackets.utils.challenge_entries import user_has_submitted_challenge
+
+    if not user_has_submitted_challenge(user, challenge):
+        return _json_error("Submit your bracket to view outcomes.", 403)
+
+    payload = get_challenge_outcomes(challenge)
+    return JsonResponse(payload)
 
 
 @require_http_methods(["POST"])
