@@ -587,8 +587,10 @@ export function StreakChallengeView({
   const reload = useCallback(async () => {
     setLoadErr('');
     try {
-      const detail = await getStreakChallenge(streakChallengeId);
-      const board = await getStreakLeaderboard(streakChallengeId);
+      const [detail, board] = await Promise.all([
+        getStreakChallenge(streakChallengeId),
+        getStreakLeaderboard(streakChallengeId),
+      ]);
       let awardsPayload: StreakAwardsPayload | null = null;
       if (detail.streak_challenge.competition_is_over) {
         try {

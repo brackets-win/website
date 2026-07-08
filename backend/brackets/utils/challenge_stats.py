@@ -293,6 +293,8 @@ def _merge_stats_parts(
 
 
 def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
+    from brackets.utils.single_flight import single_flight
+
     if challenge.pk is not None:
         challenge.refresh_from_db(fields=["metadata"])
     entries_revision = get_challenge_stats_revision(challenge)
@@ -303,21 +305,33 @@ def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
         challenge, entries_revision, master_revision
     )
 
-    if entries_part is None:
-        # Entry data changed: recompute both parts together (shared work).
-        entries_part, points_part = _compute_stats_parts(challenge)
-        _write_entries_cache(challenge, entries_revision, entries_part)
-        _write_points_cache(
-            challenge, entries_revision, master_revision, points_part
-        )
-    elif points_part is None:
-        # Only the master changed: recompute the cheaper points block.
-        points_part = _compute_points_part(challenge)
-        _write_points_cache(
-            challenge, entries_revision, master_revision, points_part
-        )
+    if entries_part is not None and points_part is not None:
+        return _merge_stats_parts(entries_part, points_part)
 
-    return _merge_stats_parts(entries_part, points_part)
+    def _compute() -> dict[str, Any]:
+        if challenge.pk is not None:
+            challenge.refresh_from_db(fields=["metadata"])
+        local_entries = _read_entries_cache(challenge, entries_revision)
+        local_points = _read_points_cache(
+            challenge, entries_revision, master_revision
+        )
+        if local_entries is None:
+            local_entries, local_points = _compute_stats_parts(challenge)
+            _write_entries_cache(challenge, entries_revision, local_entries)
+            _write_points_cache(
+                challenge, entries_revision, master_revision, local_points
+            )
+        elif local_points is None:
+            local_points = _compute_points_part(challenge)
+            _write_points_cache(
+                challenge, entries_revision, master_revision, local_points
+            )
+        return _merge_stats_parts(local_entries, local_points)
+
+    return single_flight(
+        f"stats:{challenge.pk}:{entries_revision}:{master_revision}",
+        _compute,
+    )
 
 
 def _team_position_in_row(row: dict, team_id: int) -> int | None:
@@ -432,7 +446,14 @@ def _progression_scores_for_user_bracket(
         round_bonus += 1
 
     if third_place_stage is not None:
-        tp = ub.matchup_set.filter(stage=third_place_stage, position=1).first()
+        tp = next(
+            (
+                m
+                for m in ub.matchup_set.all()
+                if m.stage_id == third_place_stage.id and m.position == 1
+            ),
+            None,
+        )
         if tp is not None and tp.winner_id is not None:
             winner_id = int(tp.winner_id)
             # Rank the third-place winner above fourth place but below the
@@ -913,7 +934,10 @@ def _compute_stats_parts(
         hits["champion"] = {champ.id} if champ is not None else set()
         runner_up: set[int] = set()
         if champ is not None and final_stage is not None:
-            final_matchup = ub.matchup_set.filter(stage=final_stage).first()
+            final_matchup = next(
+                (m for m in ub.matchup_set.all() if m.stage_id == final_stage.id),
+                None,
+            )
             if final_matchup is not None:
                 loser = final_matchup.get_loser()
                 if loser is not None:
@@ -922,7 +946,14 @@ def _compute_stats_parts(
         third_place: set[int] = set()
         fourth_place: set[int] = set()
         if third_place_stage is not None:
-            tp_matchup = ub.matchup_set.filter(stage=third_place_stage).first()
+            tp_matchup = next(
+                (
+                    m
+                    for m in ub.matchup_set.all()
+                    if m.stage_id == third_place_stage.id
+                ),
+                None,
+            )
             if tp_matchup is not None:
                 tp_winner = tp_matchup.winner
                 if tp_winner is not None:

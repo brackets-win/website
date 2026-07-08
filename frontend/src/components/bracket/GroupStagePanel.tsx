@@ -246,9 +246,10 @@ type Props = {
   readOnly?: boolean;
   onSaved: (userBracket?: UserBracketDetail) => void | Promise<void>;
   onError: (msg: string) => void;
-  setBusy: (b: boolean) => void;
+  /** Optional; unused when ``lightweightSave`` is true. */
+  setBusy?: (b: boolean) => void;
   saveDebounceMs?: number;
-  /** Skip global busy lock while saves run (master bracket batch editing). */
+  /** Skip parent busy lock while saves run (default for interactive fills). */
   lightweightSave?: boolean;
 };
 
@@ -531,7 +532,7 @@ export function GroupStagePanel({
 
     const { gp: filledGp, tp: safeTp } = pending;
     saveQueueRef.current = saveQueueRef.current.then(async () => {
-      if (!lightweightSave) setBusy(true);
+      if (!lightweightSave) setBusy?.(true);
       onError('');
       try {
         const { user_bracket: ub } = await patchUserBracketMetadata(
@@ -550,7 +551,7 @@ export function GroupStagePanel({
         );
         await onSaved();
       } finally {
-        if (!lightweightSave) setBusy(false);
+        if (!lightweightSave) setBusy?.(false);
       }
     });
     return saveQueueRef.current;

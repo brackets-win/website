@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import type { ScoringHighlights } from '../../utils/api';
 import {
@@ -342,6 +343,8 @@ export function matchupCenterPct(
 
 type Props = {
   userBracketId: number;
+  /** When the parent already loaded the bracket definition, skip a second GET. */
+  initialBracketDef?: BracketDetail | null;
   readOnly?: boolean;
   allowMasterEdit?: boolean;
   /** Read-only display of the official (master) bracket in challenges. */
@@ -357,6 +360,7 @@ type Props = {
 
 export function BracketFill({
   userBracketId,
+  initialBracketDef = null,
   readOnly = false,
   allowMasterEdit = false,
   allowMasterView = false,
@@ -367,9 +371,10 @@ export function BracketFill({
   onSubmitted,
 }: Props) {
   const [detail, setDetail] = useState<UserBracketDetail | null>(null);
-  const [bracketDef, setBracketDef] = useState<BracketDetail | null>(null);
+  const [bracketDef, setBracketDef] = useState<BracketDetail | null>(
+    initialBracketDef,
+  );
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [materializeBusy, setMaterializeBusy] = useState(false);
   const [materializeRemaining, setMaterializeRemaining] = useState<number | null>(
@@ -389,23 +394,56 @@ export function BracketFill({
     });
   }, []);
 
-  const load = useCallback(async (): Promise<UserBracketDetail | null> => {
-    setError(null);
-    try {
-      const { user_bracket: ub } = await getUserBracket(userBracketId);
-      const { bracket: b } = await getBracket(ub.bracket_id);
-      setDetail(ub);
-      setBracketDef(b);
-      return ub;
-    } catch (e) {
-      setDetail(null);
-      setBracketDef(null);
-      setError(
-        e instanceof ApiError ? e.message : 'Could not load bracket.',
-      );
-      return null;
-    }
-  }, [userBracketId]);
+  const initialBracketDefRef = useRef(initialBracketDef);
+  initialBracketDefRef.current = initialBracketDef;
+
+  const load = useCallback(
+    async (options?: {
+      refetchBracket?: boolean;
+    }): Promise<UserBracketDetail | null> => {
+      setError(null);
+      const refetchBracket = options?.refetchBracket !== false;
+      try {
+        const { user_bracket: ub } = await getUserBracket(userBracketId);
+        setDetail(ub);
+        if (refetchBracket) {
+          const seed = initialBracketDefRef.current;
+          if (seed != null && seed.id === ub.bracket_id) {
+            setBracketDef(seed);
+          } else {
+            const { bracket: b } = await getBracket(ub.bracket_id);
+            setBracketDef(b);
+          }
+        }
+        return ub;
+      } catch (e) {
+        setDetail(null);
+        if (refetchBracket && initialBracketDefRef.current == null) {
+          setBracketDef(null);
+        }
+        setError(
+          e instanceof ApiError ? e.message : 'Could not load bracket.',
+        );
+        return null;
+      }
+    },
+    [userBracketId],
+  );
+
+  // Parent may finish loading the shared bracket def after first mount.
+  useEffect(() => {
+    if (initialBracketDef == null) return;
+    setBracketDef((prev) => {
+      if (prev == null || prev.id === initialBracketDef.id) {
+        return initialBracketDef;
+      }
+      return prev;
+    });
+  }, [initialBracketDef]);
+
+  const reloadUserBracket = useCallback(async (): Promise<UserBracketDetail | null> => {
+    return load({ refetchBracket: false });
+  }, [load]);
 
   const handleGroupSaved = useCallback(
     (ub?: UserBracketDetail) => {
@@ -414,11 +452,11 @@ export function BracketFill({
         invalidateHomeForUserBracket(ub);
         return;
       }
-      void load().then((loaded) => {
+      void reloadUserBracket().then((loaded) => {
         if (loaded) invalidateHomeForUserBracket(loaded);
       });
     },
-    [load],
+    [reloadUserBracket],
   );
 
   useEffect(() => {
@@ -594,7 +632,8 @@ export function BracketFill({
   const deferLeaderboardScoring =
     allowMasterEdit && detail?.is_master === true;
 
-  const uiBusy = deferLeaderboardScoring ? locked : busy || locked;
+  // Never lock the whole board on a pick save — chips stay clickable.
+  const uiBusy = locked;
 
   const scoringLookup = useMemo(() => {
     if (!showScoringHighlights || !detail) return null;
@@ -604,49 +643,32 @@ export function BracketFill({
   const applyWinner = useCallback(
     async (feederMatchupId: number, contestantId: number) => {
       if (locked) return;
-      if (!deferLeaderboardScoring) setBusy(true);
       setError(null);
       try {
         await patchMatchupWinner(feederMatchupId, contestantId);
-        if (deferLeaderboardScoring) {
-          void load().then((ub) => {
-            if (ub) invalidateHomeForUserBracket(ub);
-          });
-        } else {
-          const ub = await load();
-          if (ub) invalidateHomeForUserBracket(ub);
-        }
+        // Downstream KO slots change server-side — refetch entry only (cache bracketDef).
+        const ub = await reloadUserBracket();
+        if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save pick.');
-      } finally {
-        if (!deferLeaderboardScoring) setBusy(false);
       }
     },
-    [load, locked, deferLeaderboardScoring],
+    [locked, reloadUserBracket],
   );
 
   const clearWinner = useCallback(
     async (matchupId: number) => {
       if (locked) return;
-      if (!deferLeaderboardScoring) setBusy(true);
       setError(null);
       try {
         await patchMatchupWinner(matchupId, null);
-        if (deferLeaderboardScoring) {
-          void load().then((ub) => {
-            if (ub) invalidateHomeForUserBracket(ub);
-          });
-        } else {
-          const ub = await load();
-          if (ub) invalidateHomeForUserBracket(ub);
-        }
+        const ub = await reloadUserBracket();
+        if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not clear pick.');
-      } finally {
-        if (!deferLeaderboardScoring) setBusy(false);
       }
     },
-    [load, locked, deferLeaderboardScoring],
+    [locked, reloadUserBracket],
   );
 
   const onClearWinner = locked ? undefined : clearWinner;
@@ -770,20 +792,6 @@ export function BracketFill({
   const knockoutBoard =
     !knockoutEmpty ? (
       <>
-        <div className="bf-ko-mobile">
-          <MobileKnockoutPanel
-            knockoutStagesMain={knockoutStagesMain}
-            thirdPlaceStage={thirdPlaceStage}
-            finalMatchup={finalMatchup}
-            thirdPlaceMatchup={thirdPlaceMatchup}
-            detail={detail}
-            allKnockoutStages={stages}
-            showSeeds={showSeeds}
-            applyWinner={applyWinner}
-            busy={uiBusy}
-            onClearWinner={onClearWinner}
-          />
-        </div>
         <div className="bf-ko-desktop bf-scroll">
         <div className="bf-ko-touch-zoom">
         {mirrorLayout ? (
@@ -915,11 +923,10 @@ export function BracketFill({
     <NextMatchContext.Provider value={nextMatchControl}>
     <section
       className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
-      aria-busy={!deferLeaderboardScoring && busy}
       style={
         {
           '--bf-board-h': `${boardHeightPx}px`,
-        } as React.CSSProperties
+        } as CSSProperties
       }
     >
       <h2>{detail.bracket.name}</h2>
@@ -1006,7 +1013,7 @@ export function BracketFill({
                         ? 'bf-group-mode__btn bf-group-mode__btn--active'
                         : 'bf-group-mode__btn'
                     }
-                    disabled={groupResultsModeBusy || (!deferLeaderboardScoring && busy)}
+                    disabled={groupResultsModeBusy}
                     onClick={() => void onGroupResultsModeChange('live')}
                   >
                     Live
@@ -1020,7 +1027,7 @@ export function BracketFill({
                         ? 'bf-group-mode__btn bf-group-mode__btn--active'
                         : 'bf-group-mode__btn'
                     }
-                    disabled={groupResultsModeBusy || (!deferLeaderboardScoring && busy)}
+                    disabled={groupResultsModeBusy}
                     onClick={() => void onGroupResultsModeChange('confirmed')}
                   >
                     Confirmed
@@ -1039,7 +1046,6 @@ export function BracketFill({
                     className="btn btn--primary bf-toolbar__submit"
                     disabled={
                       submitBusy ||
-                      busy ||
                       !detail.is_complete ||
                       !!detail.submitted_at
                     }
@@ -1090,9 +1096,8 @@ export function BracketFill({
                 readOnly={locked}
                 onSaved={handleGroupSaved}
                 onError={(msg) => setError(msg || null)}
-                setBusy={setBusy}
-                saveDebounceMs={deferLeaderboardScoring ? 600 : 0}
-                lightweightSave={deferLeaderboardScoring}
+                saveDebounceMs={deferLeaderboardScoring ? 600 : 200}
+                lightweightSave
               />
             </div>
             <div
@@ -1510,179 +1515,6 @@ function BracketStageColumn({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-type MobileRound =
-  | { kind: 'stage'; key: string; label: string; stageIdx: number }
-  | { kind: 'third'; key: string; label: string };
-
-function MobileKnockoutPanel({
-  knockoutStagesMain,
-  thirdPlaceStage,
-  finalMatchup,
-  thirdPlaceMatchup,
-  detail,
-  allKnockoutStages,
-  showSeeds,
-  applyWinner,
-  busy,
-  onClearWinner,
-}: {
-  knockoutStagesMain: BracketStageInfo[];
-  thirdPlaceStage: BracketStageInfo | undefined;
-  finalMatchup: MatchupInfo | undefined;
-  thirdPlaceMatchup: MatchupInfo | undefined;
-  detail: UserBracketDetail;
-  allKnockoutStages: BracketStageInfo[];
-  showSeeds: boolean;
-  applyWinner: (matchupId: number, contestantId: number) => void | Promise<void>;
-  busy: boolean;
-  onClearWinner?: (matchupId: number) => void;
-}) {
-  const rounds = useMemo((): MobileRound[] => {
-    const items: MobileRound[] = knockoutStagesMain.map((stage, stageIdx) => ({
-      kind: 'stage',
-      key: `stage-${stage.id}`,
-      label:
-        stage.name?.trim() !== ''
-          ? stage.name
-          : stageIdx === 0
-            ? 'Opening round'
-            : `Round ${stageIdx + 1}`,
-      stageIdx,
-    }));
-    if (thirdPlaceStage && thirdPlaceMatchup) {
-      items.push({ kind: 'third', key: 'third-place', label: '3rd place' });
-    }
-    return items;
-  }, [knockoutStagesMain, thirdPlaceStage, thirdPlaceMatchup]);
-
-  const [activeRound, setActiveRound] = useState(0);
-  const active = rounds[activeRound] ?? rounds[0];
-
-  const finalLive = finalMatchup ? latestMatchup(detail, finalMatchup) : null;
-  const champ = finalLive?.winner;
-  const thirdLive = thirdPlaceMatchup
-    ? latestMatchup(detail, thirdPlaceMatchup)
-    : undefined;
-  const bronze = thirdLive?.winner;
-
-  let matchups: MatchupInfo[] = [];
-  let isFirst = false;
-  let prevStageId: number | null = null;
-  let showChampion = false;
-
-  if (active?.kind === 'stage') {
-    const stage = knockoutStagesMain[active.stageIdx];
-    const prevStage =
-      active.stageIdx > 0 ? knockoutStagesMain[active.stageIdx - 1] : null;
-    isFirst = active.stageIdx === 0;
-    prevStageId = prevStage?.id ?? null;
-    matchups = sortMatchupsByFeederOrder(
-      matchupsForStage(detail, stage.id),
-      detail,
-      prevStageId,
-    );
-    showChampion = stage.knockout?.is_final === true;
-  }
-
-  return (
-    <div className="bf-mobile-ko">
-      <div
-        className="bf-mobile-ko__tabs"
-        role="tablist"
-        aria-label="Knockout rounds"
-      >
-        {rounds.map((round, idx) => (
-          <button
-            key={round.key}
-            type="button"
-            role="tab"
-            aria-selected={activeRound === idx}
-            className={
-              activeRound === idx ? 'bf-tab bf-tab--active' : 'bf-tab'
-            }
-            onClick={() => setActiveRound(idx)}
-          >
-            {round.label}
-          </button>
-        ))}
-      </div>
-
-      {active?.kind === 'stage' ? (
-        <>
-          <div className="bf-mobile-ko__matchups">
-            {matchups.map((m) => (
-              <div key={m.id} className="bf-mobile-ko__matchup">
-                <MatchupCard
-                  m={m}
-                  detail={detail}
-                  isFirst={isFirst}
-                  prevStageId={prevStageId}
-                  knockoutStages={allKnockoutStages}
-                  showSeeds={showSeeds}
-                  applyWinner={applyWinner}
-                  busy={busy}
-                  onClearWinner={onClearWinner}
-                />
-              </div>
-            ))}
-          </div>
-          {showChampion && finalLive ? (
-            <div className="bf-mobile-ko__extras">
-              <p className="bf-stage-title">Champion</p>
-              {champ ? (
-                <WinnerRevealBox
-                  contestant={champ}
-                  showSeeds={showSeeds}
-                  busy={busy}
-                  onClear={
-                    onClearWinner
-                      ? () => void onClearWinner(finalLive.id)
-                      : undefined
-                  }
-                  clearLabel="Remove champion pick"
-                />
-              ) : (
-                <div className="bf-champion-box" aria-label="Champion" />
-              )}
-            </div>
-          ) : null}
-        </>
-      ) : null}
-
-      {active?.kind === 'third' && thirdLive ? (
-        <div className="bf-mobile-ko__extras">
-          <p className="bf-stage-title">3rd place</p>
-          <ThirdPlaceWinnerSlot
-            contestant={bronze}
-            showSeeds={showSeeds}
-            busy={busy}
-            onClear={
-              onClearWinner
-                ? () => void onClearWinner(thirdLive.id)
-                : undefined
-            }
-          />
-          <div className="bf-mobile-ko__matchup">
-            <MatchupCard
-              m={thirdLive}
-              detail={detail}
-              isFirst={false}
-              prevStageId={
-                prevKnockoutStageBeforeFinal(knockoutStagesMain)?.id ?? null
-              }
-              knockoutStages={allKnockoutStages}
-              showSeeds={showSeeds}
-              applyWinner={applyWinner}
-              busy={busy}
-              onClearWinner={onClearWinner}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

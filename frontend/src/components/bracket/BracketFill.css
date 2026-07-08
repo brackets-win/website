@@ -1365,10 +1365,6 @@
  * pointer/coarse and orientation — not max-width alone.
  */
 @media (max-width: 720px), ((hover: none) and (pointer: coarse)) {
-  .bf-ko-mobile {
-    display: none;
-  }
-
   .bf-ko-desktop {
     display: block;
   }
@@ -1410,57 +1406,4 @@
       width: 172.41%;
     }
   }
-}
-
-.bf-ko-mobile {
-  display: none;
-}
-
-.bf-mobile-ko__tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 0.4rem;
-  overflow-x: auto;
-  padding-bottom: 0.35rem;
-  margin-bottom: 1rem;
-  -webkit-overflow-scrolling: touch;
-}
-
-.bf-mobile-ko__tabs .bf-tab {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.bf-mobile-ko__matchups {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.bf-mobile-ko__matchup {
-  border: 1px solid var(--bf-border);
-  border-radius: var(--bf-radius);
-  background: var(--bf-surface);
-  box-shadow: var(--bf-shadow);
-  overflow: hidden;
-}
-
-.bf-mobile-ko__matchup .bf-matchup {
-  display: flex;
-  flex-direction: column;
-}
-
-.bf-mobile-ko__matchup .bf-slot {
-  min-height: 3.25rem;
-}
-
-.bf-mobile-ko__extras {
-  margin-top: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.bf-mobile-ko__extras .bf-mobile-ko__matchup {
-  margin-top: 0.35rem;
 }

@@ -37,17 +37,36 @@ import {
   type ApiUser,
 } from './utils/api';
 import { defaultChallengeTab } from './utils/challengeTypes';
-import { clearHomeCache } from './utils/homeCache';
+import { clearHomeCache, getHomeSnapshot } from './utils/homeCache';
 
 import './components/admin/admin-shared.css';
+
+function challengeFromHomeCache(challengeId: number) {
+  const snap = getHomeSnapshot();
+  if (!snap) return null;
+  return (
+    snap.challenges.find((c) => c.id === challengeId) ??
+    snap.publicChallenges.find((c) => c.id === challengeId) ??
+    null
+  );
+}
 
 function ChallengeLandingRedirect() {
   const { challengeId: challengeIdParam } = useParams();
   const challengeId = parseRouteId(challengeIdParam);
-  const [tab, setTab] = useState<ChallengeTab | 'error' | null>(null);
+  const [tab, setTab] = useState<ChallengeTab | 'error' | null>(() => {
+    if (challengeId == null) return null;
+    const cached = challengeFromHomeCache(challengeId);
+    return cached ? defaultChallengeTab(cached) : null;
+  });
 
   useEffect(() => {
     if (challengeId == null) return;
+    const cached = challengeFromHomeCache(challengeId);
+    if (cached) {
+      setTab(defaultChallengeTab(cached));
+      return;
+    }
     setTab(null);
     void getChallenge(challengeId)
       .then(({ challenge }) => setTab(defaultChallengeTab(challenge)))

@@ -76,7 +76,14 @@ def _quarter_final_loser_ids(
     contestant_info: dict[int, dict[str, Any]],
 ) -> list[int]:
     losers: list[int] = []
-    for matchup in ub.matchup_set.filter(stage=quarter_final_stage).order_by("position"):
+    # Prefer prefetched matchups (.all()) over .filter() to avoid N+1.
+    qf_matchups = [
+        m
+        for m in ub.matchup_set.all()
+        if m.stage_id == quarter_final_stage.id
+    ]
+    qf_matchups.sort(key=lambda m: m.position)
+    for matchup in qf_matchups:
         if not matchup.winner_id:
             continue
         loser = matchup.get_loser()

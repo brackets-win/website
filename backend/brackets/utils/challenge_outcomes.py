@@ -482,6 +482,7 @@ def get_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any]:
         get_challenge_stats_master_revision,
         get_challenge_stats_revision,
     )
+    from brackets.utils.single_flight import single_flight
 
     if challenge.pk is not None:
         challenge.refresh_from_db(fields=["metadata"])
@@ -492,14 +493,27 @@ def get_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any]:
     if cached is not None:
         return cached
 
-    payload = build_challenge_outcomes(challenge)
-    if payload is None:
-        payload = _empty_outcomes_payload()
+    def _compute() -> dict[str, Any]:
+        # Re-check cache inside the flight in case a peer just wrote it.
+        if challenge.pk is not None:
+            challenge.refresh_from_db(fields=["metadata"])
+        again = _read_outcomes_cache(
+            challenge, entries_revision, master_revision
+        )
+        if again is not None:
+            return again
+        payload = build_challenge_outcomes(challenge)
+        if payload is None:
+            payload = _empty_outcomes_payload()
+        _write_outcomes_cache(
+            challenge,
+            entries_revision,
+            master_revision,
+            payload,
+        )
+        return payload
 
-    _write_outcomes_cache(
-        challenge,
-        entries_revision,
-        master_revision,
-        payload,
+    return single_flight(
+        f"outcomes:{challenge.pk}:{entries_revision}:{master_revision}",
+        _compute,
     )
-    return payload

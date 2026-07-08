@@ -182,16 +182,18 @@ export function ChallengeView({
     try {
       const { challenge: c } = await getChallenge(challengeId);
       setChallenge(c);
-      if (c.instance_type === INSTANCE_BRACKET_CHALLENGE) {
-        const { bracket } = await getBracket(c.bracket_id);
-        setBracketDef(bracket);
-      } else {
-        setBracketDef(null);
-      }
       if (c.uses_prediction_leaderboard === false) {
         setColumns([]);
         setEntries([]);
         setDenominators(null);
+      }
+      // Don't block challenge chrome on scoring-rules bracket fetch.
+      if (c.instance_type === INSTANCE_BRACKET_CHALLENGE) {
+        void getBracket(c.bracket_id)
+          .then(({ bracket }) => setBracketDef(bracket))
+          .catch(() => setBracketDef(null));
+      } else {
+        setBracketDef(null);
       }
     } catch (e) {
       setLoadErr(
@@ -811,6 +813,7 @@ export function ChallengeView({
           </div>
           <BracketFill
             userBracketId={viewingPlayer.userBracketId}
+            initialBracketDef={bracketDef}
             readOnly
             showSubmit={false}
             showScoringHighlights={isBracketChallenge}
@@ -837,6 +840,7 @@ export function ChallengeView({
         <BracketFill
           key={`${primaryBracketId}-${bracketRevision}`}
           userBracketId={primaryBracketId}
+          initialBracketDef={bracketDef}
           readOnly={isTournament ? !canEditResults : false}
           allowMasterEdit={canEditResults}
           allowMasterView={isTournament}
@@ -850,6 +854,7 @@ export function ChallengeView({
         <section className="challenge-view__official">
           <BracketFill
             userBracketId={masterId}
+            initialBracketDef={bracketDef}
             allowMasterView
             readOnly
             showSubmit={false}

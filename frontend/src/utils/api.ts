@@ -683,10 +683,23 @@ export async function listBrackets(): Promise<{ brackets: BracketSummary[] }> {
   return apiFetch('GET', 'brackets');
 }
 
+const bracketDetailInFlight = new Map<
+  number,
+  Promise<{ bracket: BracketDetail }>
+>();
+
 export async function getBracket(
   bracketId: number,
 ): Promise<{ bracket: BracketDetail }> {
-  return apiFetch('GET', `brackets/${bracketId}`);
+  const existing = bracketDetailInFlight.get(bracketId);
+  if (existing) return existing;
+  const request = apiFetch('GET', `brackets/${bracketId}`).finally(() => {
+    if (bracketDetailInFlight.get(bracketId) === request) {
+      bracketDetailInFlight.delete(bracketId);
+    }
+  }) as Promise<{ bracket: BracketDetail }>;
+  bracketDetailInFlight.set(bracketId, request);
+  return request;
 }
 
 export async function updateBracketGroupResultsMode(
@@ -768,10 +781,23 @@ export async function listPublicChallenges(): Promise<{
   return apiFetch('GET', 'challenges/public');
 }
 
+const challengeDetailInFlight = new Map<
+  number,
+  Promise<{ challenge: ChallengeSummary }>
+>();
+
 export async function getChallenge(
   challengeId: number,
 ): Promise<{ challenge: ChallengeSummary }> {
-  return apiFetch('GET', `challenges/${challengeId}`);
+  const existing = challengeDetailInFlight.get(challengeId);
+  if (existing) return existing;
+  const request = apiFetch('GET', `challenges/${challengeId}`).finally(() => {
+    if (challengeDetailInFlight.get(challengeId) === request) {
+      challengeDetailInFlight.delete(challengeId);
+    }
+  }) as Promise<{ challenge: ChallengeSummary }>;
+  challengeDetailInFlight.set(challengeId, request);
+  return request;
 }
 
 export async function updateChallenge(
