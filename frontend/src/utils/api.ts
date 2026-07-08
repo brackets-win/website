@@ -937,8 +937,14 @@ export type ChallengeOutcomesWinnerOdds = {
   pct: number;
 };
 
+export type ChallengeOutcomesEntry = {
+  user_bracket_id: number;
+  display_name: string;
+  username?: string;
+};
+
 export type ChallengeOutcomesLeaf = {
-  winners: string[];
+  winners: ChallengeOutcomesEntry[];
 };
 
 export type ChallengeOutcomesFourthBranch = {

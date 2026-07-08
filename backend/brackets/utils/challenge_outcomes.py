@@ -106,21 +106,28 @@ def _master_top_four_ids(
     return champ_id, ru_id, third_id, fourth_id
 
 
-def _winner_labels_for_completion(
+def _winner_entries_for_completion(
     state: TreeState,
     prepared: KnockoutPotentialContext,
     ubs: list[UserBracket],
-) -> list[str]:
+) -> list[dict[str, Any]]:
     totals = completion_totals_vector(state, prepared.scoring)
     import numpy as np
 
     ranks = competition_ranks_batch(totals[np.newaxis, :])[0]
-    winners = [
-        _entry_label(ubs[i])
-        for i, rank in enumerate(ranks)
-        if int(rank) == 1
-    ]
-    winners.sort(key=lambda name: name.casefold())
+    winners: list[dict[str, Any]] = []
+    for i, rank in enumerate(ranks):
+        if int(rank) != 1:
+            continue
+        ub = ubs[i]
+        winners.append(
+            {
+                "user_bracket_id": ub.id,
+                "display_name": _entry_label(ub),
+                "username": getattr(ub.user, "username", "") or "",
+            }
+        )
+    winners.sort(key=lambda entry: str(entry["display_name"]).casefold())
     return winners
 
 
@@ -128,13 +135,14 @@ def _record_outcome(
     root: dict[str, Any],
     *,
     top_four: tuple[int, int, int, int],
-    winners: list[str],
+    winners: list[dict[str, Any]],
 ) -> None:
     node = root
     for key in top_four:
         node = node.setdefault(key, {})
-    bucket = node.setdefault("_winners", set())
-    bucket.update(winners)
+    bucket: dict[int, dict[str, Any]] = node.setdefault("_winner_entries", {})
+    for entry in winners:
+        bucket[int(entry["user_bracket_id"])] = entry
 
 
 def _walk_outcomes(
@@ -155,7 +163,7 @@ def _walk_outcomes(
             )
             if None in top_four:
                 return
-            winners = _winner_labels_for_completion(state, prepared, ubs)
+            winners = _winner_entries_for_completion(state, prepared, ubs)
             if not winners:
                 return
             _record_outcome(
@@ -176,12 +184,12 @@ def _walk_outcomes(
 
 
 def _subtree_winner_count(node: dict[str, Any]) -> int:
-    winners = node.get("_winners")
-    if isinstance(winners, set):
-        return len(winners)
+    entries = node.get("_winner_entries")
+    if isinstance(entries, dict) and entries:
+        return len(entries)
     total = 0
     for key, child in node.items():
-        if key == "_winners":
+        if key == "_winner_entries":
             continue
         if isinstance(child, dict):
             total += _subtree_winner_count(child)
@@ -194,7 +202,7 @@ def _sort_keys(
     level: int,
     contestant_info: dict[int, dict[str, Any]],
 ) -> list[Any]:
-    keys = [key for key in node if key != "_winners"]
+    keys = [key for key in node if key != "_winner_entries"]
 
     def label(key: Any) -> tuple[str, ...]:
         if isinstance(key, tuple):
@@ -219,14 +227,17 @@ def _count_outcome_stats(
 
     def visit(node: dict[str, Any]) -> None:
         nonlocal total
-        winners = node.get("_winners")
-        if isinstance(winners, set) and winners:
+        entries = node.get("_winner_entries")
+        if isinstance(entries, dict) and entries:
             total += 1
-            for name in winners:
-                counts[str(name)] = counts.get(str(name), 0) + 1
+            for entry in entries.values():
+                name = str(entry.get("display_name") or "")
+                if not name:
+                    continue
+                counts[name] = counts.get(name, 0) + 1
             return
         for key, child in node.items():
-            if key == "_winners" or not isinstance(child, dict):
+            if key == "_winner_entries" or not isinstance(child, dict):
                 continue
             visit(child)
 
@@ -260,23 +271,20 @@ def _build_outcomes_tree(
                 node, level=level, contestant_info=contestant_info
             ):
                 child = node[fourth_id]
-                winners = child.get("_winners") or set()
-                if not winners:
+                entries_map = child.get("_winner_entries") or {}
+                if not entries_map:
                     continue
                 team = _team_payload(fourth_id, contestant_info)
                 if team is None:
                     continue
+                entries = sorted(
+                    entries_map.values(),
+                    key=lambda entry: str(entry["display_name"]).casefold(),
+                )
                 branches.append(
                     {
                         "team": team,
-                        "children": [
-                            {
-                                "winners": sorted(
-                                    winners,
-                                    key=lambda name: str(name).casefold(),
-                                )
-                            }
-                        ],
+                        "children": [{"winners": entries}],
                     }
                 )
             return branches
@@ -404,7 +412,33 @@ def _read_outcomes_cache(
         return None
     if not isinstance(payload.get("has_third_place"), bool):
         return None
+    if not _outcomes_tree_has_entry_winners(payload.get("tree")):
+        return None
     return payload
+
+
+def _outcomes_tree_has_entry_winners(tree: Any) -> bool:
+    if not isinstance(tree, list):
+        return False
+    if not tree:
+        return True
+
+    def walk(nodes: list[Any]) -> bool:
+        for node in nodes:
+            if not isinstance(node, dict):
+                return False
+            if "winners" in node:
+                winners = node.get("winners")
+                if not isinstance(winners, list) or not winners:
+                    return False
+                first = winners[0]
+                return isinstance(first, dict) and "user_bracket_id" in first
+            children = node.get("children")
+            if not isinstance(children, list) or not walk(children):
+                return False
+        return True
+
+    return walk(tree)
 
 
 def _write_outcomes_cache(

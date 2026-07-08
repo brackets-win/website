@@ -906,6 +906,16 @@ export function ChallengeView({
               hasThirdPlace={outcomes.has_third_place}
               winnerOdds={outcomes.winner_odds ?? []}
               tree={outcomes.tree}
+              viewerUsername={currentUser.username}
+              onSelectPlayer={
+                canViewPeerBrackets
+                  ? (id, name) => {
+                      navigate(challengePlayerPath(challengeId, id), {
+                        state: { playerName: name },
+                      });
+                    }
+                  : undefined
+              }
             />
           ) : null}
         </section>

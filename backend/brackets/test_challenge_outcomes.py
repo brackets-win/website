@@ -107,7 +107,11 @@ class ChallengeOutcomesTests(TestCase):
         def walk(nodes):
             for node in nodes:
                 if "winners" in node:
-                    winners.update(node["winners"])
+                    for entry in node["winners"]:
+                        if isinstance(entry, dict):
+                            winners.add(entry.get("display_name", ""))
+                        else:
+                            winners.add(str(entry))
                 elif "children" in node:
                     walk(node["children"])
 

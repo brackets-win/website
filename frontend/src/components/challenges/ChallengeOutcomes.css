@@ -8,30 +8,16 @@
   flex: 0 0 auto;
 }
 
-.challenge-outcomes__summary-scroll {
-  overflow-x: auto;
+.challenge-outcomes__summary-card {
+  margin: 0;
 }
 
 .challenge-outcomes__summary-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
+  min-width: 100%;
 }
 
-.challenge-outcomes__summary-table th,
-.challenge-outcomes__summary-table td {
-  padding: 0.45rem 0.65rem;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  text-align: left;
-  vertical-align: top;
-}
-
-.challenge-outcomes__summary-table th {
-  font-weight: 600;
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+.challenge-outcomes__summary-col--pct {
+  width: 38%;
 }
 
 .challenge-outcomes__summary-th--pct {
@@ -39,12 +25,14 @@
 }
 
 .challenge-outcomes__summary-winner {
-  font-weight: 500;
+  text-align: left;
+  font-weight: 600;
 }
 
 .challenge-outcomes__summary-pct {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .challenge-outcomes__detail {
@@ -53,12 +41,22 @@
 }
 
 .challenge-outcomes__table {
-  /* Outcomes uses top-four columns only (no quarter-final column). */
-  min-width: 0;
+  min-width: 100%;
 }
 
-.challenge-stats__sim--no-third .challenge-outcomes__table {
-  min-width: 0;
+.challenge-outcomes__team-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  justify-content: center;
+  align-items: center;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
+  width: 1.35rem;
+  height: 0.95rem;
 }
 
 @media (min-width: 900px) {
@@ -69,6 +67,6 @@
   }
 
   .challenge-outcomes__summary {
-    width: min(100%, 15rem);
+    width: min(100%, 16rem);
   }
 }

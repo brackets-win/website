@@ -202,6 +202,12 @@ def materialize_leaderboard_scores_batch(
                 "Potential persist failed for bracket %s", bracket.pk
             )
         try:
+            _warm_outcomes_cache_for_bracket(bracket)
+        except Exception:
+            logger.exception(
+                "Outcomes cache warm failed for bracket %s", bracket.pk
+            )
+        try:
             persist_next_match_picks_for_bracket(bracket)
         except Exception:
             logger.exception(
@@ -213,6 +219,17 @@ def materialize_leaderboard_scores_batch(
         "remaining_count": remaining_count,
         "leaderboard_scores_pending": pending,
     }
+
+
+def _warm_outcomes_cache_for_bracket(bracket: Bracket) -> None:
+    """Precompute outcomes for each challenge after master Apply."""
+    from brackets.models import BracketChallenge
+    from brackets.utils.challenge_outcomes import get_challenge_outcomes
+
+    for challenge in BracketChallenge.objects.filter(bracket=bracket).only(
+        "id", "metadata", "instance_type", "bracket_id"
+    ):
+        get_challenge_outcomes(challenge)
 
 
 def _apply_pending_next_match_picks(bracket: Bracket) -> None:
