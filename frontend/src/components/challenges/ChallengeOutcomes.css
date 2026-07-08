@@ -17,7 +17,14 @@
 }
 
 .challenge-outcomes__summary-col--pct {
-  width: 38%;
+  width: 44%;
+  min-width: 5.75rem;
+}
+
+.challenge-outcomes__summary-th--pct,
+.challenge-outcomes__summary-pct {
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 .challenge-outcomes__summary-th--pct {
@@ -54,11 +61,28 @@
 }
 
 .challenge-outcomes__col--winner {
-  width: 14%;
+  width: 16%;
+  min-width: 5.5rem;
+}
+
+.challenge-outcomes__table .challenge-stats__sim-th--entries,
+.challenge-outcomes__table td.challenge-outcomes__td--winner {
+  text-align: left;
+}
+
+.challenge-outcomes__table .challenge-stats__sim-th--entries {
+  padding-left: 1rem;
 }
 
 .challenge-outcomes__td--winner,
 .challenge-outcomes__entries {
+  text-align: left;
+}
+
+.challenge-outcomes__td--winner .challenge-stats__group-points-name,
+.challenge-outcomes__td--winner .challenge-stats__group-points-name--btn {
+  display: block;
+  width: 100%;
   text-align: left;
 }
 
@@ -132,7 +156,7 @@
 
   .challenge-outcomes__col--winner,
   .challenge-outcomes__table .challenge-stats__sim-col--entries {
-    width: 6.5rem;
+    width: 7.25rem;
   }
 
   .challenge-outcomes__col--placement {
@@ -167,7 +191,7 @@
 
   .challenge-outcomes__td--winner {
     padding: 0.4rem 0.35rem 0.4rem 0.5rem;
-    min-width: 6.5rem;
+    min-width: 7.25rem;
   }
 }
 
@@ -179,6 +203,6 @@
   }
 
   .challenge-outcomes__summary {
-    width: min(100%, 16rem);
+    width: min(100%, 19rem);
   }
 }

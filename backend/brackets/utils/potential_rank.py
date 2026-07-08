@@ -10,7 +10,10 @@ Potential points live in potential_score.py — this module never writes them.
 from __future__ import annotations
 
 from brackets.models import Bracket, BracketStage, UserBracket
-from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+from brackets.utils.leaderboard_scoring import (
+    LeaderboardScoringContext,
+    load_leaderboard_scoring_context,
+)
 from brackets.utils.potential_knockout import (
     competition_ranks_batch,
     first_knockout_fully_seeded,
@@ -66,12 +69,16 @@ def potential_rank_allowed_for_context(ctx) -> bool:
     return True
 
 
-def potential_rank_allowed_for_bracket(bracket: Bracket) -> bool:
+def potential_rank_allowed_for_bracket(
+    bracket: Bracket,
+    *,
+    scoring_ctx: LeaderboardScoringContext | None = None,
+) -> bool:
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     if omit_leaderboard_potential_for_bracket(bracket):
         return False
-    ctx = load_leaderboard_scoring_context(bracket)
+    ctx = scoring_ctx or load_leaderboard_scoring_context(bracket)
     return potential_rank_allowed_for_context(ctx)
 
 

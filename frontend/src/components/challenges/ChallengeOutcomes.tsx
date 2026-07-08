@@ -195,7 +195,11 @@ function semiPlacementSignature(placementRows: SemiPlacementRow[]): string {
   return placementRows.map((row) => teamSetKey(row.semiTeams)).join('|');
 }
 
-function buildPlacementRowsForRu(ruRows: RawRow[]): PlacementRow[] {
+function buildPlacementRowsForRu(
+  ruRows: RawRow[],
+  entryRows: RawRow[],
+): PlacementRow[] {
+  const runnerUp = ruRows[0].runnerUp;
   const byThird = new Map<number, RawRow[]>();
   for (const row of ruRows) {
     if (!row.third || !row.fourth) continue;
@@ -205,28 +209,33 @@ function buildPlacementRowsForRu(ruRows: RawRow[]): PlacementRow[] {
     byThird.set(thirdId, bucket);
   }
 
-  const byFourthSignature = new Map<
+  const byFourthKey = new Map<
     string,
     { thirdTeams: ChallengeStatsSimilarityTeam[]; fourthTeams: ChallengeStatsSimilarityTeam[]; outcomeCount: number }
   >();
 
   for (const thirdRows of byThird.values()) {
     const fourthTeams = dedupeTeams(thirdRows.map((row) => row.fourth!));
-    const signature = teamSetKey(fourthTeams);
-    const existing = byFourthSignature.get(signature);
+    const third = thirdRows[0].third!;
+    const fourthUniverse = fourthsForRunnerUpThirdCluster(entryRows, [runnerUp], [third]);
+    const key = isExhaustiveCluster(fourthTeams, fourthUniverse)
+      ? '__ALL__'
+      : teamSetKey(fourthTeams);
+    const existing = byFourthKey.get(key);
     if (existing) {
-      existing.thirdTeams.push(thirdRows[0].third!);
+      existing.thirdTeams.push(third);
+      existing.fourthTeams = dedupeTeams([...existing.fourthTeams, ...fourthTeams]);
       existing.outcomeCount += thirdRows.length;
     } else {
-      byFourthSignature.set(signature, {
-        thirdTeams: [thirdRows[0].third!],
+      byFourthKey.set(key, {
+        thirdTeams: [third],
         fourthTeams,
         outcomeCount: thirdRows.length,
       });
     }
   }
 
-  return [...byFourthSignature.values()]
+  return [...byFourthKey.values()]
     .map((group) => ({
       thirdTeams: dedupeTeams(group.thirdTeams),
       fourthTeams: group.fourthTeams,
@@ -342,7 +351,7 @@ function buildDisplayRows(entryRows: RawRow[], hasThirdPlace: boolean): DisplayR
   for (const ruId of sortedRuIds) {
     const ruRows = byRu.get(ruId)!;
     const runnerUp = ruRows[0].runnerUp;
-    const placementRows = buildPlacementRowsForRu(ruRows);
+    const placementRows = buildPlacementRowsForRu(ruRows, entryRows);
     const signature = placementSignature(placementRows);
     const existing = bySignature.get(signature);
     if (existing) {
@@ -586,7 +595,7 @@ function WinnerOddsTable({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col">Entry</th>
+              <th scope="col">Winner</th>
               <th scope="col" className="challenge-outcomes__summary-th--pct">
                 % of Outcomes
               </th>

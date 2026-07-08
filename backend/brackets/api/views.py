@@ -306,9 +306,14 @@ def _user_can_materialize_bracket_scores(user, bracket: Bracket) -> bool:
 
 
 def _challenge_summary_for_user(
-    challenge: BracketChallenge, user, request: HttpRequest | None = None
+    challenge: BracketChallenge,
+    user,
+    request: HttpRequest | None = None,
+    *,
+    bootstrap=None,
 ) -> dict[str, Any]:
     from brackets.utils.challenge_entries import user_entries_for_challenge
+    from brackets.utils.challenge_list_bootstrap import ChallengeSummaryBootstrap
 
     ubs = list(user_entries_for_challenge(user, challenge))
     ub = ubs[0] if ubs else None
@@ -318,10 +323,11 @@ def _challenge_summary_for_user(
             challenge=challenge, user=user
         ).exists()
     )
-    master_id = (
-        _master_user_bracket_id_for_bracket(challenge.bracket_id)
-        if is_participant
-        else None
+    if bootstrap is None:
+        bootstrap = ChallengeSummaryBootstrap([challenge], user)
+    master_id = bootstrap.master_user_bracket_id(
+        challenge,
+        is_participant=is_participant,
     )
     return serializers.challenge_summary(
         challenge,
@@ -332,6 +338,8 @@ def _challenge_summary_for_user(
         master_user_bracket_id=master_id,
         can_manage_bracket=_can_manage_bracket(user, challenge),
         request=request,
+        leaderboard_preview=bootstrap.leaderboard_preview(challenge),
+        show_outcomes_tab=bootstrap.show_outcomes_tab(challenge),
     )
 
 
@@ -1049,9 +1057,9 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"challenges": []})
 
     challenges = list(
-        BracketChallenge.objects.filter(id__in=challenge_ids).select_related(
-            "bracket", "created_by"
-        )
+        BracketChallenge.objects.filter(id__in=challenge_ids)
+        .defer("metadata")
+        .select_related("bracket", "created_by")
     )
 
     ubs_by_challenge: dict[int, list[UserBracket]] = {}
@@ -1060,15 +1068,18 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
     ).order_by("-created_at"):
         ubs_by_challenge.setdefault(ub.challenge_id, []).append(ub)
 
+    from brackets.utils.challenge_list_bootstrap import ChallengeSummaryBootstrap
+
+    bootstrap = ChallengeSummaryBootstrap(challenges, user)
+
     rows = []
     for c in sorted(challenges, key=lambda x: x.created_at, reverse=True):
         ubs = ubs_by_challenge.get(c.id, [])
         ub = ubs[0] if ubs else None
         is_participant = bool(ubs) or c.id in from_participant
-        master_id = (
-            _master_user_bracket_id_for_bracket(c.bracket_id)
-            if is_participant
-            else None
+        master_id = bootstrap.master_user_bracket_id(
+            c,
+            is_participant=is_participant,
         )
         try:
             rows.append(
@@ -1081,6 +1092,8 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     master_user_bracket_id=master_id,
                     can_manage_bracket=_can_manage_bracket(user, c),
                     request=request,
+                    leaderboard_preview=bootstrap.leaderboard_preview(c),
+                    show_outcomes_tab=bootstrap.show_outcomes_tab(c),
                 )
             )
         except Exception:
@@ -1100,6 +1113,7 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
 
     qs = (
         BracketChallenge.objects.filter(is_public=True)
+        .defer("metadata")
         .select_related("bracket", "created_by")
         .order_by("-created_at")
     )
@@ -1109,17 +1123,23 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
         if not (c.instance_type == CHALLENGE and deadline_passed(c))
     ]
 
+    from brackets.utils.challenge_list_bootstrap import (
+        ChallengeSummaryBootstrap,
+        user_brackets_by_challenge,
+    )
+
+    challenge_ids = {c.id for c in challenges}
+    ubs_by_challenge = user_brackets_by_challenge(user, challenge_ids)
+    bootstrap = ChallengeSummaryBootstrap(challenges, user)
+
     rows = []
     for c in challenges:
-        from brackets.utils.challenge_entries import user_entries_for_challenge
-
-        ubs = list(user_entries_for_challenge(user, c))
+        ubs = ubs_by_challenge.get(c.id, [])
         ub = ubs[0] if ubs else None
         is_participant = bool(ubs)
-        master_id = (
-            _master_user_bracket_id_for_bracket(c.bracket_id)
-            if is_participant
-            else None
+        master_id = bootstrap.master_user_bracket_id(
+            c,
+            is_participant=is_participant,
         )
         rows.append(
             serializers.challenge_summary(
@@ -1131,6 +1151,8 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
                 master_user_bracket_id=master_id,
                 can_manage_bracket=_can_manage_bracket(user, c),
                 request=request,
+                leaderboard_preview=bootstrap.leaderboard_preview(c),
+                show_outcomes_tab=bootstrap.show_outcomes_tab(c),
             )
         )
     return JsonResponse({"challenges": rows})
@@ -1143,7 +1165,9 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
         return _json_error("Authentication required", 401)
 
     challenge = get_object_or_404(
-        BracketChallenge.objects.select_related("bracket", "created_by"),
+        BracketChallenge.objects.defer("metadata").select_related(
+            "bracket", "created_by"
+        ),
         pk=challenge_id,
     )
 
@@ -1254,7 +1278,10 @@ def challenge_leaderboard(
 
     from brackets.utils.challenge_types import uses_prediction_scoring
 
-    challenge = get_object_or_404(BracketChallenge, pk=challenge_id)
+    challenge = get_object_or_404(
+        BracketChallenge.objects.defer("metadata").select_related("bracket"),
+        pk=challenge_id,
+    )
     if not ChallengeParticipant.objects.filter(
         challenge=challenge, user=user
     ).exists():
@@ -1282,44 +1309,41 @@ def challenge_leaderboard(
     master = ctx.master
     stages = list(ctx.stages)
     scoring_revision = get_master_scoring_revision(bracket)
-    top_four_ctx = build_top_four_context(bracket)
+    top_four_ctx = build_top_four_context(bracket) if can_view_peers else None
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
 
     omit_potential = omit_leaderboard_potential_for_bracket(bracket)
-    from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
+    from brackets.utils.potential_rank import potential_rank_allowed_for_context
 
-    matchup_prefetch = Matchup.objects.select_related(
-        "winner__contestant",
-        "contestant1__contestant",
-        "contestant2__contestant",
-        "stage",
-    ).prefetch_related(
-        "winner__contestant__tags",
-        "contestant1__contestant__tags",
-        "contestant2__contestant__tags",
+    submitted_qs = UserBracket.objects.filter(
+        challenge=challenge,
+        is_master=False,
+        submitted_at__isnull=False,
+    ).select_related(
+        "user",
+        "bracket",
+        "leaderboard_next_match_pick__contestant",
     )
-    submitted_qs = (
-        UserBracket.objects.filter(
-            challenge=challenge,
-            is_master=False,
-            submitted_at__isnull=False,
+    if can_view_peers:
+        matchup_prefetch = Matchup.objects.select_related(
+            "winner__contestant",
+            "contestant1__contestant",
+            "contestant2__contestant",
+            "stage",
+        ).prefetch_related(
+            "winner__contestant__tags",
+            "contestant1__contestant__tags",
+            "contestant2__contestant__tags",
         )
-        .select_related(
-            "user",
-            "bracket",
-            "leaderboard_next_match_pick__contestant",
-        )
-        .prefetch_related(
+        submitted_qs = submitted_qs.prefetch_related(
             Prefetch("matchup_set", queryset=matchup_prefetch),
         )
-        .order_by("user__username")
-    )
-    submitted_entries = list(submitted_qs)
+    submitted_entries = list(submitted_qs.order_by("user__username"))
 
     rank_gate_open = (
         not omit_potential
         and master is not None
-        and potential_rank_allowed_for_bracket(bracket)
+        and potential_rank_allowed_for_context(ctx)
     )
     # Rank is materialized on Apply (persist_all_potential_for_bracket) — read only.
     show_potential_rank = rank_gate_open and UserBracket.objects.filter(
@@ -1441,7 +1465,8 @@ def challenge_stats(request: HttpRequest, challenge_id: int) -> JsonResponse:
     from brackets.utils.challenge_stats import get_challenge_stats
 
     challenge = get_object_or_404(
-        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+        BracketChallenge.objects.defer("metadata").select_related("bracket"),
+        pk=challenge_id,
     )
     if not ChallengeParticipant.objects.filter(
         challenge=challenge, user=user
@@ -1478,7 +1503,8 @@ def challenge_outcomes(request: HttpRequest, challenge_id: int) -> JsonResponse:
     from brackets.utils.challenge_outcomes import get_challenge_outcomes
 
     challenge = get_object_or_404(
-        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+        BracketChallenge.objects.defer("metadata").select_related("bracket"),
+        pk=challenge_id,
     )
     if not ChallengeParticipant.objects.filter(
         challenge=challenge, user=user

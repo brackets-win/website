@@ -379,6 +379,8 @@ def challenge_summary(
     master_user_bracket_id: int | None = None,
     can_manage_bracket: bool = False,
     request=None,
+    leaderboard_preview: dict[str, Any] | None = None,
+    show_outcomes_tab: bool | None = None,
 ) -> dict[str, Any]:
     passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
@@ -480,9 +482,10 @@ def challenge_summary(
         "master_user_bracket_id": master_user_bracket_id,
         "tournament_team_count": tournament_team_count,
         "teams_configured": teams_configured,
-        "leaderboard_preview": bracket_challenge_leaderboard_preview(
-            c,
-            user,
+        "leaderboard_preview": (
+            leaderboard_preview
+            if leaderboard_preview is not None
+            else bracket_challenge_leaderboard_preview(c, user)
         ),
         "show_live_group_results_note": (
             show_live_group_results_note_for_bracket(c.bracket)
@@ -490,9 +493,13 @@ def challenge_summary(
             else False
         ),
         "show_outcomes_tab": (
-            _show_outcomes_tab_for_challenge(c)
-            if c.instance_type == CHALLENGE
-            else False
+            show_outcomes_tab
+            if show_outcomes_tab is not None
+            else (
+                _show_outcomes_tab_for_challenge(c)
+                if c.instance_type == CHALLENGE
+                else False
+            )
         ),
     }
 

@@ -888,8 +888,7 @@ export function ChallengeView({
         <section className="card challenge-view__stats">
           <h2 className="challenge-view__settings-heading">Outcomes</h2>
           <p className="challenge-view__muted challenge-view__outcomes-note">
-            Who would win the bracket challenge with each possible future
-            outcome? Here&apos;s your answer!
+            Potential bracket challenge winners with each future outcome
           </p>
           {!canViewPeerBrackets ? (
             <p className="challenge-view__muted">

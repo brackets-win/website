@@ -14,6 +14,7 @@ from brackets.models import (
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.leaderboard_preview import (
     bracket_challenge_leaderboard_preview,
+    bracket_challenge_leaderboard_previews,
     streak_challenge_leaderboard_preview,
 )
 from brackets.utils.leaderboard_scoring import (
@@ -200,3 +201,32 @@ class LeaderboardPreviewTests(TestCase):
         self.assertEqual(preview["viewer"]["display_name"], "viewer")
         self.assertEqual(preview["viewer"]["rank"], 5)
         self.assertTrue(preview["gap_before_viewer"])
+
+    def test_bracket_previews_batch_matches_single(self):
+        host = User.objects.create_user(username="batch-host", password="x")
+        u1 = User.objects.create_user(username="batch-alice", password="x")
+        u2 = User.objects.create_user(username="batch-bob", password="x")
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM", "lb-batch", "Batch", 4, host
+        )
+        challenge = BracketChallenge.objects.create(
+            name="Pool A",
+            bracket=bracket,
+            created_by=host,
+        )
+        bracket.ensure_master_bracket()
+
+        for user, name in ((u1, "Alice"), (u2, "Bob")):
+            ub = UserBracket.objects.create(
+                user=user,
+                bracket=bracket,
+                challenge=challenge,
+                display_name=name,
+            )
+            ub.submitted_at = timezone.now()
+            ub.save(update_fields=["submitted_at"])
+        refresh_all_submitted_leaderboard_scores_for_bracket(bracket)
+
+        single = bracket_challenge_leaderboard_preview(challenge, u1)
+        batch = bracket_challenge_leaderboard_previews([challenge], u1)[challenge.id]
+        self.assertEqual(single, batch)

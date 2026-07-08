@@ -172,6 +172,56 @@ def streak_ranked_participants(
     return ranked
 
 
+_EMPTY_PREVIEW: dict[str, Any] = {
+    "top": [],
+    "viewer": None,
+    "gap_before_viewer": False,
+}
+
+
+def bracket_challenge_leaderboard_previews(
+    challenges: list[BracketChallenge],
+    user=None,
+    *,
+    limit: int = 3,
+) -> dict[int, dict[str, Any]]:
+    prediction_ids = [
+        c.id
+        for c in challenges
+        if uses_prediction_scoring(c.instance_type)
+    ]
+    if not prediction_ids:
+        return {}
+
+    ranked_by_challenge: dict[int, list[dict[str, Any]]] = {
+        challenge_id: [] for challenge_id in prediction_ids
+    }
+    for ub in UserBracket.objects.filter(
+        challenge_id__in=prediction_ids,
+        is_master=False,
+        submitted_at__isnull=False,
+    ).select_related("user"):
+        score = read_stored_leaderboard_scores(ub).score
+        if score is None:
+            continue
+        name = (ub.display_name or "").strip() or ub.user.username
+        ranked_by_challenge[ub.challenge_id].append(
+            {
+                "user_id": ub.user_id,
+                "display_name": name,
+                "points": score,
+            }
+        )
+
+    previews: dict[int, dict[str, Any]] = {}
+    for challenge_id, ranked in ranked_by_challenge.items():
+        ranked.sort(
+            key=lambda row: (-row["points"], row["display_name"].casefold()),
+        )
+        previews[challenge_id] = _assemble_preview(ranked, user, limit=limit)
+    return previews
+
+
 def bracket_challenge_leaderboard_preview(
     challenge: BracketChallenge,
     user=None,
@@ -181,30 +231,13 @@ def bracket_challenge_leaderboard_preview(
 ) -> dict[str, Any]:
     del scoring_context
     if not uses_prediction_scoring(challenge.instance_type):
-        return {"top": [], "viewer": None, "gap_before_viewer": False}
+        return dict(_EMPTY_PREVIEW)
 
-    ranked: list[dict[str, Any]] = []
-    for ub in UserBracket.objects.filter(
-        challenge=challenge,
-        is_master=False,
-        submitted_at__isnull=False,
-    ).select_related("user"):
-        score = read_stored_leaderboard_scores(ub).score
-        if score is None:
-            continue
-        name = (ub.display_name or "").strip() or ub.user.username
-        ranked.append(
-            {
-                "user_id": ub.user_id,
-                "display_name": name,
-                "points": score,
-            }
-        )
-
-    ranked.sort(
-        key=lambda r: (-r["points"], r["display_name"].casefold()),
-    )
-    return _assemble_preview(ranked, user, limit=limit)
+    return bracket_challenge_leaderboard_previews(
+        [challenge],
+        user,
+        limit=limit,
+    ).get(challenge.id, dict(_EMPTY_PREVIEW))
 
 
 def streak_challenge_leaderboard_preview(

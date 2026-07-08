@@ -319,14 +319,21 @@ def _build_outcomes_tree(
     return tree
 
 
-def show_outcomes_tab_for_challenge(challenge: BracketChallenge) -> bool:
+def show_outcomes_tab_for_challenge(
+    challenge: BracketChallenge,
+    *,
+    scoring_ctx=None,
+) -> bool:
     from brackets.utils.challenge_types import CHALLENGE
     from brackets.utils.group_results_mode import omit_leaderboard_potential_for_bracket
+    from brackets.utils.potential_rank import potential_rank_allowed_for_context
 
     if challenge.instance_type != CHALLENGE:
         return False
     if omit_leaderboard_potential_for_bracket(challenge.bracket):
         return False
+    if scoring_ctx is not None:
+        return potential_rank_allowed_for_context(scoring_ctx)
     return potential_rank_allowed_for_bracket(challenge.bracket)
 
 
