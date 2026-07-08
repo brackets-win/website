@@ -937,11 +937,35 @@ export type ChallengeOutcomesWinnerOdds = {
   pct: number;
 };
 
+export type ChallengeOutcomesLeaf = {
+  winners: string[];
+};
+
+export type ChallengeOutcomesFourthBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  children: ChallengeOutcomesLeaf[];
+};
+
+export type ChallengeOutcomesThirdBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  children: ChallengeOutcomesFourthBranch[];
+};
+
+export type ChallengeOutcomesRunnerUpBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  children: ChallengeOutcomesThirdBranch[];
+};
+
+export type ChallengeOutcomesChampionBranch = {
+  team: ChallengeStatsSimilarityTeam;
+  children: ChallengeOutcomesRunnerUpBranch[];
+};
+
 export type ChallengeOutcomesSimilarity = {
   has_third_place: boolean;
   total_outcomes: number;
   winner_odds: ChallengeOutcomesWinnerOdds[];
-  tree: ChallengeStatsSimilarityBranch[];
+  tree: ChallengeOutcomesChampionBranch[];
 };
 
 export async function getChallengeOutcomes(

@@ -1,4 +1,5 @@
 import type {
+  ChallengeOutcomesChampionBranch,
   ChallengeOutcomesWinnerOdds,
   ChallengeStatsSimilarityTeam,
 } from '../../utils/api';
@@ -7,34 +8,10 @@ import { ContestantAvatar } from '../bracket/ContestantAvatar';
 import './BracketSimilarity.css';
 import './ChallengeOutcomes.css';
 
-type OutcomesLeaf = {
-  winners: string[];
-};
-
-type OutcomesFourthBranch = {
-  team: ChallengeStatsSimilarityTeam;
-  children: OutcomesLeaf[];
-};
-
-type OutcomesThirdBranch = {
-  team: ChallengeStatsSimilarityTeam;
-  children: OutcomesFourthBranch[];
-};
-
-type OutcomesRunnerUpBranch = {
-  team: ChallengeStatsSimilarityTeam;
-  children: OutcomesThirdBranch[];
-};
-
-type OutcomesChampionBranch = {
-  team: ChallengeStatsSimilarityTeam;
-  children: OutcomesRunnerUpBranch[];
-};
-
 type Props = {
   hasThirdPlace: boolean;
   winnerOdds: ChallengeOutcomesWinnerOdds[];
-  tree: OutcomesChampionBranch[];
+  tree: ChallengeOutcomesChampionBranch[];
 };
 
 type FlattenedRow = {
@@ -46,7 +23,7 @@ type FlattenedRow = {
 };
 
 function flattenChampionRows(
-  champ: OutcomesChampionBranch,
+  champ: ChallengeOutcomesChampionBranch,
   hasThirdPlace: boolean,
 ): FlattenedRow[] {
   const rows: FlattenedRow[] = [];
@@ -175,8 +152,8 @@ function TeamFlag({
   return (
     <span className={`challenge-stats__sim-flag challenge-stats__sim-flag--${size}`}>
       <ContestantAvatar
+        displayName={team.display_name}
         imageUrl={team.image_url}
-        name={team.display_name}
         className="challenge-stats__sim-flag-img"
         placeholderClassName="challenge-stats__sim-flag-img challenge-stats__sim-flag-img--ph"
       />
@@ -236,7 +213,7 @@ function ChampionTable({
   rows,
   hasThirdPlace,
 }: {
-  champ: OutcomesChampionBranch;
+  champ: ChallengeOutcomesChampionBranch;
   rows: FlattenedRow[];
   hasThirdPlace: boolean;
 }) {
