@@ -223,19 +223,19 @@ def _count_outcome_stats(
     root: dict[str, Any],
 ) -> tuple[int, list[dict[str, Any]]]:
     total = 0
-    winner_set_counts: dict[tuple[int, ...], int] = {}
-    winner_set_entries: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    entry_counts: dict[int, int] = {}
+    entry_payloads: dict[int, dict[str, Any]] = {}
 
     def visit(node: dict[str, Any]) -> None:
         nonlocal total
         entries = node.get("_winner_entries")
         if isinstance(entries, dict) and entries:
             total += 1
-            ordered = sorted(entries.values(), key=lambda e: int(e["user_bracket_id"]))
-            key = tuple(int(e["user_bracket_id"]) for e in ordered)
-            winner_set_counts[key] = winner_set_counts.get(key, 0) + 1
-            if key not in winner_set_entries:
-                winner_set_entries[key] = ordered
+            for entry in entries.values():
+                entry_id = int(entry["user_bracket_id"])
+                entry_counts[entry_id] = entry_counts.get(entry_id, 0) + 1
+                if entry_id not in entry_payloads:
+                    entry_payloads[entry_id] = entry
             return
         for key, child in node.items():
             if key == "_winner_entries" or not isinstance(child, dict):
@@ -244,15 +244,16 @@ def _count_outcome_stats(
 
     visit(root)
     winner_odds: list[dict[str, Any]] = []
-    for winner_ids, count in sorted(
-        winner_set_counts.items(),
-        key=lambda item: (-item[1], item[0]),
+    for entry_id, count in sorted(
+        entry_counts.items(),
+        key=lambda item: (
+            -item[1],
+            str(entry_payloads[item[0]].get("display_name") or "").casefold(),
+        ),
     ):
-        entries = winner_set_entries[winner_ids]
-        entries.sort(key=lambda entry: str(entry["display_name"]).casefold())
         winner_odds.append(
             {
-                "entries": entries,
+                "entry": entry_payloads[entry_id],
                 "outcome_count": count,
                 "pct": round(100.0 * count / total, 1) if total else 0.0,
             }
@@ -419,7 +420,7 @@ def _read_outcomes_cache(
     odds = payload.get("winner_odds")
     if odds and not isinstance(odds[0], dict):
         return None
-    if odds and "entries" not in odds[0]:
+    if odds and "entry" not in odds[0]:
         return None
     if not _outcomes_tree_has_entry_winners(payload.get("tree")):
         return None
