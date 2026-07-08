@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type {
   ChallengeOutcomesChampionBranch,
@@ -319,16 +319,32 @@ function buildSemiSlices(ruLeaves: LeafPath[]): SemiSlice[] {
   );
 }
 
-function placementSignature(slices: PlacementSlice[]): string {
+function placementPatternKey(
+  slices: PlacementSlice[],
+  universe: GlobalUniverse,
+  championId: number,
+  runnerUpId: number,
+): string {
+  const ruIds = new Set([runnerUpId]);
   return slices
-    .map(
-      (slice) =>
-        `${teamSetKey(slice.thirdTeams)}:${teamSetKey(slice.fourthTeams)}:${winnersKey(slice.winners)}`,
-    )
+    .map((slice) => {
+      const thirdUniverse = universe.thirds(championId, ruIds);
+      const thirdKey = isExhaustiveCluster(slice.thirdTeams, thirdUniverse)
+        ? '__ALL__'
+        : teamSetKey(slice.thirdTeams);
+      const thirdIds = new Set(
+        slice.thirdTeams.map((team) => team.bracket_contestant_id),
+      );
+      const fourthUniverse = universe.fourths(championId, ruIds, thirdIds);
+      const fourthKey = isExhaustiveCluster(slice.fourthTeams, fourthUniverse)
+        ? '__ALL__'
+        : teamSetKey(slice.fourthTeams);
+      return `${thirdKey}:${fourthKey}:${winnersKey(slice.winners)}`;
+    })
     .join('|');
 }
 
-function semiSignature(slices: SemiSlice[]): string {
+function semiPatternKey(slices: SemiSlice[]): string {
   return slices
     .map(
       (slice) => `${teamSetKey(slice.semiTeams)}:${winnersKey(slice.winners)}`,
@@ -387,7 +403,9 @@ function buildDisplayRows(
     });
 
     if (hasThirdPlace) {
-      // Cluster runner-ups that share identical third/fourth/winner structure.
+      // Cluster runner-ups whose third/fourth patterns are the same after
+      // normalizing exhaustive columns to ALL (raw team sets may differ
+      // across RUs even when both display as ALL).
       const bySig = new Map<
         string,
         {
@@ -405,22 +423,38 @@ function buildDisplayRows(
           champId,
           ruId,
         );
-        const sig = placementSignature(slices);
+        const sig = placementPatternKey(slices, universe, champId, ruId);
         const existing = bySig.get(sig);
-        if (existing) {
+        if (existing && existing.slices.length === slices.length) {
           existing.runnerUpTeams.push(runnerUp);
-        } else {
+          // Union placement teams so a merged ALL cluster still covers every
+          // RU's thirds/fourths when checked against the wider universe.
+          existing.slices = existing.slices.map((slice, index) => ({
+            thirdTeams: dedupeTeams([
+              ...slice.thirdTeams,
+              ...slices[index].thirdTeams,
+            ]),
+            fourthTeams: dedupeTeams([
+              ...slice.fourthTeams,
+              ...slices[index].fourthTeams,
+            ]),
+            winners: slice.winners,
+          }));
+        } else if (!existing) {
           bySig.set(sig, {
+            runnerUpTeams: [runnerUp],
+            slices,
+          });
+        } else {
+          // Same ALL-normalized pattern label but different slice counts —
+          // keep separate rather than inventing a bad merge.
+          bySig.set(`${sig}#${ruId}`, {
             runnerUpTeams: [runnerUp],
             slices,
           });
         }
       }
 
-      // Also: if every RU under this champion for this entry has a single
-      // ALL/ALL (or identical) slice with the same winners, and those RUs
-      // cover the GLOBAL runner-up set, they already share a signature and
-      // are clustered above. Emit rows.
       const groups = [...bySig.values()].sort((a, b) =>
         teamSortKey(a.runnerUpTeams[0]).localeCompare(
           teamSortKey(b.runnerUpTeams[0]),
@@ -455,7 +489,7 @@ function buildDisplayRows(
         const ruLeaves = byRu.get(ruId)!;
         const runnerUp = ruLeaves[0].runnerUp;
         const slices = buildSemiSlices(ruLeaves);
-        const sig = semiSignature(slices);
+        const sig = semiPatternKey(slices);
         const existing = bySig.get(sig);
         if (existing) {
           existing.runnerUpTeams.push(runnerUp);
@@ -936,38 +970,36 @@ export function ChallengeOutcomes({
 }: Props) {
   const [groupMode, setGroupMode] = useState<GroupMode>('entry');
 
-  if (tree.length === 0) {
-    return (
-      <p className="challenge-stats__group-points-empty">
-        No remaining outcomes to show yet.
-      </p>
+  const viewModel = useMemo(() => {
+    if (tree.length === 0) return null;
+
+    const allLeaves = collectAllLeafPaths(tree, hasThirdPlace);
+    const universe = new GlobalUniverse(allLeaves);
+
+    const entryCards = winnerOdds
+      .map((odds) => {
+        const entryLeaves = allLeaves.filter((leaf) =>
+          leaf.winners.some(
+            (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
+          ),
+        );
+        const displayRows = buildDisplayRows(
+          entryLeaves,
+          hasThirdPlace,
+          universe,
+        );
+        return {
+          odds,
+          rows: flattenTableRows(displayRows),
+        };
+      })
+      .filter((card) => card.rows.length > 0);
+
+    const teamRows = flattenTableRows(
+      buildDisplayRows(allLeaves, hasThirdPlace, universe),
     );
-  }
 
-  const allLeaves = collectAllLeafPaths(tree, hasThirdPlace);
-  const universe = new GlobalUniverse(allLeaves);
-
-  const entryCards = winnerOdds
-    .map((odds) => {
-      const entryLeaves = allLeaves.filter((leaf) =>
-        leaf.winners.some(
-          (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
-        ),
-      );
-      const displayRows = buildDisplayRows(entryLeaves, hasThirdPlace, universe);
-      return {
-        odds,
-        rows: flattenTableRows(displayRows),
-      };
-    })
-    .filter((card) => card.rows.length > 0);
-
-  const teamRows = flattenTableRows(
-    buildDisplayRows(allLeaves, hasThirdPlace, universe),
-  );
-
-  const teamChampionCards: { champId: number; rows: TableRow[] }[] = [];
-  {
+    const teamChampionCards: { champId: number; rows: TableRow[] }[] = [];
     const byChamp = new Map<number, DisplayRow[]>();
     for (const row of teamRows) {
       const id = row.champion.bracket_contestant_id;
@@ -988,7 +1020,19 @@ export function ChallengeOutcomes({
         rows: flattenTableRows(displayRows),
       });
     }
+
+    return { universe, entryCards, teamChampionCards };
+  }, [tree, hasThirdPlace, winnerOdds]);
+
+  if (viewModel == null) {
+    return (
+      <p className="challenge-stats__group-points-empty">
+        No remaining outcomes to show yet.
+      </p>
+    );
   }
+
+  const { universe, entryCards, teamChampionCards } = viewModel;
 
   return (
     <div className="challenge-outcomes__layout">
@@ -1018,14 +1062,14 @@ export function ChallengeOutcomes({
             aria-pressed={groupMode === 'entry'}
             onClick={() => setGroupMode('entry')}
           >
-            Entry
+            ENTRY
           </button>
           <button
             type="button"
             aria-pressed={groupMode === 'team'}
             onClick={() => setGroupMode('team')}
           >
-            Team
+            TEAM
           </button>
         </div>
 
@@ -1038,11 +1082,7 @@ export function ChallengeOutcomes({
               >
                 <header className="challenge-outcomes__entry-card-header">
                   <h3 className="challenge-outcomes__entry-card-title">
-                    <WinnerName
-                      winner={odds.entry}
-                      onSelectPlayer={onSelectPlayer}
-                      viewerUsername={viewerUsername}
-                    />
+                    {odds.entry.display_name}
                   </h3>
                   <span className="challenge-outcomes__entry-card-pct">
                     {odds.pct.toFixed(1)}%
