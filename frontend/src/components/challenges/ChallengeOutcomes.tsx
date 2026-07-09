@@ -764,6 +764,25 @@ function formatLikelihood(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
+function formatOutcomePct(value: number): string {
+  return `${value.toFixed(1)}%`;
+}
+
+function OutcomeMetricInline({
+  value,
+  label,
+}: {
+  value: string;
+  label: string;
+}) {
+  return (
+    <span className="challenge-outcomes__metric-inline">
+      <span className="challenge-outcomes__metric-value">{value}</span>
+      <span className="challenge-outcomes__metric-label">{label}</span>
+    </span>
+  );
+}
+
 function sortWinnerOdds(
   rows: ChallengeOutcomesWinnerOdds[],
   sortKey: SortKey,
@@ -858,10 +877,14 @@ function WinnerOddsTable({
                   />
                 </td>
                 <td className="challenge-outcomes__summary-pct">
-                  {row.pct.toFixed(1)}%
+                  <span className="challenge-outcomes__metric-value">
+                    {formatOutcomePct(row.pct)}
+                  </span>
                 </td>
                 <td className="challenge-outcomes__summary-likelihood">
-                  {formatLikelihood(row.likelihood)}
+                  <span className="challenge-outcomes__metric-value">
+                    {formatLikelihood(row.likelihood)}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -1231,6 +1254,22 @@ export function ChallengeOutcomes({
                   <h3 className="challenge-outcomes__entry-card-title">
                     {odds.entry.display_name}
                   </h3>
+                  <p className="challenge-outcomes__entry-card-stats">
+                    <OutcomeMetricInline
+                      value={formatOutcomePct(odds.pct)}
+                      label=" of Outcomes"
+                    />
+                    <span
+                      className="challenge-outcomes__entry-card-stat-sep"
+                      aria-hidden
+                    >
+                      |
+                    </span>
+                    <OutcomeMetricInline
+                      value={formatLikelihood(odds.likelihood)}
+                      label=" Likelihood"
+                    />
+                  </p>
                 </header>
                 <PathsTable
                   rows={rows}
