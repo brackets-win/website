@@ -768,21 +768,6 @@ function formatOutcomePct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function OutcomeMetricInline({
-  value,
-  label,
-}: {
-  value: string;
-  label: string;
-}) {
-  return (
-    <span className="challenge-outcomes__metric-inline">
-      <span className="challenge-outcomes__metric-value">{value}</span>
-      <span className="challenge-outcomes__metric-label">{label}</span>
-    </span>
-  );
-}
-
 function sortWinnerOdds(
   rows: ChallengeOutcomesWinnerOdds[],
   sortKey: SortKey,
@@ -1255,20 +1240,24 @@ export function ChallengeOutcomes({
                     {odds.entry.display_name}
                   </h3>
                   <p className="challenge-outcomes__entry-card-stats">
-                    <OutcomeMetricInline
-                      value={formatOutcomePct(odds.pct)}
-                      label=" of Outcomes"
-                    />
+                    <span className="challenge-outcomes__metric-value">
+                      {formatOutcomePct(odds.pct)}
+                    </span>
+                    <span className="challenge-outcomes__metric-label">
+                      of Outcomes
+                    </span>
                     <span
                       className="challenge-outcomes__entry-card-stat-sep"
                       aria-hidden
                     >
-                      {' | '}
+                      |
                     </span>
-                    <OutcomeMetricInline
-                      value={formatLikelihood(odds.likelihood)}
-                      label=" Likelihood"
-                    />
+                    <span className="challenge-outcomes__metric-value">
+                      {formatLikelihood(odds.likelihood)}
+                    </span>
+                    <span className="challenge-outcomes__metric-label">
+                      Likelihood
+                    </span>
                   </p>
                 </header>
                 <PathsTable

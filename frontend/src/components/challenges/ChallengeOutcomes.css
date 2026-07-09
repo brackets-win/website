@@ -90,8 +90,8 @@
   color: var(--challenge-outcomes-metric-label);
 }
 
-.challenge-outcomes__metric-inline {
-  white-space: nowrap;
+.challenge-outcomes__metric-label::before {
+  content: '\00a0';
 }
 
 .challenge-outcomes__detail {
@@ -159,16 +159,17 @@
 }
 
 .challenge-outcomes__entry-card-header {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
   min-height: 2.5rem;
   padding: 0.8rem 0.9rem 0.65rem;
   border-bottom: 1px solid var(--border, #e8ecf1);
 }
 
 .challenge-outcomes__entry-card-title {
+  grid-column: 2;
   margin: 0;
   font-size: 1.2rem;
   font-weight: 600;
@@ -178,22 +179,16 @@
 }
 
 .challenge-outcomes__entry-card-stats {
-  position: absolute;
-  top: 0.8rem;
-  right: 0.9rem;
+  grid-column: 3;
+  justify-self: end;
   margin: 0;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 0;
   white-space: nowrap;
   text-align: right;
   line-height: 1.25;
 }
 
 .challenge-outcomes__entry-card-stat-sep {
-  flex-shrink: 0;
+  margin: 0 0.4em;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--challenge-outcomes-metric-label);
@@ -290,13 +285,15 @@
   }
 
   .challenge-outcomes__entry-card-header {
+    grid-template-columns: 1fr;
     min-height: 2.2rem;
     padding: 0.65rem 0.55rem 0.5rem;
   }
 
   .challenge-outcomes__entry-card-title {
+    grid-column: 1;
     font-size: 1.05rem;
-    width: 100%;
+    width: auto;
   }
 
   .challenge-outcomes__entry-card-stats {
