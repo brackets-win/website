@@ -1012,7 +1012,7 @@ export type ChallengeOutcomesSimilarity = {
   total_outcomes: number;
   winner_odds: ChallengeOutcomesWinnerOdds[];
   tree: ChallengeOutcomesChampionBranch[];
-  /** Weighted placement likelihood by role:team_id (e.g. champion:12). */
+  /** Path-prefix weighted likelihood (e.g. c:12:ru:34:t:56). */
   team_likelihood?: Record<string, number>;
 };
 

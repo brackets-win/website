@@ -652,18 +652,20 @@ function TeamCluster({
   teams,
   singleSize = 'sm',
   role,
+  pathContext,
   teamMetricMode,
-  outcomePctIndex,
-  teamLikelihood,
-  likelihoodScope,
+  pathOutcomeCounts,
+  globalOutcomeTotal,
+  pathLikelihood,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   singleSize?: 'lg' | 'md' | 'sm' | 'xs';
   role: PlacementRole;
+  pathContext: PathContext;
   teamMetricMode: TeamMetricMode;
-  outcomePctIndex: Map<string, number>;
-  teamLikelihood?: Record<string, number>;
-  likelihoodScope?: TeamLikelihoodScope;
+  pathOutcomeCounts: Map<string, number>;
+  globalOutcomeTotal: number;
+  pathLikelihood?: Record<string, number>;
 }) {
   const sorted = sortTeams(teams);
   if (sorted.length === 0) return null;
@@ -673,12 +675,13 @@ function TeamCluster({
         team={sorted[0]}
         size={singleSize}
         metricPct={lookupTeamMetricPct(
+          pathContext,
           role,
           sorted[0].bracket_contestant_id,
           teamMetricMode,
-          outcomePctIndex,
-          teamLikelihood,
-          likelihoodScope,
+          pathOutcomeCounts,
+          globalOutcomeTotal,
+          pathLikelihood,
         )}
       />
     );
@@ -694,12 +697,13 @@ function TeamCluster({
           team={team}
           size="xs"
           metricPct={lookupTeamMetricPct(
+            pathContext,
             role,
             team.bracket_contestant_id,
             teamMetricMode,
-            outcomePctIndex,
-            teamLikelihood,
-            likelihoodScope,
+            pathOutcomeCounts,
+            globalOutcomeTotal,
+            pathLikelihood,
           )}
         />
       ))}
@@ -749,20 +753,22 @@ function PlacementCell({
   singleSize = 'sm',
   allLabel,
   role,
+  pathContext,
   teamMetricMode,
-  outcomePctIndex,
-  teamLikelihood,
-  likelihoodScope,
+  pathOutcomeCounts,
+  globalOutcomeTotal,
+  pathLikelihood,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   universe: ChallengeStatsSimilarityTeam[];
   singleSize?: 'lg' | 'md' | 'sm' | 'xs';
   allLabel: string;
   role: PlacementRole;
+  pathContext: PathContext;
   teamMetricMode: TeamMetricMode;
-  outcomePctIndex: Map<string, number>;
-  teamLikelihood?: Record<string, number>;
-  likelihoodScope?: TeamLikelihoodScope;
+  pathOutcomeCounts: Map<string, number>;
+  globalOutcomeTotal: number;
+  pathLikelihood?: Record<string, number>;
 }) {
   const sorted = sortTeams(teams);
   if (sorted.length === 0) return null;
@@ -772,12 +778,13 @@ function PlacementCell({
         label={allLabel}
         size={singleSize === 'md' ? 'md' : 'sm'}
         metricPct={lookupClusterMetricPct(
+          pathContext,
           role,
           universe,
           teamMetricMode,
-          outcomePctIndex,
-          teamLikelihood,
-          likelihoodScope,
+          pathOutcomeCounts,
+          globalOutcomeTotal,
+          pathLikelihood,
         )}
       />
     );
@@ -787,10 +794,11 @@ function PlacementCell({
       teams={sorted}
       singleSize={singleSize}
       role={role}
+      pathContext={pathContext}
       teamMetricMode={teamMetricMode}
-      outcomePctIndex={outcomePctIndex}
-      teamLikelihood={teamLikelihood}
-      likelihoodScope={likelihoodScope}
+      pathOutcomeCounts={pathOutcomeCounts}
+      globalOutcomeTotal={globalOutcomeTotal}
+      pathLikelihood={pathLikelihood}
     />
   );
 }
@@ -858,142 +866,199 @@ function formatOutcomePct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function teamMetricKey(role: PlacementRole, teamId: number): string {
-  return `${role}:${teamId}`;
+type PathContext = {
+  championId: number;
+  runnerUpIds: number[];
+  thirdIds: number[];
+};
+
+function pathOutcomeKey(
+  championId: number,
+  runnerUpId?: number,
+  thirdId?: number,
+  fourthId?: number,
+  semiId?: number,
+): string {
+  const parts: Array<string | number> = ['c', championId];
+  if (runnerUpId == null) return parts.join(':');
+  parts.push('ru', runnerUpId);
+  if (thirdId == null && semiId == null) return parts.join(':');
+  if (semiId != null) {
+    parts.push('s', semiId);
+    return parts.join(':');
+  }
+  parts.push('t', thirdId!);
+  if (fourthId == null) return parts.join(':');
+  parts.push('f', fourthId);
+  return parts.join(':');
 }
 
-function teamIdsForLeafRole(
-  leaf: LeafPath,
-  role: PlacementRole,
-  hasThirdPlace: boolean,
-): number[] {
-  if (role === 'champion') {
-    return [leaf.champion.bracket_contestant_id];
-  }
-  if (role === 'runner_up') {
-    return [leaf.runnerUp.bracket_contestant_id];
-  }
-  if (hasThirdPlace) {
-    if (role === 'third') {
-      return leaf.third ? [leaf.third.bracket_contestant_id] : [];
-    }
-    if (role === 'fourth') {
-      return leaf.fourth ? [leaf.fourth.bracket_contestant_id] : [];
-    }
-    return [];
-  }
-  if (role === 'semi') {
-    return (
-      leaf.semifinalists?.map((team) => team.bracket_contestant_id) ?? []
-    );
-  }
-  return [];
-}
-
-function buildTeamOutcomePctIndex(
+function buildPathOutcomeCounts(
   leaves: LeafPath[],
   hasThirdPlace: boolean,
 ): Map<string, number> {
   const counts = new Map<string, number>();
-  const roles: PlacementRole[] = hasThirdPlace
-    ? ['champion', 'runner_up', 'third', 'fourth']
-    : ['champion', 'runner_up', 'semi'];
+  const bump = (key: string) => {
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
 
   for (const leaf of leaves) {
-    for (const role of roles) {
-      for (const teamId of teamIdsForLeafRole(leaf, role, hasThirdPlace)) {
-        const key = teamMetricKey(role, teamId);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+    const championId = leaf.champion.bracket_contestant_id;
+    const runnerUpId = leaf.runnerUp.bracket_contestant_id;
+    bump(pathOutcomeKey(championId));
+    bump(pathOutcomeKey(championId, runnerUpId));
+    if (hasThirdPlace) {
+      if (!leaf.third) continue;
+      const thirdId = leaf.third.bracket_contestant_id;
+      bump(pathOutcomeKey(championId, runnerUpId, thirdId));
+      if (leaf.fourth) {
+        bump(pathOutcomeKey(championId, runnerUpId, thirdId, leaf.fourth.bracket_contestant_id));
+      }
+    } else {
+      for (const semi of leaf.semifinalists ?? []) {
+        bump(pathOutcomeKey(championId, runnerUpId, undefined, undefined, semi.bracket_contestant_id));
       }
     }
   }
-
-  const total = leaves.length;
-  const pcts = new Map<string, number>();
-  if (total === 0) return pcts;
-
-  for (const [key, count] of counts) {
-    pcts.set(key, Math.round((1000 * count) / total) / 10);
-  }
-  return pcts;
+  return counts;
 }
 
-function formatTeamMetricPct(value: number): string {
-  return `${value.toFixed(1)}%`;
+function buildPathContext(row: DisplayRow, role: PlacementRole): PathContext {
+  return {
+    championId: row.champion.bracket_contestant_id,
+    runnerUpIds: row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+    thirdIds:
+      role === 'fourth' || role === 'semi'
+        ? row.thirdTeams.map((team) => team.bracket_contestant_id)
+        : [],
+  };
 }
 
-type TeamLikelihoodScope =
-  | { kind: 'entry'; entryId: number }
-  | { kind: 'champion'; championId: number };
-
-function lookupTeamMetricValue(
+function pathMetricKeys(
+  context: PathContext,
   role: PlacementRole,
   teamId: number,
-  teamMetricMode: TeamMetricMode,
-  outcomePctIndex: Map<string, number>,
-  teamLikelihood?: Record<string, number>,
-  likelihoodScope?: TeamLikelihoodScope,
-): number | null {
-  const key = teamMetricKey(role, teamId);
-  if (teamMetricMode === 'outcomes') {
-    const value = outcomePctIndex.get(key);
-    return value == null ? null : value;
+): string[] {
+  if (role === 'champion') {
+    return [pathOutcomeKey(teamId)];
   }
-  const scopedKey =
-    likelihoodScope?.kind === 'entry'
-      ? `entry:${likelihoodScope.entryId}:${role}:${teamId}`
-      : likelihoodScope?.kind === 'champion'
-        ? `champion:${likelihoodScope.championId}:${role}:${teamId}`
-        : key;
-  const value = teamLikelihood?.[scopedKey];
-  if (value == null || Number.isNaN(value)) return null;
-  return value;
-}
-
-function lookupTeamMetricPct(
-  role: PlacementRole,
-  teamId: number,
-  teamMetricMode: TeamMetricMode,
-  outcomePctIndex: Map<string, number>,
-  teamLikelihood?: Record<string, number>,
-  likelihoodScope?: TeamLikelihoodScope,
-): string | null {
-  const value = lookupTeamMetricValue(
-    role,
-    teamId,
-    teamMetricMode,
-    outcomePctIndex,
-    teamLikelihood,
-    likelihoodScope,
+  if (role === 'runner_up') {
+    return [pathOutcomeKey(context.championId, teamId)];
+  }
+  if (role === 'third') {
+    return context.runnerUpIds.map((runnerUpId) =>
+      pathOutcomeKey(context.championId, runnerUpId, teamId),
+    );
+  }
+  if (role === 'fourth') {
+    const keys: string[] = [];
+    for (const runnerUpId of context.runnerUpIds) {
+      if (context.thirdIds.length === 0) continue;
+      for (const thirdId of context.thirdIds) {
+        keys.push(pathOutcomeKey(context.championId, runnerUpId, thirdId, teamId));
+      }
+    }
+    return keys;
+  }
+  return context.runnerUpIds.map((runnerUpId) =>
+    pathOutcomeKey(context.championId, runnerUpId, undefined, undefined, teamId),
   );
-  return value == null ? null : formatTeamMetricPct(value);
 }
 
-function lookupClusterMetricPct(
-  role: PlacementRole,
-  teams: ChallengeStatsSimilarityTeam[],
+function sumPathMetricValues(
+  keys: string[],
   teamMetricMode: TeamMetricMode,
-  outcomePctIndex: Map<string, number>,
-  teamLikelihood?: Record<string, number>,
-  likelihoodScope?: TeamLikelihoodScope,
-): string | null {
+  pathOutcomeCounts: Map<string, number>,
+  pathLikelihood?: Record<string, number>,
+): number | null {
+  if (keys.length === 0) return null;
   let total = 0;
   let found = false;
-  for (const team of teams) {
-    const value = lookupTeamMetricValue(
-      role,
-      team.bracket_contestant_id,
-      teamMetricMode,
-      outcomePctIndex,
-      teamLikelihood,
-      likelihoodScope,
-    );
-    if (value == null) continue;
+  for (const key of keys) {
+    const value =
+      teamMetricMode === 'outcomes'
+        ? pathOutcomeCounts.get(key)
+        : pathLikelihood?.[key];
+    if (value == null || Number.isNaN(value)) continue;
     total += value;
     found = true;
   }
+  return found ? total : null;
+}
+
+function formatRoundedTeamMetricPct(
+  rawValue: number,
+  teamMetricMode: TeamMetricMode,
+  globalOutcomeTotal: number,
+): string {
+  const value =
+    teamMetricMode === 'outcomes'
+      ? (100 * rawValue) / globalOutcomeTotal
+      : rawValue;
+  if (value < 0) return '<0%';
+  if (value > 99 && value < 100) return '>99%';
+  return `${Math.round(value)}%`;
+}
+
+function lookupTeamMetricPct(
+  context: PathContext,
+  role: PlacementRole,
+  teamId: number,
+  teamMetricMode: TeamMetricMode,
+  pathOutcomeCounts: Map<string, number>,
+  globalOutcomeTotal: number,
+  pathLikelihood?: Record<string, number>,
+): string | null {
+  if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
+    return null;
+  }
+  const keys = pathMetricKeys(context, role, teamId);
+  const raw = sumPathMetricValues(
+    keys,
+    teamMetricMode,
+    pathOutcomeCounts,
+    pathLikelihood,
+  );
+  if (raw == null) return null;
+  return formatRoundedTeamMetricPct(
+    raw,
+    teamMetricMode,
+    globalOutcomeTotal,
+  );
+}
+
+function lookupClusterMetricPct(
+  context: PathContext,
+  role: PlacementRole,
+  teams: ChallengeStatsSimilarityTeam[],
+  teamMetricMode: TeamMetricMode,
+  pathOutcomeCounts: Map<string, number>,
+  globalOutcomeTotal: number,
+  pathLikelihood?: Record<string, number>,
+): string | null {
+  if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
+    return null;
+  }
+  let total = 0;
+  let found = false;
+  for (const team of teams) {
+    const keys = pathMetricKeys(context, role, team.bracket_contestant_id);
+    const raw = sumPathMetricValues(
+      keys,
+      teamMetricMode,
+      pathOutcomeCounts,
+      pathLikelihood,
+    );
+    if (raw == null) continue;
+    total += raw;
+    found = true;
+  }
   if (!found) return null;
-  return formatTeamMetricPct(total);
+  return formatRoundedTeamMetricPct(
+    total,
+    teamMetricMode,
+    globalOutcomeTotal,
+  );
 }
 
 function compareOutcomesSort(
@@ -1137,9 +1202,9 @@ function PathsTable({
   onSelectPlayer,
   viewerUsername,
   teamMetricMode,
-  outcomePctIndex,
-  teamLikelihood,
-  likelihoodScope,
+  pathOutcomeCounts,
+  globalOutcomeTotal,
+  pathLikelihood,
 }: {
   rows: TableRow[];
   hasThirdPlace: boolean;
@@ -1147,9 +1212,9 @@ function PathsTable({
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
   teamMetricMode: TeamMetricMode;
-  outcomePctIndex: Map<string, number>;
-  teamLikelihood?: Record<string, number>;
-  likelihoodScope?: TeamLikelihoodScope;
+  pathOutcomeCounts: Map<string, number>;
+  globalOutcomeTotal: number;
+  pathLikelihood?: Record<string, number>;
 }) {
   return (
     <div className="challenge-stats__sim-scroll">
@@ -1201,6 +1266,11 @@ function PathsTable({
             const thirdIds = new Set(
               row.thirdTeams.map((team) => team.bracket_contestant_id),
             );
+            const champContext = buildPathContext(row, 'champion');
+            const ruContext = buildPathContext(row, 'runner_up');
+            const thirdContext = buildPathContext(row, 'third');
+            const fourthContext = buildPathContext(row, 'fourth');
+            const semiContext = buildPathContext(row, 'semi');
 
             return (
               <tr
@@ -1220,12 +1290,13 @@ function PathsTable({
                       team={row.champion}
                       size="lg"
                       metricPct={lookupTeamMetricPct(
+                        champContext,
                         'champion',
                         row.champion.bracket_contestant_id,
                         teamMetricMode,
-                        outcomePctIndex,
-                        teamLikelihood,
-                        likelihoodScope,
+                        pathOutcomeCounts,
+                        globalOutcomeTotal,
+                        pathLikelihood,
                       )}
                     />
                   </td>
@@ -1238,10 +1309,11 @@ function PathsTable({
                       singleSize="md"
                       allLabel="Any remaining runner-up"
                       role="runner_up"
+                      pathContext={ruContext}
                       teamMetricMode={teamMetricMode}
-                      outcomePctIndex={outcomePctIndex}
-                      teamLikelihood={teamLikelihood}
-                      likelihoodScope={likelihoodScope}
+                      pathOutcomeCounts={pathOutcomeCounts}
+                      globalOutcomeTotal={globalOutcomeTotal}
+                      pathLikelihood={pathLikelihood}
                     />
                   </td>
                 ) : null}
@@ -1254,10 +1326,11 @@ function PathsTable({
                           universe={universe.thirds(champId, ruIds)}
                           allLabel="Any remaining third-place finish"
                           role="third"
+                          pathContext={thirdContext}
                           teamMetricMode={teamMetricMode}
-                          outcomePctIndex={outcomePctIndex}
-                          teamLikelihood={teamLikelihood}
-                          likelihoodScope={likelihoodScope}
+                          pathOutcomeCounts={pathOutcomeCounts}
+                          globalOutcomeTotal={globalOutcomeTotal}
+                          pathLikelihood={pathLikelihood}
                         />
                       </td>
                     ) : null}
@@ -1267,10 +1340,11 @@ function PathsTable({
                         universe={universe.fourths(champId, ruIds, thirdIds)}
                         allLabel="Any remaining fourth-place finish"
                         role="fourth"
+                        pathContext={fourthContext}
                         teamMetricMode={teamMetricMode}
-                        outcomePctIndex={outcomePctIndex}
-                        teamLikelihood={teamLikelihood}
-                        likelihoodScope={likelihoodScope}
+                        pathOutcomeCounts={pathOutcomeCounts}
+                        globalOutcomeTotal={globalOutcomeTotal}
+                        pathLikelihood={pathLikelihood}
                       />
                     </td>
                   </>
@@ -1282,10 +1356,11 @@ function PathsTable({
                       singleSize="sm"
                       allLabel="Any remaining semi-finalists"
                       role="semi"
+                      pathContext={semiContext}
                       teamMetricMode={teamMetricMode}
-                      outcomePctIndex={outcomePctIndex}
-                      teamLikelihood={teamLikelihood}
-                      likelihoodScope={likelihoodScope}
+                      pathOutcomeCounts={pathOutcomeCounts}
+                      globalOutcomeTotal={globalOutcomeTotal}
+                      pathLikelihood={pathLikelihood}
                     />
                   </td>
                 )}
@@ -1376,6 +1451,12 @@ export function ChallengeOutcomes({
   const teamChampionCards = viewModel?.teamChampionCards ?? [];
   const universe = viewModel?.universe;
   const allLeaves = viewModel?.allLeaves ?? [];
+  const globalOutcomeTotal = allLeaves.length;
+
+  const pathOutcomeCounts = useMemo(
+    () => buildPathOutcomeCounts(allLeaves, hasThirdPlace),
+    [allLeaves, hasThirdPlace],
+  );
 
   const oddsByEntry = useMemo(
     () => new Map(winnerOdds.map((row) => [row.entry.user_bracket_id, row])),
@@ -1510,19 +1591,7 @@ export function ChallengeOutcomes({
 
         {groupMode === 'entry' ? (
           <div className="challenge-outcomes__entry-cards">
-            {sortedEntryCards.map(({ odds, rows }) => {
-              const cardLeaves = allLeaves.filter((leaf) =>
-                leaf.winners.some(
-                  (winner) =>
-                    winner.user_bracket_id === odds.entry.user_bracket_id,
-                ),
-              );
-              const outcomePctIndex = buildTeamOutcomePctIndex(
-                cardLeaves,
-                hasThirdPlace,
-              );
-
-              return (
+            {sortedEntryCards.map(({ odds, rows }) => (
               <article
                 key={odds.entry.user_bracket_id}
                 className="challenge-stats__sim-card challenge-outcomes__entry-card"
@@ -1559,29 +1628,16 @@ export function ChallengeOutcomes({
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
                   teamMetricMode={teamMetricMode}
-                  outcomePctIndex={outcomePctIndex}
-                  teamLikelihood={teamLikelihood}
-                  likelihoodScope={{
-                    kind: 'entry',
-                    entryId: odds.entry.user_bracket_id,
-                  }}
+                  pathOutcomeCounts={pathOutcomeCounts}
+                  globalOutcomeTotal={globalOutcomeTotal}
+                  pathLikelihood={teamLikelihood}
                 />
               </article>
-              );
-            })}
+            ))}
           </div>
         ) : (
           <div className="challenge-stats__sim-cards">
-            {sortedTeamChampionCards.map(({ champId, rows }) => {
-              const cardLeaves = allLeaves.filter(
-                (leaf) => leaf.champion.bracket_contestant_id === champId,
-              );
-              const outcomePctIndex = buildTeamOutcomePctIndex(
-                cardLeaves,
-                hasThirdPlace,
-              );
-
-              return (
+            {sortedTeamChampionCards.map(({ champId, rows }) => (
               <article key={champId} className="challenge-stats__sim-card">
                 <PathsTable
                   rows={rows}
@@ -1590,13 +1646,12 @@ export function ChallengeOutcomes({
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
                   teamMetricMode={teamMetricMode}
-                  outcomePctIndex={outcomePctIndex}
-                  teamLikelihood={teamLikelihood}
-                  likelihoodScope={{ kind: 'champion', championId: champId }}
+                  pathOutcomeCounts={pathOutcomeCounts}
+                  globalOutcomeTotal={globalOutcomeTotal}
+                  pathLikelihood={teamLikelihood}
                 />
               </article>
-              );
-            })}
+            ))}
           </div>
         )}
       </div>

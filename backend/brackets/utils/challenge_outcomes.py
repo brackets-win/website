@@ -191,102 +191,48 @@ def _walk_outcomes(
     walk()
 
 
-def _team_likelihood_key(role: str, team_id: int) -> str:
-    return f"{role}:{team_id}"
+def _path_likelihood_key(*parts: str | int) -> str:
+    return ":".join(str(part) for part in parts)
 
 
-def _scoped_team_likelihood_key(
-    scope: str, scope_id: int, role: str, team_id: int
-) -> str:
-    return f"{scope}:{scope_id}:{role}:{team_id}"
-
-
-def _accumulate_team_likelihood_at_leaf(
-    team_likelihood: dict[str, float],
+def _accumulate_path_likelihood_at_leaf(
+    path_likelihood: dict[str, float],
     top_four: tuple[int | None, int | None, int | None, int | None],
     *,
     has_third_place: bool,
     path_prob: float,
-    winners: list[dict[str, Any]] | None = None,
 ) -> None:
     champ, ru, third, fourth = top_four
 
     def add(key: str) -> None:
-        team_likelihood[key] = team_likelihood.get(key, 0.0) + path_prob
+        path_likelihood[key] = path_likelihood.get(key, 0.0) + path_prob
 
-    if champ is not None:
-        add(_team_likelihood_key("champion", champ))
-        add(_scoped_team_likelihood_key("champion", champ, "champion", champ))
-    if ru is not None:
-        add(_team_likelihood_key("runner_up", ru))
-        if champ is not None:
-            add(_scoped_team_likelihood_key("champion", champ, "runner_up", ru))
+    if champ is None:
+        return
+    add(_path_likelihood_key("c", champ))
+    if ru is None:
+        return
+    add(_path_likelihood_key("c", champ, "ru", ru))
     if has_third_place:
-        if third is not None:
-            add(_team_likelihood_key("third", third))
-            if champ is not None:
-                add(_scoped_team_likelihood_key("champion", champ, "third", third))
-        if fourth is not None:
-            add(_team_likelihood_key("fourth", fourth))
-            if champ is not None:
-                add(_scoped_team_likelihood_key("champion", champ, "fourth", fourth))
+        if third is None:
+            return
+        add(_path_likelihood_key("c", champ, "ru", ru, "t", third))
+        if fourth is None:
+            return
+        add(_path_likelihood_key("c", champ, "ru", ru, "t", third, "f", fourth))
     else:
         for team_id in (third, fourth):
             if team_id is None:
                 continue
-            add(_team_likelihood_key("semi", team_id))
-            if champ is not None:
-                add(_scoped_team_likelihood_key("champion", champ, "semi", team_id))
-
-    if winners:
-        for entry in winners:
-            entry_id = int(entry["user_bracket_id"])
-            if champ is not None:
-                add(_scoped_team_likelihood_key("entry", entry_id, "champion", champ))
-            if ru is not None:
-                add(_scoped_team_likelihood_key("entry", entry_id, "runner_up", ru))
-            if has_third_place:
-                if third is not None:
-                    add(_scoped_team_likelihood_key("entry", entry_id, "third", third))
-                if fourth is not None:
-                    add(_scoped_team_likelihood_key("entry", entry_id, "fourth", fourth))
-            else:
-                for team_id in (third, fourth):
-                    if team_id is None:
-                        continue
-                    add(_scoped_team_likelihood_key("entry", entry_id, "semi", team_id))
+            add(_path_likelihood_key("c", champ, "ru", ru, "s", team_id))
 
 
-def _team_likelihood_pct(
-    team_likelihood: dict[str, float],
-    entry_likelihood: dict[int, float],
-) -> dict[str, float]:
-    result: dict[str, float] = {}
-    for key, mass in team_likelihood.items():
-        if mass <= 0:
-            continue
-        parts = key.split(":")
-        if len(parts) == 2:
-            result[key] = round(100.0 * mass, 1)
-            continue
-        if len(parts) != 4:
-            continue
-        scope, scope_id_raw, _role, _team_id = parts
-        scope_id = int(scope_id_raw)
-        if scope == "entry":
-            total = entry_likelihood.get(scope_id, 0.0)
-            if total > 0:
-                result[key] = round(100.0 * mass / total, 1)
-        elif scope == "champion":
-            champ_total = team_likelihood.get(
-                _scoped_team_likelihood_key(
-                    "champion", scope_id, "champion", scope_id
-                ),
-                0.0,
-            )
-            if champ_total > 0:
-                result[key] = round(100.0 * mass / champ_total, 1)
-    return result
+def _path_likelihood_pct(path_likelihood: dict[str, float]) -> dict[str, float]:
+    return {
+        key: round(100.0 * mass, 1)
+        for key, mass in path_likelihood.items()
+        if mass > 0
+    }
 
 
 def _accumulate_entry_likelihood(
@@ -328,12 +274,11 @@ def _accumulate_entry_likelihood(
                 entry_likelihood[entry_id] = (
                     entry_likelihood.get(entry_id, 0.0) + path_prob
                 )
-            _accumulate_team_likelihood_at_leaf(
+            _accumulate_path_likelihood_at_leaf(
                 team_likelihood,
                 top_four,
                 has_third_place=top_four_ctx.has_third_place,
                 path_prob=path_prob,
-                winners=winners,
             )
             return True
 
@@ -595,10 +540,7 @@ def build_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any] | No
         ),
     }
     if weighted_ok and team_likelihood:
-        payload["team_likelihood"] = _team_likelihood_pct(
-            team_likelihood,
-            entry_likelihood,
-        )
+        payload["team_likelihood"] = _path_likelihood_pct(team_likelihood)
     return payload
 
 
