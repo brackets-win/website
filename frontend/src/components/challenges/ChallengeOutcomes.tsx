@@ -1263,7 +1263,7 @@ export function ChallengeOutcomes({
                       className="challenge-outcomes__entry-card-stat-sep"
                       aria-hidden
                     >
-                      |
+                      {' | '}
                     </span>
                     <OutcomeMetricInline
                       value={formatLikelihood(odds.likelihood)}
