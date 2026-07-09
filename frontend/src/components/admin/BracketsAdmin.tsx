@@ -1365,6 +1365,7 @@ export function BracketsAdmin() {
               allowMasterEdit
               showGroupResultsModeControl
               showNextMatchControl
+              showOutcomeWeightsControl
             />
           </div>
         </section>

@@ -17,24 +17,34 @@
 }
 
 .challenge-outcomes__summary-col--pct {
-  width: 44%;
-  min-width: 5.75rem;
+  width: 34%;
+  min-width: 4.75rem;
+}
+
+.challenge-outcomes__summary-col--likelihood {
+  width: 30%;
+  min-width: 4.5rem;
 }
 
 .challenge-outcomes__summary-table th.challenge-outcomes__summary-th--winner,
 .challenge-outcomes__summary-table th.challenge-outcomes__summary-th--pct,
+.challenge-outcomes__summary-table th.challenge-outcomes__summary-th--likelihood,
 .challenge-outcomes__summary-table td.challenge-outcomes__summary-winner,
-.challenge-outcomes__summary-table td.challenge-outcomes__summary-pct {
+.challenge-outcomes__summary-table td.challenge-outcomes__summary-pct,
+.challenge-outcomes__summary-table td.challenge-outcomes__summary-likelihood {
   text-align: left;
 }
 
 .challenge-outcomes__summary-th--pct,
-.challenge-outcomes__summary-pct {
+.challenge-outcomes__summary-th--likelihood,
+.challenge-outcomes__summary-pct,
+.challenge-outcomes__summary-likelihood {
   padding-left: 0.35rem;
   padding-right: 0.35rem;
 }
 
-.challenge-outcomes__summary-th--pct {
+.challenge-outcomes__summary-th--pct,
+.challenge-outcomes__summary-th--likelihood {
   white-space: nowrap;
 }
 
@@ -51,7 +61,8 @@
   text-align: left;
 }
 
-.challenge-outcomes__summary-pct {
+.challenge-outcomes__summary-pct,
+.challenge-outcomes__summary-likelihood {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -59,13 +70,51 @@
   text-align: left !important;
 }
 
+.challenge-outcomes__summary-likelihood {
+  color: var(--text-muted, #64748b);
+}
+
 .challenge-outcomes__detail {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.challenge-outcomes__mode {
+.challenge-outcomes__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
   margin-bottom: 0.85rem;
+}
+
+.challenge-outcomes__toolbar .challenge-outcomes__mode {
+  margin-bottom: 0;
+}
+
+.challenge-outcomes__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.challenge-outcomes__sort-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.challenge-outcomes__sort-select {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.45rem 1.75rem 0.45rem 0.65rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text, #0f172a);
+  cursor: pointer;
 }
 
 .challenge-outcomes__mode.segmented {
@@ -90,32 +139,20 @@
 }
 
 .challenge-outcomes__entry-card-header {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
-  padding: 0.85rem 4.5rem 0.7rem;
+  min-height: 2.5rem;
+  padding: 0.8rem 0.9rem 0.65rem;
   border-bottom: 1px solid var(--border, #e8ecf1);
 }
 
 .challenge-outcomes__entry-card-title {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.2rem;
+  font-weight: 600;
   line-height: 1.2;
   text-align: center;
-  color: var(--text, #0f172a);
-}
-
-.challenge-outcomes__entry-card-pct {
-  position: absolute;
-  top: 50%;
-  right: 0.9rem;
-  transform: translateY(-50%);
-  font-size: 1.05rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
   color: var(--text-muted, #64748b);
 }
 
@@ -210,17 +247,22 @@
   }
 
   .challenge-outcomes__entry-card-header {
-    min-height: 2.4rem;
-    padding: 0.7rem 3.5rem 0.55rem;
+    min-height: 2.2rem;
+    padding: 0.65rem 0.55rem 0.5rem;
   }
 
   .challenge-outcomes__entry-card-title {
     font-size: 1.05rem;
   }
 
-  .challenge-outcomes__entry-card-pct {
-    right: 0.55rem;
-    font-size: 0.9rem;
+  .challenge-outcomes__toolbar {
+    gap: 0.6rem;
+  }
+
+  .challenge-outcomes__sort {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
   }
 
   .challenge-outcomes__table.challenge-stats__sim-table {
@@ -302,6 +344,6 @@
   }
 
   .challenge-outcomes__summary {
-    width: min(100%, 19rem);
+    width: min(100%, 21rem);
   }
 }

@@ -720,6 +720,18 @@ export async function setBracketNextMatch(
   });
 }
 
+export type OutcomeWeightsPayload = {
+  team_rankings: Record<string, number>;
+  matchup_odds: Record<string, number>;
+};
+
+export async function updateBracketOutcomeWeights(
+  bracketId: number,
+  payload: OutcomeWeightsPayload,
+): Promise<{ bracket: BracketDetail }> {
+  return apiFetch('PATCH', `brackets/${bracketId}/outcome-weights`, payload);
+}
+
 export async function materializeBracketScores(
   bracketId: number,
 ): Promise<{
@@ -961,6 +973,8 @@ export type ChallengeOutcomesWinnerOdds = {
   entry: ChallengeOutcomesEntry;
   outcome_count: number;
   pct: number;
+  /** Weighted win probability when odds/rankings are configured. */
+  likelihood?: number | null;
 };
 
 export type ChallengeOutcomesEntry = {

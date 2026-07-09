@@ -692,6 +692,98 @@ def bracket_next_match(request: HttpRequest, bracket_id: int) -> JsonResponse:
     )
 
 
+@require_http_methods(["PATCH"])
+def bracket_outcome_weights(request: HttpRequest, bracket_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    bracket = get_object_or_404(
+        Bracket.objects.prefetch_related("stages"), pk=bracket_id
+    )
+    master = UserBracket.objects.filter(bracket=bracket, is_master=True).first()
+    if master is None:
+        return _json_error("This bracket has no master bracket.", 404)
+    if not _user_can_edit_master_bracket(user, master):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    from brackets.utils.leaderboard_scoring import load_leaderboard_scoring_context
+    from brackets.utils.outcome_weights import (
+        get_outcome_weights,
+        merge_outcome_weights,
+        parse_positive_rank,
+        parse_win_pct,
+        set_outcome_weights_on_metadata,
+        validate_outcome_weights_payload,
+    )
+
+    raw_rankings = body.get("team_rankings")
+    raw_odds = body.get("matchup_odds")
+    if not isinstance(raw_rankings, dict):
+        return _json_error("team_rankings must be an object", 400)
+    if not isinstance(raw_odds, dict):
+        return _json_error("matchup_odds must be an object", 400)
+
+    team_rankings: dict[int, int] = {}
+    for key, value in raw_rankings.items():
+        try:
+            team_id = int(key)
+        except (TypeError, ValueError):
+            return _json_error("team_rankings keys must be team ids", 400)
+        rank = parse_positive_rank(value)
+        if rank is None:
+            return _json_error("team_rankings values must be positive integers", 400)
+        team_rankings[team_id] = rank
+
+    matchup_win_pct: dict[int, float] = {}
+    for key, value in raw_odds.items():
+        try:
+            matchup_id = int(key)
+        except (TypeError, ValueError):
+            return _json_error("matchup_odds keys must be matchup ids", 400)
+        pct = parse_win_pct(value)
+        if pct is None:
+            return _json_error("matchup_odds values must be between 0 and 100", 400)
+        matchup_win_pct[matchup_id] = pct
+
+    ctx = load_leaderboard_scoring_context(bracket)
+    existing = get_outcome_weights(bracket)
+    merged = merge_outcome_weights(
+        existing,
+        team_rankings=team_rankings,
+        matchup_win_pct=matchup_win_pct,
+    )
+    error = validate_outcome_weights_payload(
+        master,
+        ctx,
+        team_rankings=team_rankings,
+        matchup_win_pct=matchup_win_pct,
+        existing=existing,
+    )
+    if error:
+        return _json_error(error, 400)
+
+    with transaction.atomic():
+        bracket.metadata = set_outcome_weights_on_metadata(
+            bracket.metadata,
+            team_rankings=merged.team_rankings,
+            matchup_win_pct=merged.matchup_win_pct,
+        )
+        bracket.save(update_fields=["metadata"])
+        from brackets.utils.challenge_stats import bump_challenge_stats_for_bracket
+
+        bump_challenge_stats_for_bracket(bracket)
+
+    return JsonResponse(
+        {"bracket": serializers.bracket_detail(bracket, request=request)}
+    )
+
+
 @require_http_methods(["POST"])
 def bracket_materialize_scores(
     request: HttpRequest, bracket_id: int

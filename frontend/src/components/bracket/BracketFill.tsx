@@ -29,6 +29,7 @@ import {
   getGroupResultsMode,
   type GroupResultsMode,
 } from '../../utils/groupResultsMode';
+import { showOutcomeWeightsControl as canSetOutcomeWeights } from '../../utils/outcomeWeights';
 import { getNextMatchMatchupId } from '../../utils/nextMatch';
 import {
   invalidateHome,
@@ -48,6 +49,7 @@ import {
   sortMatchupsByFeederOrder,
 } from './knockoutFeederLayout';
 import './BracketFill.css';
+import { SetOutcomeWeightsModal } from './SetOutcomeWeightsModal';
 
 /** Split bracket center column vertical layout (% of track height). */
 const SPLIT_CENTER_CHAMP_GAP_PCT = 14;
@@ -353,6 +355,8 @@ type Props = {
   showGroupResultsModeControl?: boolean;
   /** Admin master fill only: per-matchup "Set as Next Match" control. */
   showNextMatchControl?: boolean;
+  /** Admin master fill only: Set Odds modal for weighted outcomes. */
+  showOutcomeWeightsControl?: boolean;
   showSubmit?: boolean;
   showScoringHighlights?: boolean;
   onSubmitted?: () => void;
@@ -366,6 +370,7 @@ export function BracketFill({
   allowMasterView = false,
   showGroupResultsModeControl = false,
   showNextMatchControl = false,
+  showOutcomeWeightsControl = false,
   showSubmit = false,
   showScoringHighlights = false,
   onSubmitted,
@@ -384,6 +389,7 @@ export function BracketFill({
     useState<GroupResultsMode>('confirmed');
   const [groupResultsModeBusy, setGroupResultsModeBusy] = useState(false);
   const [nextMatchBusy, setNextMatchBusy] = useState(false);
+  const [outcomeWeightsOpen, setOutcomeWeightsOpen] = useState(false);
   const [phase, setPhase] = useState<'groups' | 'knockout'>('knockout');
   const phaseInitForUb = useRef<number | null>(null);
 
@@ -505,6 +511,12 @@ export function BracketFill({
     hasGroupUi &&
     !!firstGroupStage &&
     !showGroupResultsModeControl;
+
+  const showOutcomeWeights =
+    showOutcomeWeightsControl &&
+    detail?.is_master === true &&
+    bracketDef != null &&
+    canSetOutcomeWeights(bracketDef, detail);
 
   const onGroupResultsModeChange = useCallback(
     async (next: GroupResultsMode) => {
@@ -961,7 +973,8 @@ export function BracketFill({
           (hasGroupUi && firstGroupStage) ||
           (showSubmit && !locked) ||
           showPointsBadge ||
-          showGroupResultsMode;
+          showGroupResultsMode ||
+          showOutcomeWeights;
         if (!showToolbar && !showLiveGroupResultsNote) return null;
         const points =
           detail.score_vs_master != null ? detail.score_vs_master : null;
@@ -1033,6 +1046,15 @@ export function BracketFill({
                     Confirmed
                   </button>
                 </div>
+              ) : null}
+              {showOutcomeWeights ? (
+                <button
+                  type="button"
+                  className="bf-set-odds-btn"
+                  onClick={() => setOutcomeWeightsOpen(true)}
+                >
+                  Set Odds
+                </button>
               ) : null}
               <div className="bf-toolbar__end">
                 {showPointsBadge ? (
@@ -1111,6 +1133,18 @@ export function BracketFill({
       ) : (
         knockoutBoard
       )}
+
+      {outcomeWeightsOpen && bracketDef && detail ? (
+        <SetOutcomeWeightsModal
+          bracket={bracketDef}
+          detail={detail}
+          onClose={() => setOutcomeWeightsOpen(false)}
+          onSaved={(updated) => {
+            setBracketDef(updated);
+            void load({ refetchBracket: false });
+          }}
+        />
+      ) : null}
 
     </section>
     </NextMatchContext.Provider>

@@ -18,6 +18,14 @@ from brackets.utils.potential_knockout import (
     restore_undo,
 )
 from brackets.utils.potential_rank import potential_rank_allowed_for_bracket
+from brackets.utils.outcome_weights import (
+    OutcomeWeights,
+    build_effective_ratings,
+    current_round_team_ids,
+    get_outcome_weights,
+    matchup_winner_probability,
+    weighted_outcomes_ready,
+)
 from brackets.utils.top_four_picks import TopFourContext, build_top_four_context
 
 
@@ -183,6 +191,72 @@ def _walk_outcomes(
     walk()
 
 
+def _accumulate_entry_likelihood(
+    prepared: KnockoutPotentialContext,
+    ubs: list[UserBracket],
+    top_four_ctx: TopFourContext,
+    contestant_info: dict[int, dict[str, Any]],
+    *,
+    weights: OutcomeWeights,
+    master: UserBracket,
+    required_team_ids: set[int],
+    entry_likelihood: dict[int, float],
+) -> bool:
+    tree = prepared.tree
+    effective_ratings = build_effective_ratings(weights, master)
+    if not weighted_outcomes_ready(
+        weights,
+        tree,
+        required_team_ids=required_team_ids,
+        effective_ratings=effective_ratings,
+    ):
+        return False
+    state = copy_tree_state(tree)
+
+    def walk(path_prob: float = 1.0) -> bool:
+        idx = find_undecided(state)
+        if idx is None:
+            top_four = _master_top_four_ids(
+                state, prepared, top_four_ctx, contestant_info
+            )
+            if None in top_four:
+                return True
+            winners = _winner_entries_for_completion(state, prepared, ubs)
+            if not winners:
+                return True
+            for entry in winners:
+                entry_id = int(entry["user_bracket_id"])
+                entry_likelihood[entry_id] = (
+                    entry_likelihood.get(entry_id, 0.0) + path_prob
+                )
+            return True
+
+        m = state.matchups[idx]
+        branch_probs: list[tuple[int, float]] = []
+        for winner_id in (m.c1, m.c2):
+            if winner_id is None:
+                continue
+            branch_prob = matchup_winner_probability(
+                m,
+                winner_id,
+                weights=weights,
+                effective_ratings=effective_ratings,
+            )
+            if branch_prob is None:
+                return False
+            branch_probs.append((winner_id, branch_prob))
+
+        for winner_id, branch_prob in branch_probs:
+            changes = apply_winner_with_undo(state, idx, winner_id)
+            if not walk(path_prob * branch_prob):
+                restore_undo(state, changes)
+                return False
+            restore_undo(state, changes)
+        return True
+
+    return walk()
+
+
 def _subtree_winner_count(node: dict[str, Any]) -> int:
     entries = node.get("_winner_entries")
     if isinstance(entries, dict) and entries:
@@ -221,13 +295,16 @@ def _sort_keys(
 
 def _count_outcome_stats(
     root: dict[str, Any],
+    *,
+    entry_likelihood: dict[int, float] | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     total = 0
     entry_counts: dict[int, int] = {}
     entry_payloads: dict[int, dict[str, Any]] = {}
+    likelihood_total = 0.0
 
     def visit(node: dict[str, Any]) -> None:
-        nonlocal total
+        nonlocal total, likelihood_total
         entries = node.get("_winner_entries")
         if isinstance(entries, dict) and entries:
             total += 1
@@ -243,6 +320,10 @@ def _count_outcome_stats(
             visit(child)
 
     visit(root)
+
+    if entry_likelihood:
+        likelihood_total = sum(entry_likelihood.values())
+
     winner_odds: list[dict[str, Any]] = []
     for entry_id, count in sorted(
         entry_counts.items(),
@@ -251,13 +332,15 @@ def _count_outcome_stats(
             str(entry_payloads[item[0]].get("display_name") or "").casefold(),
         ),
     ):
-        winner_odds.append(
-            {
-                "entry": entry_payloads[entry_id],
-                "outcome_count": count,
-                "pct": round(100.0 * count / total, 1) if total else 0.0,
-            }
-        )
+        row: dict[str, Any] = {
+            "entry": entry_payloads[entry_id],
+            "outcome_count": count,
+            "pct": round(100.0 * count / total, 1) if total else 0.0,
+        }
+        if entry_likelihood and likelihood_total > 0:
+            mass = entry_likelihood.get(entry_id, 0.0)
+            row["likelihood"] = round(100.0 * mass / likelihood_total, 1)
+        winner_odds.append(row)
     return total, winner_odds
 
 
@@ -376,7 +459,23 @@ def build_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any] | No
     contestant_info = _contestant_info_for_bracket(bracket)
     root: dict[str, Any] = {}
     _walk_outcomes(prepared, ubs, top_four_ctx, contestant_info, root)
-    total_outcomes, winner_odds = _count_outcome_stats(root)
+    weights = get_outcome_weights(bracket)
+    required_team_ids = current_round_team_ids(ctx.master, ctx)
+    entry_likelihood: dict[int, float] = {}
+    weighted_ok = _accumulate_entry_likelihood(
+        prepared,
+        ubs,
+        top_four_ctx,
+        contestant_info,
+        weights=weights,
+        master=ctx.master,
+        required_team_ids=required_team_ids,
+        entry_likelihood=entry_likelihood,
+    )
+    total_outcomes, winner_odds = _count_outcome_stats(
+        root,
+        entry_likelihood=entry_likelihood if weighted_ok else None,
+    )
 
     return {
         "has_third_place": top_four_ctx.has_third_place,

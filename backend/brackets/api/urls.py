@@ -23,6 +23,10 @@ urlpatterns = [
         "brackets/<int:bracket_id>/next-match",
         views.bracket_next_match,
     ),
+    path(
+        "brackets/<int:bracket_id>/outcome-weights",
+        views.bracket_outcome_weights,
+    ),
     path("user-brackets", views.user_brackets_list_create),
     path("user-brackets/<int:user_bracket_id>", views.user_bracket_detail),
     path(

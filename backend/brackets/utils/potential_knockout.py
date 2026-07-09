@@ -28,6 +28,7 @@ class MemMatchup:
     next_idx: int | None = None
     is_team_a: bool = False
     feeds: list[tuple[int, str, bool]] = field(default_factory=list)
+    db_id: int | None = None
 
 
 @dataclass
@@ -116,6 +117,7 @@ def build_master_tree(master: UserBracket, ko_stages: list) -> TreeState:
             c2=m.contestant2_id,
             winner=m.winner_id,
             is_team_a=m.position % 2 == 1,
+            db_id=m.pk,
         )
         idx = len(mem)
         mem.append(mm)

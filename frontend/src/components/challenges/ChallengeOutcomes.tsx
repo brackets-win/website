@@ -13,6 +13,7 @@ import './ChallengeOutcomes.css';
 import './ChallengeStats.css';
 
 type GroupMode = 'entry' | 'team';
+type SortKey = 'outcomes' | 'likelihood' | 'name';
 
 type Props = {
   hasThirdPlace: boolean;
@@ -758,6 +759,55 @@ function WinnerList({
   );
 }
 
+function formatLikelihood(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return `${value.toFixed(1)}%`;
+}
+
+function sortWinnerOdds(
+  rows: ChallengeOutcomesWinnerOdds[],
+  sortKey: SortKey,
+): ChallengeOutcomesWinnerOdds[] {
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    if (sortKey === 'name') {
+      return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+        sensitivity: 'base',
+      });
+    }
+    if (sortKey === 'likelihood') {
+      const la = a.likelihood ?? -1;
+      const lb = b.likelihood ?? -1;
+      if (lb !== la) return lb - la;
+      return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+        sensitivity: 'base',
+      });
+    }
+    if (b.pct !== a.pct) return b.pct - a.pct;
+    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+      sensitivity: 'base',
+    });
+  });
+  return sorted;
+}
+
+function maxWinnerMetricForRows(
+  rows: TableRow[],
+  oddsByEntry: Map<number, ChallengeOutcomesWinnerOdds>,
+  metric: 'pct' | 'likelihood',
+): number {
+  let max = -1;
+  for (const row of rows) {
+    for (const winner of row.winners) {
+      const odds = oddsByEntry.get(winner.user_bracket_id);
+      if (!odds) continue;
+      const value = metric === 'pct' ? odds.pct : (odds.likelihood ?? -1);
+      if (value > max) max = value;
+    }
+  }
+  return max;
+}
+
 function WinnerOddsTable({
   winnerOdds,
   onSelectPlayer,
@@ -776,6 +826,7 @@ function WinnerOddsTable({
           <colgroup>
             <col />
             <col className="challenge-outcomes__summary-col--pct" />
+            <col className="challenge-outcomes__summary-col--likelihood" />
           </colgroup>
           <thead>
             <tr>
@@ -787,6 +838,12 @@ function WinnerOddsTable({
               </th>
               <th scope="col" className="challenge-outcomes__summary-th--pct">
                 % of Outcomes
+              </th>
+              <th
+                scope="col"
+                className="challenge-outcomes__summary-th--likelihood"
+              >
+                Likelihood
               </th>
             </tr>
           </thead>
@@ -802,6 +859,9 @@ function WinnerOddsTable({
                 </td>
                 <td className="challenge-outcomes__summary-pct">
                   {row.pct.toFixed(1)}%
+                </td>
+                <td className="challenge-outcomes__summary-likelihood">
+                  {formatLikelihood(row.likelihood)}
                 </td>
               </tr>
             ))}
@@ -969,6 +1029,7 @@ export function ChallengeOutcomes({
   viewerUsername,
 }: Props) {
   const [groupMode, setGroupMode] = useState<GroupMode>('entry');
+  const [sortKey, setSortKey] = useState<SortKey>('outcomes');
 
   const viewModel = useMemo(() => {
     if (tree.length === 0) return null;
@@ -1024,7 +1085,76 @@ export function ChallengeOutcomes({
     return { universe, entryCards, teamChampionCards };
   }, [tree, hasThirdPlace, winnerOdds]);
 
-  if (viewModel == null) {
+  const entryCards = viewModel?.entryCards ?? [];
+  const teamChampionCards = viewModel?.teamChampionCards ?? [];
+  const universe = viewModel?.universe;
+
+  const oddsByEntry = useMemo(
+    () => new Map(winnerOdds.map((row) => [row.entry.user_bracket_id, row])),
+    [winnerOdds],
+  );
+
+  const sortedWinnerOdds = useMemo(
+    () => sortWinnerOdds(winnerOdds, sortKey),
+    [winnerOdds, sortKey],
+  );
+
+  const sortedEntryCards = useMemo(() => {
+    const cards = [...entryCards];
+    cards.sort((a, b) => {
+      if (sortKey === 'name') {
+        return a.odds.entry.display_name.localeCompare(
+          b.odds.entry.display_name,
+          undefined,
+          { sensitivity: 'base' },
+        );
+      }
+      if (sortKey === 'likelihood') {
+        const la = a.odds.likelihood ?? -1;
+        const lb = b.odds.likelihood ?? -1;
+        if (lb !== la) return lb - la;
+        return a.odds.entry.display_name.localeCompare(
+          b.odds.entry.display_name,
+          undefined,
+          { sensitivity: 'base' },
+        );
+      }
+      if (b.odds.pct !== a.odds.pct) return b.odds.pct - a.odds.pct;
+      return a.odds.entry.display_name.localeCompare(
+        b.odds.entry.display_name,
+        undefined,
+        { sensitivity: 'base' },
+      );
+    });
+    return cards;
+  }, [entryCards, sortKey]);
+
+  const sortedTeamChampionCards = useMemo(() => {
+    const cards = [...teamChampionCards];
+    cards.sort((a, b) => {
+      const champA = a.rows[0]?.champion;
+      const champB = b.rows[0]?.champion;
+      if (!champA || !champB) return 0;
+
+      if (sortKey === 'name') {
+        return champA.display_name.localeCompare(champB.display_name, undefined, {
+          sensitivity: 'base',
+        });
+      }
+
+      const metric = sortKey === 'likelihood' ? 'likelihood' : 'pct';
+      const scoreA = maxWinnerMetricForRows(a.rows, oddsByEntry, metric);
+      const scoreB = maxWinnerMetricForRows(b.rows, oddsByEntry, metric);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+
+      return champA.display_name.localeCompare(champB.display_name, undefined, {
+        sensitivity: 'base',
+      });
+    });
+    return cards;
+  }, [teamChampionCards, sortKey, oddsByEntry]);
+
+  if (viewModel == null || universe == null) {
     return (
       <p className="challenge-stats__group-points-empty">
         No remaining outcomes to show yet.
@@ -1032,13 +1162,13 @@ export function ChallengeOutcomes({
     );
   }
 
-  const { universe, entryCards, teamChampionCards } = viewModel;
+  const sortNameLabel = groupMode === 'entry' ? 'Entry' : 'Team';
 
   return (
     <div className="challenge-outcomes__layout">
       <aside className="challenge-outcomes__summary">
         <WinnerOddsTable
-          winnerOdds={winnerOdds}
+          winnerOdds={sortedWinnerOdds}
           onSelectPlayer={onSelectPlayer}
           viewerUsername={viewerUsername}
         />
@@ -1052,30 +1182,47 @@ export function ChallengeOutcomes({
           .filter(Boolean)
           .join(' ')}
       >
-        <div
-          className="challenge-outcomes__mode segmented"
-          role="group"
-          aria-label="Outcomes grouping"
-        >
-          <button
-            type="button"
-            aria-pressed={groupMode === 'entry'}
-            onClick={() => setGroupMode('entry')}
+        <div className="challenge-outcomes__toolbar">
+          <div
+            className="challenge-outcomes__mode segmented"
+            role="group"
+            aria-label="Outcomes grouping"
           >
-            ENTRY
-          </button>
-          <button
-            type="button"
-            aria-pressed={groupMode === 'team'}
-            onClick={() => setGroupMode('team')}
-          >
-            TEAM
-          </button>
+            <button
+              type="button"
+              aria-pressed={groupMode === 'entry'}
+              onClick={() => setGroupMode('entry')}
+            >
+              ENTRY
+            </button>
+            <button
+              type="button"
+              aria-pressed={groupMode === 'team'}
+              onClick={() => setGroupMode('team')}
+            >
+              TEAM
+            </button>
+          </div>
+          <label className="challenge-outcomes__sort">
+            <span className="challenge-outcomes__sort-label">Sort by</span>
+            <select
+              className="challenge-outcomes__sort-select"
+              value={sortKey}
+              onChange={(event) =>
+                setSortKey(event.target.value as SortKey)
+              }
+              aria-label="Sort outcomes"
+            >
+              <option value="outcomes">% of Outcomes</option>
+              <option value="likelihood">Likelihood</option>
+              <option value="name">{sortNameLabel}</option>
+            </select>
+          </label>
         </div>
 
         {groupMode === 'entry' ? (
           <div className="challenge-outcomes__entry-cards">
-            {entryCards.map(({ odds, rows }) => (
+            {sortedEntryCards.map(({ odds, rows }) => (
               <article
                 key={odds.entry.user_bracket_id}
                 className="challenge-stats__sim-card challenge-outcomes__entry-card"
@@ -1084,9 +1231,6 @@ export function ChallengeOutcomes({
                   <h3 className="challenge-outcomes__entry-card-title">
                     {odds.entry.display_name}
                   </h3>
-                  <span className="challenge-outcomes__entry-card-pct">
-                    {odds.pct.toFixed(1)}%
-                  </span>
                 </header>
                 <PathsTable
                   rows={rows}
@@ -1100,7 +1244,7 @@ export function ChallengeOutcomes({
           </div>
         ) : (
           <div className="challenge-stats__sim-cards">
-            {teamChampionCards.map(({ champId, rows }) => (
+            {sortedTeamChampionCards.map(({ champId, rows }) => (
               <article key={champId} className="challenge-stats__sim-card">
                 <PathsTable
                   rows={rows}
