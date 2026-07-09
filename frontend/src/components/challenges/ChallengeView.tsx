@@ -909,6 +909,7 @@ export function ChallengeView({
             <ChallengeOutcomes
               hasThirdPlace={outcomes.has_third_place}
               winnerOdds={outcomes.winner_odds ?? []}
+              teamLikelihood={outcomes.team_likelihood}
               tree={outcomes.tree}
               viewerUsername={currentUser.username}
               onSelectPlayer={

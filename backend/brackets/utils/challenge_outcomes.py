@@ -191,6 +191,104 @@ def _walk_outcomes(
     walk()
 
 
+def _team_likelihood_key(role: str, team_id: int) -> str:
+    return f"{role}:{team_id}"
+
+
+def _scoped_team_likelihood_key(
+    scope: str, scope_id: int, role: str, team_id: int
+) -> str:
+    return f"{scope}:{scope_id}:{role}:{team_id}"
+
+
+def _accumulate_team_likelihood_at_leaf(
+    team_likelihood: dict[str, float],
+    top_four: tuple[int | None, int | None, int | None, int | None],
+    *,
+    has_third_place: bool,
+    path_prob: float,
+    winners: list[dict[str, Any]] | None = None,
+) -> None:
+    champ, ru, third, fourth = top_four
+
+    def add(key: str) -> None:
+        team_likelihood[key] = team_likelihood.get(key, 0.0) + path_prob
+
+    if champ is not None:
+        add(_team_likelihood_key("champion", champ))
+        add(_scoped_team_likelihood_key("champion", champ, "champion", champ))
+    if ru is not None:
+        add(_team_likelihood_key("runner_up", ru))
+        if champ is not None:
+            add(_scoped_team_likelihood_key("champion", champ, "runner_up", ru))
+    if has_third_place:
+        if third is not None:
+            add(_team_likelihood_key("third", third))
+            if champ is not None:
+                add(_scoped_team_likelihood_key("champion", champ, "third", third))
+        if fourth is not None:
+            add(_team_likelihood_key("fourth", fourth))
+            if champ is not None:
+                add(_scoped_team_likelihood_key("champion", champ, "fourth", fourth))
+    else:
+        for team_id in (third, fourth):
+            if team_id is None:
+                continue
+            add(_team_likelihood_key("semi", team_id))
+            if champ is not None:
+                add(_scoped_team_likelihood_key("champion", champ, "semi", team_id))
+
+    if winners:
+        for entry in winners:
+            entry_id = int(entry["user_bracket_id"])
+            if champ is not None:
+                add(_scoped_team_likelihood_key("entry", entry_id, "champion", champ))
+            if ru is not None:
+                add(_scoped_team_likelihood_key("entry", entry_id, "runner_up", ru))
+            if has_third_place:
+                if third is not None:
+                    add(_scoped_team_likelihood_key("entry", entry_id, "third", third))
+                if fourth is not None:
+                    add(_scoped_team_likelihood_key("entry", entry_id, "fourth", fourth))
+            else:
+                for team_id in (third, fourth):
+                    if team_id is None:
+                        continue
+                    add(_scoped_team_likelihood_key("entry", entry_id, "semi", team_id))
+
+
+def _team_likelihood_pct(
+    team_likelihood: dict[str, float],
+    entry_likelihood: dict[int, float],
+) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for key, mass in team_likelihood.items():
+        if mass <= 0:
+            continue
+        parts = key.split(":")
+        if len(parts) == 2:
+            result[key] = round(100.0 * mass, 1)
+            continue
+        if len(parts) != 4:
+            continue
+        scope, scope_id_raw, _role, _team_id = parts
+        scope_id = int(scope_id_raw)
+        if scope == "entry":
+            total = entry_likelihood.get(scope_id, 0.0)
+            if total > 0:
+                result[key] = round(100.0 * mass / total, 1)
+        elif scope == "champion":
+            champ_total = team_likelihood.get(
+                _scoped_team_likelihood_key(
+                    "champion", scope_id, "champion", scope_id
+                ),
+                0.0,
+            )
+            if champ_total > 0:
+                result[key] = round(100.0 * mass / champ_total, 1)
+    return result
+
+
 def _accumulate_entry_likelihood(
     prepared: KnockoutPotentialContext,
     ubs: list[UserBracket],
@@ -201,6 +299,7 @@ def _accumulate_entry_likelihood(
     master: UserBracket,
     required_team_ids: set[int],
     entry_likelihood: dict[int, float],
+    team_likelihood: dict[str, float],
 ) -> bool:
     tree = prepared.tree
     effective_ratings = build_effective_ratings(weights, master)
@@ -229,6 +328,13 @@ def _accumulate_entry_likelihood(
                 entry_likelihood[entry_id] = (
                     entry_likelihood.get(entry_id, 0.0) + path_prob
                 )
+            _accumulate_team_likelihood_at_leaf(
+                team_likelihood,
+                top_four,
+                has_third_place=top_four_ctx.has_third_place,
+                path_prob=path_prob,
+                winners=winners,
+            )
             return True
 
         m = state.matchups[idx]
@@ -462,6 +568,7 @@ def build_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any] | No
     weights = get_outcome_weights(bracket)
     required_team_ids = current_round_team_ids(ctx.master, ctx)
     entry_likelihood: dict[int, float] = {}
+    team_likelihood: dict[str, float] = {}
     weighted_ok = _accumulate_entry_likelihood(
         prepared,
         ubs,
@@ -471,13 +578,14 @@ def build_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any] | No
         master=ctx.master,
         required_team_ids=required_team_ids,
         entry_likelihood=entry_likelihood,
+        team_likelihood=team_likelihood,
     )
     total_outcomes, winner_odds = _count_outcome_stats(
         root,
         entry_likelihood=entry_likelihood if weighted_ok else None,
     )
 
-    return {
+    payload: dict[str, Any] = {
         "has_third_place": top_four_ctx.has_third_place,
         "total_outcomes": total_outcomes,
         "winner_odds": winner_odds,
@@ -486,6 +594,12 @@ def build_challenge_outcomes(challenge: BracketChallenge) -> dict[str, Any] | No
             contestant_info=contestant_info,
         ),
     }
+    if weighted_ok and team_likelihood:
+        payload["team_likelihood"] = _team_likelihood_pct(
+            team_likelihood,
+            entry_likelihood,
+        )
+    return payload
 
 
 def _empty_outcomes_payload() -> dict[str, Any]:

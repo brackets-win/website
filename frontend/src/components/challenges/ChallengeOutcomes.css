@@ -111,6 +111,13 @@
   margin-bottom: 0;
 }
 
+.challenge-outcomes__toolbar-grouping {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .challenge-outcomes__sort {
   display: inline-flex;
   align-items: center;
@@ -138,14 +145,30 @@
 }
 
 .challenge-outcomes__mode.segmented {
-  padding: 4px;
+  padding: 3px;
 }
 
 .challenge-outcomes__mode.segmented button {
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  padding: 0.5rem 1.1rem;
+  padding: 0.4rem 0.8rem;
+}
+
+.challenge-outcomes__metric-mode.segmented {
+  padding: 3px;
+}
+
+.challenge-outcomes__metric-mode.segmented button {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.38rem 0.62rem;
+}
+
+.challenge-outcomes__metric-mode.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .challenge-outcomes__entry-cards {
@@ -246,14 +269,43 @@
   flex-wrap: wrap;
   gap: 0.2rem;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   max-width: 100%;
   margin: 0 auto;
+}
+
+.challenge-outcomes__team-flag-pct {
+  font-size: 0.58rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--challenge-outcomes-metric);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.challenge-stats__sim-flag--lg .challenge-outcomes__team-flag-pct {
+  font-size: 0.62rem;
+}
+
+.challenge-stats__sim-flag--md .challenge-outcomes__team-flag-pct {
+  font-size: 0.6rem;
 }
 
 .challenge-outcomes__team-cluster .challenge-stats__sim-flag--xs .challenge-stats__sim-flag-img {
   width: 1.35rem;
   height: 0.95rem;
+}
+
+.challenge-outcomes__all-pill-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  max-width: 100%;
+}
+
+.challenge-outcomes__all-pill-wrap--md {
+  gap: 0.1rem;
 }
 
 .challenge-outcomes__all-pill {
@@ -280,8 +332,13 @@
 
 @media (max-width: 640px) {
   .challenge-outcomes__mode.segmented button {
-    font-size: 0.8125rem;
-    padding: 0.45rem 0.9rem;
+    font-size: 0.75rem;
+    padding: 0.38rem 0.7rem;
+  }
+
+  .challenge-outcomes__metric-mode.segmented button {
+    font-size: 0.6875rem;
+    padding: 0.34rem 0.5rem;
   }
 
   .challenge-outcomes__entry-card-header {

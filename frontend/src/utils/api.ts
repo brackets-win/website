@@ -1012,6 +1012,8 @@ export type ChallengeOutcomesSimilarity = {
   total_outcomes: number;
   winner_odds: ChallengeOutcomesWinnerOdds[];
   tree: ChallengeOutcomesChampionBranch[];
+  /** Weighted placement likelihood by role:team_id (e.g. champion:12). */
+  team_likelihood?: Record<string, number>;
 };
 
 export async function getChallengeOutcomes(

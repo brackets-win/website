@@ -14,10 +14,13 @@ import './ChallengeStats.css';
 
 type GroupMode = 'entry' | 'team';
 type SortKey = 'outcomes' | 'likelihood' | 'name';
+type TeamMetricMode = 'outcomes' | 'likelihood';
+type PlacementRole = 'champion' | 'runner_up' | 'third' | 'fourth' | 'semi';
 
 type Props = {
   hasThirdPlace: boolean;
   winnerOdds: ChallengeOutcomesWinnerOdds[];
+  teamLikelihood?: Record<string, number>;
   tree: ChallengeOutcomesChampionBranch[];
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
@@ -611,9 +614,11 @@ function teamHasImage(team: ChallengeStatsSimilarityTeam): boolean {
 function TeamFlag({
   team,
   size,
+  metricPct,
 }: {
   team: ChallengeStatsSimilarityTeam;
   size: 'lg' | 'md' | 'sm' | 'xs';
+  metricPct?: string | null;
 }) {
   const showName = !teamHasImage(team);
   return (
@@ -636,6 +641,9 @@ function TeamFlag({
       {showName ? (
         <span className="challenge-stats__sim-flag-name">{team.display_name}</span>
       ) : null}
+      {metricPct ? (
+        <span className="challenge-outcomes__team-flag-pct">{metricPct}</span>
+      ) : null}
     </div>
   );
 }
@@ -643,14 +651,37 @@ function TeamFlag({
 function TeamCluster({
   teams,
   singleSize = 'sm',
+  role,
+  teamMetricMode,
+  outcomePctIndex,
+  teamLikelihood,
+  likelihoodScope,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   singleSize?: 'lg' | 'md' | 'sm' | 'xs';
+  role: PlacementRole;
+  teamMetricMode: TeamMetricMode;
+  outcomePctIndex: Map<string, number>;
+  teamLikelihood?: Record<string, number>;
+  likelihoodScope?: TeamLikelihoodScope;
 }) {
   const sorted = sortTeams(teams);
   if (sorted.length === 0) return null;
   if (sorted.length === 1) {
-    return <TeamFlag team={sorted[0]} size={singleSize} />;
+    return (
+      <TeamFlag
+        team={sorted[0]}
+        size={singleSize}
+        metricPct={lookupTeamMetricPct(
+          role,
+          sorted[0].bracket_contestant_id,
+          teamMetricMode,
+          outcomePctIndex,
+          teamLikelihood,
+          likelihoodScope,
+        )}
+      />
+    );
   }
   return (
     <div
@@ -658,7 +689,19 @@ function TeamCluster({
       title={sorted.map((team) => team.display_name).join(', ')}
     >
       {sorted.map((team) => (
-        <TeamFlag key={team.bracket_contestant_id} team={team} size="xs" />
+        <TeamFlag
+          key={team.bracket_contestant_id}
+          team={team}
+          size="xs"
+          metricPct={lookupTeamMetricPct(
+            role,
+            team.bracket_contestant_id,
+            teamMetricMode,
+            outcomePctIndex,
+            teamLikelihood,
+            likelihoodScope,
+          )}
+        />
       ))}
     </div>
   );
@@ -667,21 +710,35 @@ function TeamCluster({
 function AllPill({
   label,
   size = 'sm',
+  metricPct,
 }: {
   label: string;
   size?: 'md' | 'sm';
+  metricPct?: string | null;
 }) {
   return (
     <span
       className={[
-        'challenge-outcomes__all-pill',
-        size === 'md' ? 'challenge-outcomes__all-pill--md' : '',
+        'challenge-outcomes__all-pill-wrap',
+        size === 'md' ? 'challenge-outcomes__all-pill-wrap--md' : '',
       ]
         .filter(Boolean)
         .join(' ')}
       title={label}
     >
-      ALL
+      <span
+        className={[
+          'challenge-outcomes__all-pill',
+          size === 'md' ? 'challenge-outcomes__all-pill--md' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        ALL
+      </span>
+      {metricPct ? (
+        <span className="challenge-outcomes__team-flag-pct">{metricPct}</span>
+      ) : null}
     </span>
   );
 }
@@ -691,18 +748,51 @@ function PlacementCell({
   universe,
   singleSize = 'sm',
   allLabel,
+  role,
+  teamMetricMode,
+  outcomePctIndex,
+  teamLikelihood,
+  likelihoodScope,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   universe: ChallengeStatsSimilarityTeam[];
   singleSize?: 'lg' | 'md' | 'sm' | 'xs';
   allLabel: string;
+  role: PlacementRole;
+  teamMetricMode: TeamMetricMode;
+  outcomePctIndex: Map<string, number>;
+  teamLikelihood?: Record<string, number>;
+  likelihoodScope?: TeamLikelihoodScope;
 }) {
   const sorted = sortTeams(teams);
   if (sorted.length === 0) return null;
   if (isExhaustiveCluster(sorted, universe)) {
-    return <AllPill label={allLabel} size={singleSize === 'md' ? 'md' : 'sm'} />;
+    return (
+      <AllPill
+        label={allLabel}
+        size={singleSize === 'md' ? 'md' : 'sm'}
+        metricPct={lookupClusterMetricPct(
+          role,
+          universe,
+          teamMetricMode,
+          outcomePctIndex,
+          teamLikelihood,
+          likelihoodScope,
+        )}
+      />
+    );
   }
-  return <TeamCluster teams={sorted} singleSize={singleSize} />;
+  return (
+    <TeamCluster
+      teams={sorted}
+      singleSize={singleSize}
+      role={role}
+      teamMetricMode={teamMetricMode}
+      outcomePctIndex={outcomePctIndex}
+      teamLikelihood={teamLikelihood}
+      likelihoodScope={likelihoodScope}
+    />
+  );
 }
 
 function WinnerName({
@@ -768,44 +858,191 @@ function formatOutcomePct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
+function teamMetricKey(role: PlacementRole, teamId: number): string {
+  return `${role}:${teamId}`;
+}
+
+function teamIdsForLeafRole(
+  leaf: LeafPath,
+  role: PlacementRole,
+  hasThirdPlace: boolean,
+): number[] {
+  if (role === 'champion') {
+    return [leaf.champion.bracket_contestant_id];
+  }
+  if (role === 'runner_up') {
+    return [leaf.runnerUp.bracket_contestant_id];
+  }
+  if (hasThirdPlace) {
+    if (role === 'third') {
+      return leaf.third ? [leaf.third.bracket_contestant_id] : [];
+    }
+    if (role === 'fourth') {
+      return leaf.fourth ? [leaf.fourth.bracket_contestant_id] : [];
+    }
+    return [];
+  }
+  if (role === 'semi') {
+    return (
+      leaf.semifinalists?.map((team) => team.bracket_contestant_id) ?? []
+    );
+  }
+  return [];
+}
+
+function buildTeamOutcomePctIndex(
+  leaves: LeafPath[],
+  hasThirdPlace: boolean,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const roles: PlacementRole[] = hasThirdPlace
+    ? ['champion', 'runner_up', 'third', 'fourth']
+    : ['champion', 'runner_up', 'semi'];
+
+  for (const leaf of leaves) {
+    for (const role of roles) {
+      for (const teamId of teamIdsForLeafRole(leaf, role, hasThirdPlace)) {
+        const key = teamMetricKey(role, teamId);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  const total = leaves.length;
+  const pcts = new Map<string, number>();
+  if (total === 0) return pcts;
+
+  for (const [key, count] of counts) {
+    pcts.set(key, Math.round((1000 * count) / total) / 10);
+  }
+  return pcts;
+}
+
+function formatTeamMetricPct(value: number): string {
+  return `${value.toFixed(1)}%`;
+}
+
+type TeamLikelihoodScope =
+  | { kind: 'entry'; entryId: number }
+  | { kind: 'champion'; championId: number };
+
+function lookupTeamMetricValue(
+  role: PlacementRole,
+  teamId: number,
+  teamMetricMode: TeamMetricMode,
+  outcomePctIndex: Map<string, number>,
+  teamLikelihood?: Record<string, number>,
+  likelihoodScope?: TeamLikelihoodScope,
+): number | null {
+  const key = teamMetricKey(role, teamId);
+  if (teamMetricMode === 'outcomes') {
+    const value = outcomePctIndex.get(key);
+    return value == null ? null : value;
+  }
+  const scopedKey =
+    likelihoodScope?.kind === 'entry'
+      ? `entry:${likelihoodScope.entryId}:${role}:${teamId}`
+      : likelihoodScope?.kind === 'champion'
+        ? `champion:${likelihoodScope.championId}:${role}:${teamId}`
+        : key;
+  const value = teamLikelihood?.[scopedKey];
+  if (value == null || Number.isNaN(value)) return null;
+  return value;
+}
+
+function lookupTeamMetricPct(
+  role: PlacementRole,
+  teamId: number,
+  teamMetricMode: TeamMetricMode,
+  outcomePctIndex: Map<string, number>,
+  teamLikelihood?: Record<string, number>,
+  likelihoodScope?: TeamLikelihoodScope,
+): string | null {
+  const value = lookupTeamMetricValue(
+    role,
+    teamId,
+    teamMetricMode,
+    outcomePctIndex,
+    teamLikelihood,
+    likelihoodScope,
+  );
+  return value == null ? null : formatTeamMetricPct(value);
+}
+
+function lookupClusterMetricPct(
+  role: PlacementRole,
+  teams: ChallengeStatsSimilarityTeam[],
+  teamMetricMode: TeamMetricMode,
+  outcomePctIndex: Map<string, number>,
+  teamLikelihood?: Record<string, number>,
+  likelihoodScope?: TeamLikelihoodScope,
+): string | null {
+  let total = 0;
+  let found = false;
+  for (const team of teams) {
+    const value = lookupTeamMetricValue(
+      role,
+      team.bracket_contestant_id,
+      teamMetricMode,
+      outcomePctIndex,
+      teamLikelihood,
+      likelihoodScope,
+    );
+    if (value == null) continue;
+    total += value;
+    found = true;
+  }
+  if (!found) return null;
+  return formatTeamMetricPct(total);
+}
+
+function compareOutcomesSort(
+  a: ChallengeOutcomesWinnerOdds,
+  b: ChallengeOutcomesWinnerOdds,
+  sortKey: SortKey,
+): number {
+  if (sortKey === 'name') {
+    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+      sensitivity: 'base',
+    });
+  }
+  if (sortKey === 'likelihood') {
+    const la = a.likelihood ?? -1;
+    const lb = b.likelihood ?? -1;
+    if (lb !== la) return lb - la;
+    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+      sensitivity: 'base',
+    });
+  }
+  if (b.outcome_count !== a.outcome_count) {
+    return b.outcome_count - a.outcome_count;
+  }
+  return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
+    sensitivity: 'base',
+  });
+}
+
 function sortWinnerOdds(
   rows: ChallengeOutcomesWinnerOdds[],
   sortKey: SortKey,
 ): ChallengeOutcomesWinnerOdds[] {
-  const sorted = [...rows];
-  sorted.sort((a, b) => {
-    if (sortKey === 'name') {
-      return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-        sensitivity: 'base',
-      });
-    }
-    if (sortKey === 'likelihood') {
-      const la = a.likelihood ?? -1;
-      const lb = b.likelihood ?? -1;
-      if (lb !== la) return lb - la;
-      return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-        sensitivity: 'base',
-      });
-    }
-    if (b.pct !== a.pct) return b.pct - a.pct;
-    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-      sensitivity: 'base',
-    });
-  });
-  return sorted;
+  return [...rows].sort((a, b) => compareOutcomesSort(a, b, sortKey));
 }
 
 function maxWinnerMetricForRows(
   rows: TableRow[],
   oddsByEntry: Map<number, ChallengeOutcomesWinnerOdds>,
-  metric: 'pct' | 'likelihood',
+  metric: 'outcome_count' | 'likelihood',
 ): number {
   let max = -1;
   for (const row of rows) {
     for (const winner of row.winners) {
       const odds = oddsByEntry.get(winner.user_bracket_id);
       if (!odds) continue;
-      const value = metric === 'pct' ? odds.pct : (odds.likelihood ?? -1);
+      const value =
+        metric === 'outcome_count'
+          ? odds.outcome_count
+          : (odds.likelihood ?? -1);
       if (value > max) max = value;
     }
   }
@@ -899,12 +1136,20 @@ function PathsTable({
   universe,
   onSelectPlayer,
   viewerUsername,
+  teamMetricMode,
+  outcomePctIndex,
+  teamLikelihood,
+  likelihoodScope,
 }: {
   rows: TableRow[];
   hasThirdPlace: boolean;
   universe: GlobalUniverse;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
+  teamMetricMode: TeamMetricMode;
+  outcomePctIndex: Map<string, number>;
+  teamLikelihood?: Record<string, number>;
+  likelihoodScope?: TeamLikelihoodScope;
 }) {
   return (
     <div className="challenge-stats__sim-scroll">
@@ -971,7 +1216,18 @@ function PathsTable({
                     rowSpan={row.champRowSpan}
                     className="challenge-stats__sim-td--champ"
                   >
-                    <TeamFlag team={row.champion} size="lg" />
+                    <TeamFlag
+                      team={row.champion}
+                      size="lg"
+                      metricPct={lookupTeamMetricPct(
+                        'champion',
+                        row.champion.bracket_contestant_id,
+                        teamMetricMode,
+                        outcomePctIndex,
+                        teamLikelihood,
+                        likelihoodScope,
+                      )}
+                    />
                   </td>
                 ) : null}
                 {row.showRuCell ? (
@@ -981,6 +1237,11 @@ function PathsTable({
                       universe={universe.runnerUps(champId)}
                       singleSize="md"
                       allLabel="Any remaining runner-up"
+                      role="runner_up"
+                      teamMetricMode={teamMetricMode}
+                      outcomePctIndex={outcomePctIndex}
+                      teamLikelihood={teamLikelihood}
+                      likelihoodScope={likelihoodScope}
                     />
                   </td>
                 ) : null}
@@ -992,6 +1253,11 @@ function PathsTable({
                           teams={row.thirdTeams}
                           universe={universe.thirds(champId, ruIds)}
                           allLabel="Any remaining third-place finish"
+                          role="third"
+                          teamMetricMode={teamMetricMode}
+                          outcomePctIndex={outcomePctIndex}
+                          teamLikelihood={teamLikelihood}
+                          likelihoodScope={likelihoodScope}
                         />
                       </td>
                     ) : null}
@@ -1000,6 +1266,11 @@ function PathsTable({
                         teams={row.fourthTeams}
                         universe={universe.fourths(champId, ruIds, thirdIds)}
                         allLabel="Any remaining fourth-place finish"
+                        role="fourth"
+                        teamMetricMode={teamMetricMode}
+                        outcomePctIndex={outcomePctIndex}
+                        teamLikelihood={teamLikelihood}
+                        likelihoodScope={likelihoodScope}
                       />
                     </td>
                   </>
@@ -1010,6 +1281,11 @@ function PathsTable({
                       universe={universe.semis(champId, ruIds)}
                       singleSize="sm"
                       allLabel="Any remaining semi-finalists"
+                      role="semi"
+                      teamMetricMode={teamMetricMode}
+                      outcomePctIndex={outcomePctIndex}
+                      teamLikelihood={teamLikelihood}
+                      likelihoodScope={likelihoodScope}
                     />
                   </td>
                 )}
@@ -1032,12 +1308,15 @@ function PathsTable({
 export function ChallengeOutcomes({
   hasThirdPlace,
   winnerOdds,
+  teamLikelihood,
   tree,
   onSelectPlayer,
   viewerUsername,
 }: Props) {
   const [groupMode, setGroupMode] = useState<GroupMode>('entry');
   const [sortKey, setSortKey] = useState<SortKey>('outcomes');
+  const [teamMetricMode, setTeamMetricMode] =
+    useState<TeamMetricMode>('outcomes');
 
   const viewModel = useMemo(() => {
     if (tree.length === 0) return null;
@@ -1090,12 +1369,13 @@ export function ChallengeOutcomes({
       });
     }
 
-    return { universe, entryCards, teamChampionCards };
+    return { universe, entryCards, teamChampionCards, allLeaves };
   }, [tree, hasThirdPlace, winnerOdds]);
 
   const entryCards = viewModel?.entryCards ?? [];
   const teamChampionCards = viewModel?.teamChampionCards ?? [];
   const universe = viewModel?.universe;
+  const allLeaves = viewModel?.allLeaves ?? [];
 
   const oddsByEntry = useMemo(
     () => new Map(winnerOdds.map((row) => [row.entry.user_bracket_id, row])),
@@ -1108,33 +1388,9 @@ export function ChallengeOutcomes({
   );
 
   const sortedEntryCards = useMemo(() => {
-    const cards = [...entryCards];
-    cards.sort((a, b) => {
-      if (sortKey === 'name') {
-        return a.odds.entry.display_name.localeCompare(
-          b.odds.entry.display_name,
-          undefined,
-          { sensitivity: 'base' },
-        );
-      }
-      if (sortKey === 'likelihood') {
-        const la = a.odds.likelihood ?? -1;
-        const lb = b.odds.likelihood ?? -1;
-        if (lb !== la) return lb - la;
-        return a.odds.entry.display_name.localeCompare(
-          b.odds.entry.display_name,
-          undefined,
-          { sensitivity: 'base' },
-        );
-      }
-      if (b.odds.pct !== a.odds.pct) return b.odds.pct - a.odds.pct;
-      return a.odds.entry.display_name.localeCompare(
-        b.odds.entry.display_name,
-        undefined,
-        { sensitivity: 'base' },
-      );
-    });
-    return cards;
+    return [...entryCards].sort((a, b) =>
+      compareOutcomesSort(a.odds, b.odds, sortKey),
+    );
   }, [entryCards, sortKey]);
 
   const sortedTeamChampionCards = useMemo(() => {
@@ -1150,7 +1406,8 @@ export function ChallengeOutcomes({
         });
       }
 
-      const metric = sortKey === 'likelihood' ? 'likelihood' : 'pct';
+      const metric =
+        sortKey === 'likelihood' ? 'likelihood' : 'outcome_count';
       const scoreA = maxWinnerMetricForRows(a.rows, oddsByEntry, metric);
       const scoreB = maxWinnerMetricForRows(b.rows, oddsByEntry, metric);
       if (scoreB !== scoreA) return scoreB - scoreA;
@@ -1191,25 +1448,48 @@ export function ChallengeOutcomes({
           .join(' ')}
       >
         <div className="challenge-outcomes__toolbar">
-          <div
-            className="challenge-outcomes__mode segmented"
-            role="group"
-            aria-label="Outcomes grouping"
-          >
-            <button
-              type="button"
-              aria-pressed={groupMode === 'entry'}
-              onClick={() => setGroupMode('entry')}
+          <div className="challenge-outcomes__toolbar-grouping">
+            <div
+              className="challenge-outcomes__mode segmented"
+              role="group"
+              aria-label="Outcomes grouping"
             >
-              ENTRY
-            </button>
-            <button
-              type="button"
-              aria-pressed={groupMode === 'team'}
-              onClick={() => setGroupMode('team')}
+              <button
+                type="button"
+                aria-pressed={groupMode === 'entry'}
+                onClick={() => setGroupMode('entry')}
+              >
+                ENTRY
+              </button>
+              <button
+                type="button"
+                aria-pressed={groupMode === 'team'}
+                onClick={() => setGroupMode('team')}
+              >
+                TEAM
+              </button>
+            </div>
+            <div
+              className="challenge-outcomes__metric-mode segmented"
+              role="group"
+              aria-label="Team flag metric"
             >
-              TEAM
-            </button>
+              <button
+                type="button"
+                aria-pressed={teamMetricMode === 'outcomes'}
+                onClick={() => setTeamMetricMode('outcomes')}
+              >
+                % Outcomes
+              </button>
+              <button
+                type="button"
+                aria-pressed={teamMetricMode === 'likelihood'}
+                onClick={() => setTeamMetricMode('likelihood')}
+                disabled={teamLikelihood == null}
+              >
+                Likelihood
+              </button>
+            </div>
           </div>
           <label className="challenge-outcomes__sort">
             <span className="challenge-outcomes__sort-label">Sort by</span>
@@ -1230,7 +1510,19 @@ export function ChallengeOutcomes({
 
         {groupMode === 'entry' ? (
           <div className="challenge-outcomes__entry-cards">
-            {sortedEntryCards.map(({ odds, rows }) => (
+            {sortedEntryCards.map(({ odds, rows }) => {
+              const cardLeaves = allLeaves.filter((leaf) =>
+                leaf.winners.some(
+                  (winner) =>
+                    winner.user_bracket_id === odds.entry.user_bracket_id,
+                ),
+              );
+              const outcomePctIndex = buildTeamOutcomePctIndex(
+                cardLeaves,
+                hasThirdPlace,
+              );
+
+              return (
               <article
                 key={odds.entry.user_bracket_id}
                 className="challenge-stats__sim-card challenge-outcomes__entry-card"
@@ -1263,26 +1555,48 @@ export function ChallengeOutcomes({
                 <PathsTable
                   rows={rows}
                   hasThirdPlace={hasThirdPlace}
-                  universe={universe}
+                  universe={universe!}
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
+                  teamMetricMode={teamMetricMode}
+                  outcomePctIndex={outcomePctIndex}
+                  teamLikelihood={teamLikelihood}
+                  likelihoodScope={{
+                    kind: 'entry',
+                    entryId: odds.entry.user_bracket_id,
+                  }}
                 />
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="challenge-stats__sim-cards">
-            {sortedTeamChampionCards.map(({ champId, rows }) => (
+            {sortedTeamChampionCards.map(({ champId, rows }) => {
+              const cardLeaves = allLeaves.filter(
+                (leaf) => leaf.champion.bracket_contestant_id === champId,
+              );
+              const outcomePctIndex = buildTeamOutcomePctIndex(
+                cardLeaves,
+                hasThirdPlace,
+              );
+
+              return (
               <article key={champId} className="challenge-stats__sim-card">
                 <PathsTable
                   rows={rows}
                   hasThirdPlace={hasThirdPlace}
-                  universe={universe}
+                  universe={universe!}
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
+                  teamMetricMode={teamMetricMode}
+                  outcomePctIndex={outcomePctIndex}
+                  teamLikelihood={teamLikelihood}
+                  likelihoodScope={{ kind: 'champion', championId: champId }}
                 />
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
