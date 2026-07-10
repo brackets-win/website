@@ -85,15 +85,45 @@ export function currentRoundUndecidedMatchups(
     const matchups = matchupsForStage(detail, stage.id);
     if (matchups.length === 0) continue;
     if (matchups.every((matchup) => matchup.winner != null)) continue;
-    return matchups.filter(
-      (matchup) =>
-        matchup.winner == null &&
-        matchup.contestant1 != null &&
-        matchup.contestant2 != null,
-    );
+    return undecidedPairedMatchups(matchups);
   }
 
   return [];
+}
+
+/** Every main-bracket KO game that is paired and still undecided. */
+export function allUndecidedPairedMatchups(
+  bracket: BracketDetail,
+  detail: UserBracketDetail,
+): MatchupInfo[] {
+  const rows: MatchupInfo[] = [];
+  for (const stage of knockoutStages(bracket)) {
+    if (isThirdPlaceStage(stage)) continue;
+    rows.push(...undecidedPairedMatchups(matchupsForStage(detail, stage.id)));
+  }
+  return rows;
+}
+
+/** Later-round games that are already set but not in the current round. */
+export function upcomingUndecidedMatchups(
+  bracket: BracketDetail,
+  detail: UserBracketDetail,
+): MatchupInfo[] {
+  const currentIds = new Set(
+    currentRoundUndecidedMatchups(bracket, detail).map((matchup) => matchup.id),
+  );
+  return allUndecidedPairedMatchups(bracket, detail).filter(
+    (matchup) => !currentIds.has(matchup.id),
+  );
+}
+
+function undecidedPairedMatchups(matchups: MatchupInfo[]): MatchupInfo[] {
+  return matchups.filter(
+    (matchup) =>
+      matchup.winner == null &&
+      matchup.contestant1 != null &&
+      matchup.contestant2 != null,
+  );
 }
 
 export function currentRoundTeamIds(
@@ -149,6 +179,7 @@ export function savedPriorRoundMatchups(
     for (const matchup of matchupsForStage(detail, stage.id)) {
       if (currentIds.has(matchup.id)) continue;
       if (!matchup.contestant1 || !matchup.contestant2) continue;
+      if (matchup.winner == null) continue;
       const odds = saved.matchup_odds[String(matchup.id)];
       if (odds == null) continue;
       rows.push({ matchup, odds });

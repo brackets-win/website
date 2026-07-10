@@ -6,6 +6,7 @@ import {
   getOutcomeWeightsFromMetadata,
   remainingKnockoutTeams,
   savedPriorRoundMatchups,
+  upcomingUndecidedMatchups,
 } from '../../utils/outcomeWeights';
 import './SetOutcomeWeightsModal.css';
 
@@ -39,6 +40,7 @@ function MatchupCard({
   onRankingChange,
   onOddsChange,
   readOnlyOdds = false,
+  showRankings = true,
 }: {
   matchup: MatchupInfo;
   rankings: Record<string, string>;
@@ -46,6 +48,7 @@ function MatchupCard({
   onRankingChange: (teamId: number, value: string) => void;
   onOddsChange?: (value: string) => void;
   readOnlyOdds?: boolean;
+  showRankings?: boolean;
 }) {
   const c1 = matchup.contestant1;
   const c2 = matchup.contestant2;
@@ -68,7 +71,7 @@ function MatchupCard({
         <div className="set-odds-team">
           <div className="set-odds-team__meta">
             <span className="set-odds-team__name">{c1.display_name}</span>
-            {!readOnlyOdds ? (
+            {!readOnlyOdds && showRankings ? (
               <label className="set-odds-field">
                 <span>Ranking</span>
                 <input
@@ -87,7 +90,7 @@ function MatchupCard({
         <div className="set-odds-team">
           <div className="set-odds-team__meta">
             <span className="set-odds-team__name">{c2.display_name}</span>
-            {!readOnlyOdds ? (
+            {!readOnlyOdds && showRankings ? (
               <label className="set-odds-field">
                 <span>Ranking</span>
                 <input
@@ -144,6 +147,14 @@ export function SetOutcomeWeightsModal({
     () => currentRoundUndecidedMatchups(bracket, detail),
     [bracket, detail],
   );
+  const upcomingMatchups = useMemo(
+    () => upcomingUndecidedMatchups(bracket, detail),
+    [bracket, detail],
+  );
+  const editableMatchups = useMemo(
+    () => [...currentMatchups, ...upcomingMatchups],
+    [currentMatchups, upcomingMatchups],
+  );
   const priorMatchups = useMemo(
     () => savedPriorRoundMatchups(bracket, detail),
     [bracket, detail],
@@ -167,14 +178,14 @@ export function SetOutcomeWeightsModal({
         savedRank != null ? String(savedRank) : '';
     }
     const nextOdds: Record<string, string> = {};
-    for (const matchup of currentMatchups) {
+    for (const matchup of editableMatchups) {
       const savedOdds = saved.matchup_odds[String(matchup.id)];
       nextOdds[String(matchup.id)] =
         savedOdds != null ? String(savedOdds) : '';
     }
     setRankings(nextRankings);
     setMatchupOdds(nextOdds);
-  }, [bracket.metadata, currentMatchups, remainingTeams]);
+  }, [bracket.metadata, editableMatchups, remainingTeams]);
 
   const onRankingChange = (teamId: number, value: string) => {
     setRankings((current) => ({ ...current, [String(teamId)]: value }));
@@ -202,7 +213,7 @@ export function SetOutcomeWeightsModal({
     }
 
     const matchup_odds: Record<string, number> = { ...saved.matchup_odds };
-    for (const matchup of currentMatchups) {
+    for (const matchup of editableMatchups) {
       const raw = matchupOdds[String(matchup.id)] ?? '';
       if (!raw.trim()) continue;
       const pct = parseOdds(raw);
@@ -248,8 +259,8 @@ export function SetOutcomeWeightsModal({
           Set Odds
         </h2>
         <p className="set-odds-dialog__intro">
-          Rankings and saved round odds shape later rounds until new odds are
-          set.
+          Rankings apply to the current round. Set odds for any paired game that
+          has not been decided yet, including later rounds.
         </p>
         {priorMatchups.length > 0 ? (
           <section className="set-odds-dialog__section">
@@ -280,6 +291,24 @@ export function SetOutcomeWeightsModal({
                   odds={matchupOdds[String(matchup.id)] ?? ''}
                   onRankingChange={onRankingChange}
                   onOddsChange={(value) => onOddsChange(matchup.id, value)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {upcomingMatchups.length > 0 ? (
+          <section className="set-odds-dialog__section">
+            <h3 className="set-odds-dialog__section-title">Upcoming Games</h3>
+            <div className="set-odds-dialog__cards">
+              {upcomingMatchups.map((matchup) => (
+                <MatchupCard
+                  key={matchup.id}
+                  matchup={matchup}
+                  rankings={rankings}
+                  odds={matchupOdds[String(matchup.id)] ?? ''}
+                  onRankingChange={onRankingChange}
+                  onOddsChange={(value) => onOddsChange(matchup.id, value)}
+                  showRankings={false}
                 />
               ))}
             </div>

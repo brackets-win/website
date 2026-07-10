@@ -550,6 +550,10 @@ def _empty_outcomes_payload() -> dict[str, Any]:
     }
 
 
+# Bumped when winner_odds likelihood semantics change (v2: raw win mass, not normalized).
+OUTCOMES_LIKELIHOOD_FORMAT_VERSION = 2
+
+
 def _read_outcomes_cache(
     challenge: BracketChallenge,
     entries_revision: int,
@@ -564,6 +568,8 @@ def _read_outcomes_cache(
     if cache.get("entries_revision") != entries_revision:
         return None
     if cache.get("master_revision") != master_revision:
+        return None
+    if cache.get("likelihood_format_version", 1) < OUTCOMES_LIKELIHOOD_FORMAT_VERSION:
         return None
     payload = cache.get("payload")
     if not isinstance(payload, dict):
@@ -622,6 +628,7 @@ def _write_outcomes_cache(
     meta[CHALLENGE_OUTCOMES_CACHE_KEY] = {
         "entries_revision": entries_revision,
         "master_revision": master_revision,
+        "likelihood_format_version": OUTCOMES_LIKELIHOOD_FORMAT_VERSION,
         "payload": payload,
     }
     challenge.metadata = meta
