@@ -111,6 +111,10 @@
   margin-bottom: 0;
 }
 
+.challenge-outcomes__toolbar .segmented {
+  margin-bottom: 0;
+}
+
 .challenge-outcomes__toolbar-grouping {
   display: inline-flex;
   flex-wrap: wrap;
@@ -144,26 +148,28 @@
   cursor: pointer;
 }
 
-.challenge-outcomes__mode.segmented {
-  padding: 3px;
-}
-
-.challenge-outcomes__mode.segmented button {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 0.4rem 0.8rem;
-}
-
+.challenge-outcomes__mode.segmented,
 .challenge-outcomes__metric-mode.segmented {
   padding: 3px;
+}
+
+.challenge-outcomes__mode.segmented button,
+.challenge-outcomes__metric-mode.segmented button {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.4rem 0.8rem;
 }
 
 .challenge-outcomes__metric-mode.segmented button {
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  padding: 0.38rem 0.62rem;
+  padding: 0.4rem 0.62rem;
+}
+
+.challenge-outcomes__mode.segmented button {
+  letter-spacing: 0.04em;
 }
 
 .challenge-outcomes__metric-mode.segmented button:disabled {
@@ -331,14 +337,14 @@
 }
 
 @media (max-width: 640px) {
-  .challenge-outcomes__mode.segmented button {
+  .challenge-outcomes__mode.segmented button,
+  .challenge-outcomes__metric-mode.segmented button {
     font-size: 0.75rem;
     padding: 0.38rem 0.7rem;
   }
 
   .challenge-outcomes__metric-mode.segmented button {
-    font-size: 0.6875rem;
-    padding: 0.34rem 0.5rem;
+    padding: 0.38rem 0.5rem;
   }
 
   .challenge-outcomes__entry-card-header {

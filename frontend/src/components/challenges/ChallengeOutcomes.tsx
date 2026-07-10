@@ -995,7 +995,7 @@ function formatRoundedTeamMetricPct(
     teamMetricMode === 'outcomes'
       ? (100 * rawValue) / globalOutcomeTotal
       : rawValue;
-  if (value < 0) return '<0%';
+  if (value > 0 && value < 1) return '<1%';
   if (value > 99 && value < 100) return '>99%';
   return `${Math.round(value)}%`;
 }
