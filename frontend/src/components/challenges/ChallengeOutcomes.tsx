@@ -6,6 +6,15 @@ import type {
   ChallengeOutcomesWinnerOdds,
   ChallengeStatsSimilarityTeam,
 } from '../../utils/api';
+import {
+  buildOutcomeDisplayRows,
+  collectOutcomeLeafPaths,
+  isExhaustiveCluster,
+  OutcomeGlobalUniverse,
+  type OutcomeDisplayRow,
+  type OutcomeLeafPath,
+  teamSetKey,
+} from '../../utils/challengeOutcomesDisplay';
 import { ContestantAvatar } from '../bracket/ContestantAvatar';
 
 import './BracketSimilarity.css';
@@ -26,23 +35,8 @@ type Props = {
   viewerUsername?: string | null;
 };
 
-type LeafPath = {
-  champion: ChallengeStatsSimilarityTeam;
-  runnerUp: ChallengeStatsSimilarityTeam;
-  third?: ChallengeStatsSimilarityTeam;
-  fourth?: ChallengeStatsSimilarityTeam;
-  semifinalists?: [ChallengeStatsSimilarityTeam, ChallengeStatsSimilarityTeam];
-  winners: ChallengeOutcomesEntry[];
-};
-
-type DisplayRow = {
-  champion: ChallengeStatsSimilarityTeam;
-  runnerUpTeams: ChallengeStatsSimilarityTeam[];
-  thirdTeams: ChallengeStatsSimilarityTeam[];
-  fourthTeams: ChallengeStatsSimilarityTeam[];
-  semiTeams: ChallengeStatsSimilarityTeam[];
-  winners: ChallengeOutcomesEntry[];
-};
+type LeafPath = OutcomeLeafPath;
+type DisplayRow = OutcomeDisplayRow;
 
 type TableRow = DisplayRow & {
   showChampCell: boolean;
@@ -53,35 +47,14 @@ type TableRow = DisplayRow & {
   thirdRowSpan: number;
 };
 
-function teamSortKey(team: ChallengeStatsSimilarityTeam): string {
-  return team.display_name.toLocaleLowerCase();
-}
-
 function sortTeams(
   teams: Iterable<ChallengeStatsSimilarityTeam>,
 ): ChallengeStatsSimilarityTeam[] {
   return [...teams].sort((a, b) =>
-    teamSortKey(a).localeCompare(teamSortKey(b), undefined, {
+    a.display_name.localeCompare(b.display_name, undefined, {
       sensitivity: 'base',
     }),
   );
-}
-
-function dedupeTeams(
-  teams: ChallengeStatsSimilarityTeam[],
-): ChallengeStatsSimilarityTeam[] {
-  const byId = new Map<number, ChallengeStatsSimilarityTeam>();
-  for (const team of teams) {
-    byId.set(team.bracket_contestant_id, team);
-  }
-  return sortTeams(byId.values());
-}
-
-function teamSetKey(teams: ChallengeStatsSimilarityTeam[]): string {
-  return teams
-    .map((team) => team.bracket_contestant_id)
-    .sort((a, b) => a - b)
-    .join(',');
 }
 
 function winnersKey(winners: ChallengeOutcomesEntry[]): string {
@@ -89,240 +62,6 @@ function winnersKey(winners: ChallengeOutcomesEntry[]): string {
     .map((entry) => entry.user_bracket_id)
     .sort((a, b) => a - b)
     .join(',');
-}
-
-function sortWinners(winners: ChallengeOutcomesEntry[]): ChallengeOutcomesEntry[] {
-  return [...winners].sort((a, b) =>
-    a.display_name.localeCompare(b.display_name, undefined, {
-      sensitivity: 'base',
-    }),
-  );
-}
-
-function collectAllLeafPaths(
-  tree: ChallengeOutcomesChampionBranch[],
-  hasThirdPlace: boolean,
-): LeafPath[] {
-  const rows: LeafPath[] = [];
-  for (const champ of tree) {
-    for (const ru of champ.children) {
-      if (hasThirdPlace) {
-        for (const third of ru.children) {
-          for (const fourth of third.children) {
-            for (const leaf of fourth.children) {
-              rows.push({
-                champion: champ.team,
-                runnerUp: ru.team,
-                third: third.team,
-                fourth: fourth.team,
-                winners: sortWinners(leaf.winners),
-              });
-            }
-          }
-        }
-      } else {
-        for (const third of ru.children) {
-          const fourth = third.children[0];
-          if (!fourth) continue;
-          for (const leaf of fourth.children) {
-            rows.push({
-              champion: champ.team,
-              runnerUp: ru.team,
-              semifinalists: [third.team, fourth.team],
-              winners: sortWinners(leaf.winners),
-            });
-          }
-        }
-      }
-    }
-  }
-  return rows;
-}
-
-function isExhaustiveCluster(
-  teams: ChallengeStatsSimilarityTeam[],
-  universe: ChallengeStatsSimilarityTeam[],
-): boolean {
-  if (teams.length === 0 || universe.length === 0) return false;
-  if (universe.length <= 1) return false;
-  return teamSetKey(teams) === teamSetKey(universe);
-}
-
-/** Global remaining teams under a prefix — from the FULL outcome tree. */
-class GlobalUniverse {
-  constructor(private readonly allLeaves: LeafPath[]) {}
-
-  runnerUps(championId: number): ChallengeStatsSimilarityTeam[] {
-    return dedupeTeams(
-      this.allLeaves
-        .filter((row) => row.champion.bracket_contestant_id === championId)
-        .map((row) => row.runnerUp),
-    );
-  }
-
-  thirds(championId: number, runnerUpIds: Set<number>): ChallengeStatsSimilarityTeam[] {
-    return dedupeTeams(
-      this.allLeaves
-        .filter(
-          (row) =>
-            row.champion.bracket_contestant_id === championId &&
-            runnerUpIds.has(row.runnerUp.bracket_contestant_id) &&
-            row.third,
-        )
-        .map((row) => row.third!),
-    );
-  }
-
-  fourths(
-    championId: number,
-    runnerUpIds: Set<number>,
-    thirdIds: Set<number>,
-  ): ChallengeStatsSimilarityTeam[] {
-    return dedupeTeams(
-      this.allLeaves
-        .filter(
-          (row) =>
-            row.champion.bracket_contestant_id === championId &&
-            runnerUpIds.has(row.runnerUp.bracket_contestant_id) &&
-            row.third &&
-            thirdIds.has(row.third.bracket_contestant_id) &&
-            row.fourth,
-        )
-        .map((row) => row.fourth!),
-    );
-  }
-
-  semis(championId: number, runnerUpIds: Set<number>): ChallengeStatsSimilarityTeam[] {
-    const teams: ChallengeStatsSimilarityTeam[] = [];
-    for (const row of this.allLeaves) {
-      if (
-        row.champion.bracket_contestant_id !== championId ||
-        !runnerUpIds.has(row.runnerUp.bracket_contestant_id) ||
-        !row.semifinalists
-      ) {
-        continue;
-      }
-      teams.push(...row.semifinalists);
-    }
-    return dedupeTeams(teams);
-  }
-}
-
-function buildMaxClusteredRow(
-  champion: ChallengeStatsSimilarityTeam,
-  leaves: LeafPath[],
-  hasThirdPlace: boolean,
-  universe: GlobalUniverse,
-): DisplayRow {
-  const champId = champion.bracket_contestant_id;
-  const ruUniverse = universe.runnerUps(champId);
-  const runnerUpTeamsRaw = dedupeTeams(leaves.map((leaf) => leaf.runnerUp));
-  const runnerUpTeams = isExhaustiveCluster(runnerUpTeamsRaw, ruUniverse)
-    ? ruUniverse
-    : runnerUpTeamsRaw;
-  const ruIds = new Set(
-    runnerUpTeams.map((team) => team.bracket_contestant_id),
-  );
-
-  if (hasThirdPlace) {
-    const thirdUniverse = universe.thirds(champId, ruIds);
-    const thirdTeamsRaw = dedupeTeams(
-      leaves.flatMap((leaf) => (leaf.third ? [leaf.third] : [])),
-    );
-    const thirdTeams = isExhaustiveCluster(thirdTeamsRaw, thirdUniverse)
-      ? thirdUniverse
-      : thirdTeamsRaw;
-    const thirdIds = new Set(
-      thirdTeams.map((team) => team.bracket_contestant_id),
-    );
-    const fourthUniverse = universe.fourths(champId, ruIds, thirdIds);
-    const fourthTeamsRaw = dedupeTeams(
-      leaves.flatMap((leaf) => (leaf.fourth ? [leaf.fourth] : [])),
-    );
-    const fourthTeams = isExhaustiveCluster(fourthTeamsRaw, fourthUniverse)
-      ? fourthUniverse
-      : fourthTeamsRaw;
-
-    return {
-      champion,
-      runnerUpTeams,
-      thirdTeams,
-      fourthTeams,
-      semiTeams: [],
-      winners: sortWinners(leaves[0].winners),
-    };
-  }
-
-  const semiUniverse = universe.semis(champId, ruIds);
-  const semiTeamsRaw = dedupeTeams(
-    leaves.flatMap((leaf) => leaf.semifinalists ?? []),
-  );
-  const semiTeams = isExhaustiveCluster(semiTeamsRaw, semiUniverse)
-    ? semiUniverse
-    : semiTeamsRaw;
-
-  return {
-    champion,
-    runnerUpTeams,
-    thirdTeams: [],
-    fourthTeams: [],
-    semiTeams,
-    winners: sortWinners(leaves[0].winners),
-  };
-}
-
-/**
- * Build compact display rows from a leaf set (one entry's leaves, or every leaf).
- * ALL uses GLOBAL remaining teams from the full tree — never only this leaf set —
- * so "ALL" never hides a path that belongs to someone else.
- */
-function buildDisplayRows(
-  workingLeaves: LeafPath[],
-  hasThirdPlace: boolean,
-  universe: GlobalUniverse,
-): DisplayRow[] {
-  if (workingLeaves.length === 0) return [];
-
-  const byChamp = new Map<number, LeafPath[]>();
-  for (const leaf of workingLeaves) {
-    const id = leaf.champion.bracket_contestant_id;
-    const bucket = byChamp.get(id) ?? [];
-    bucket.push(leaf);
-    byChamp.set(id, bucket);
-  }
-
-  const champIds = [...byChamp.keys()].sort((a, b) => {
-    const ca = byChamp.get(a)![0].champion;
-    const cb = byChamp.get(b)![0].champion;
-    return teamSortKey(ca).localeCompare(teamSortKey(cb), undefined, {
-      sensitivity: 'base',
-    });
-  });
-
-  const rows: DisplayRow[] = [];
-
-  for (const champId of champIds) {
-    const champLeaves = byChamp.get(champId)!;
-    const champion = champLeaves[0].champion;
-
-    const byWinners = new Map<string, LeafPath[]>();
-    for (const leaf of champLeaves) {
-      const key = winnersKey(leaf.winners);
-      const bucket = byWinners.get(key) ?? [];
-      bucket.push(leaf);
-      byWinners.set(key, bucket);
-    }
-
-    const winnerGroups = [...byWinners.values()].sort((a, b) =>
-      winnersKey(a[0].winners).localeCompare(winnersKey(b[0].winners)),
-    );
-
-    for (const group of winnerGroups) {
-      rows.push(buildMaxClusteredRow(champion, group, hasThirdPlace, universe));
-    }
-  }
-
-  return rows;
 }
 
 function flattenTableRows(rows: DisplayRow[]): TableRow[] {
@@ -1003,7 +742,7 @@ function PathsTable({
 }: {
   rows: TableRow[];
   hasThirdPlace: boolean;
-  universe: GlobalUniverse;
+  universe: OutcomeGlobalUniverse;
   onSelectPlayer?: (userBracketId: number, displayName: string) => void;
   viewerUsername?: string | null;
   teamMetricMode: TeamMetricMode;
@@ -1191,8 +930,8 @@ export function ChallengeOutcomes({
   const viewModel = useMemo(() => {
     if (tree.length === 0) return null;
 
-    const allLeaves = collectAllLeafPaths(tree, hasThirdPlace);
-    const universe = new GlobalUniverse(allLeaves);
+    const allLeaves = collectOutcomeLeafPaths(tree, hasThirdPlace);
+    const universe = new OutcomeGlobalUniverse(allLeaves);
 
     const entryCards = winnerOdds
       .map((odds) => {
@@ -1201,7 +940,7 @@ export function ChallengeOutcomes({
             (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
           ),
         );
-        const displayRows = buildDisplayRows(
+        const displayRows = buildOutcomeDisplayRows(
           entryLeaves,
           hasThirdPlace,
           universe,
@@ -1214,7 +953,7 @@ export function ChallengeOutcomes({
       .filter((card) => card.rows.length > 0);
 
     const teamRows = flattenTableRows(
-      buildDisplayRows(allLeaves, hasThirdPlace, universe),
+      buildOutcomeDisplayRows(allLeaves, hasThirdPlace, universe),
     );
 
     const teamChampionCards: { champId: number; rows: TableRow[] }[] = [];
