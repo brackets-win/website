@@ -352,10 +352,9 @@ def _count_outcome_stats(
     total = 0
     entry_counts: dict[int, int] = {}
     entry_payloads: dict[int, dict[str, Any]] = {}
-    likelihood_total = 0.0
 
     def visit(node: dict[str, Any]) -> None:
-        nonlocal total, likelihood_total
+        nonlocal total
         entries = node.get("_winner_entries")
         if isinstance(entries, dict) and entries:
             total += 1
@@ -372,9 +371,6 @@ def _count_outcome_stats(
 
     visit(root)
 
-    if entry_likelihood:
-        likelihood_total = sum(entry_likelihood.values())
-
     winner_odds: list[dict[str, Any]] = []
     for entry_id, count in sorted(
         entry_counts.items(),
@@ -388,9 +384,10 @@ def _count_outcome_stats(
             "outcome_count": count,
             "pct": round(100.0 * count / total, 1) if total else 0.0,
         }
-        if entry_likelihood and likelihood_total > 0:
+        if entry_likelihood:
             mass = entry_likelihood.get(entry_id, 0.0)
-            row["likelihood"] = round(100.0 * mass / likelihood_total, 1)
+            if mass > 0:
+                row["likelihood"] = round(100.0 * mass, 1)
         winner_odds.append(row)
     return total, winner_odds
 
