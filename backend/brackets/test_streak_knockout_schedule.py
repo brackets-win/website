@@ -164,6 +164,94 @@ class StreakKnockoutScheduleTests(TestCase):
         self.assertEqual(len(data["knockout_phases"]), 1)
         self.assertEqual(data["knockout_phases"][0]["label"], "Final")
 
+    def test_schedule_endpoint_saves_third_place_match_setting(self):
+        for user_name in ("eve", "frank", "grace"):
+            user = User.objects.create_user(username=user_name, password="x")
+            StreakParticipant.objects.create(streak_challenge=self.challenge, user=user)
+        self.client.force_login(self.host)
+        transition = (timezone.now() + timezone.timedelta(days=5)).isoformat()
+        semi_start = (timezone.now() + timezone.timedelta(days=6)).isoformat()
+        res = self.client.patch(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/schedule",
+            data=json.dumps(
+                {
+                    "knockout_transition_at": transition,
+                    "knockout_round_starts": {"2": semi_start},
+                    "knockout_third_place_match": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.challenge.refresh_from_db()
+        self.assertTrue(self.challenge.knockout_third_place_match)
+        self.assertTrue(
+            res.json()["streak_challenge"]["knockout_third_place_match"]
+        )
+
+    def test_schedule_rejects_third_place_for_two_player_bracket(self):
+        self.client.force_login(self.host)
+        transition = (timezone.now() + timezone.timedelta(days=5)).isoformat()
+        res = self.client.patch(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/schedule",
+            data=json.dumps(
+                {
+                    "knockout_transition_at": transition,
+                    "knockout_round_starts": {},
+                    "knockout_third_place_match": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_schedule_updates_third_place_after_knockout_starts(self):
+        for user_name in ("carol", "dave"):
+            user = User.objects.create_user(username=user_name, password="x")
+            StreakParticipant.objects.create(streak_challenge=self.challenge, user=user)
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        res = self.client.patch(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/schedule",
+            data=json.dumps({"knockout_third_place_match": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.challenge.refresh_from_db()
+        self.assertTrue(self.challenge.knockout_third_place_match)
+        self.assertTrue(
+            res.json()["streak_challenge"]["knockout_third_place_editable"]
+        )
+
+    def test_schedule_rejects_third_place_change_after_semis(self):
+        for user_name in ("eve", "frank"):
+            user = User.objects.create_user(username=user_name, password="x")
+            StreakParticipant.objects.create(streak_challenge=self.challenge, user=user)
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        from brackets.models import StreakKnockout, StreakKnockoutMatch
+
+        knockout = StreakKnockout.objects.get(streak_challenge=self.challenge)
+        StreakKnockoutMatch.objects.filter(
+            knockout=knockout, round_index=1, is_third_place=False
+        ).update(finalized=True)
+
+        res = self.client.patch(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/schedule",
+            data=json.dumps({"knockout_third_place_match": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+
     def test_auto_start_knockout_when_transition_passed(self):
         self.challenge.knockout_transition_at = timezone.now() - timezone.timedelta(
             minutes=1

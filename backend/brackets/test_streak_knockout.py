@@ -909,3 +909,178 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(first_match["score_b_correct"], 0)
         self.assertEqual(first_match["score_b_bonus"], 2)
         self.assertEqual(first_match["score_b"], 2)
+
+    def test_projected_knockout_includes_third_place_slot_when_enabled(self):
+        self.challenge.knockout_third_place_match = True
+        self.challenge.knockout_transition_at = timezone.now() + timedelta(days=2)
+        self.challenge.save(
+            update_fields=["knockout_third_place_match", "knockout_transition_at"]
+        )
+
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout"
+        )
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()["knockout"]
+        self.assertTrue(payload["third_place_match_enabled"])
+        self.assertIsNotNone(payload["third_place_match"])
+        self.assertTrue(payload["third_place_match"]["is_third_place"])
+
+    def test_semi_losers_join_third_place_not_consolation_when_enabled(self):
+        from brackets.models import StreakKnockoutMatch
+
+        self.challenge.knockout_third_place_match = True
+        self.challenge.save(update_fields=["knockout_third_place_match"])
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+
+        closes = timezone.now() - timedelta(days=5)
+        q1 = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Q1",
+            closes_at=closes,
+            resolved_at=timezone.now(),
+            order=0,
+        )
+        right = StreakQuestionChoice.objects.create(question=q1, label="Yes", order=0)
+        StreakQuestionChoice.objects.create(question=q1, label="No", order=1)
+        q1.correct_choice = right
+        q1.save(update_fields=["correct_choice"])
+        for user in (self.alice, self.bob):
+            StreakPick.objects.create(
+                streak_challenge=self.challenge,
+                question=q1,
+                user=user,
+                choice=right,
+            )
+
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        res = self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        dave_p = StreakParticipant.objects.get(user=self.dave)
+        carol_p = StreakParticipant.objects.get(user=self.carol)
+        self.assertIsNone(dave_p.consolation_eligible_from)
+        self.assertIsNone(carol_p.consolation_eligible_from)
+        self.assertTrue(dave_p.in_knockout_bracket)
+        self.assertTrue(carol_p.in_knockout_bracket)
+
+        third_place = StreakKnockoutMatch.objects.get(
+            knockout__streak_challenge=self.challenge,
+            is_third_place=True,
+        )
+        self.assertEqual(third_place.player_a.user_id, self.dave.id)
+        self.assertEqual(third_place.player_b.user_id, self.carol.id)
+
+        payload = res.json()["knockout"]
+        self.assertTrue(payload["third_place_match_enabled"])
+        self.assertEqual(
+            {payload["third_place_match"]["player_a"]["user_id"], payload["third_place_match"]["player_b"]["user_id"]},
+            {self.dave.id, self.carol.id},
+        )
+        consolation_names = {row["display_name"] for row in payload["consolation"]}
+        self.assertNotIn("Dave", consolation_names)
+        self.assertNotIn("Carol", consolation_names)
+
+    def test_consolation_rows_sort_by_record_win_pct_then_season_rank(self):
+        from brackets.models import StreakKnockout
+        from brackets.utils.streak_knockout import _consolation_rows
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        knockout = StreakKnockout.objects.get(streak_challenge=self.challenge)
+        now = timezone.now()
+
+        bob_p = StreakParticipant.objects.get(user=self.bob)
+        carol_p = StreakParticipant.objects.get(user=self.carol)
+        dave_p = StreakParticipant.objects.get(user=self.dave)
+        for participant in (bob_p, carol_p, dave_p):
+            participant.consolation_eligible_from = now
+            participant.in_knockout_bracket = False
+            participant.save(
+                update_fields=["consolation_eligible_from", "in_knockout_bracket"]
+            )
+
+        bob_p.consolation_wins = 3
+        bob_p.consolation_losses = 0
+        bob_p.save(update_fields=["consolation_wins", "consolation_losses"])
+        carol_p.consolation_wins = 2
+        carol_p.consolation_losses = 1
+        carol_p.save(update_fields=["consolation_wins", "consolation_losses"])
+        dave_p.consolation_wins = 2
+        dave_p.consolation_losses = 1
+        dave_p.save(update_fields=["consolation_wins", "consolation_losses"])
+
+        rows = _consolation_rows(self.challenge, knockout)
+        self.assertEqual(
+            [row["display_name"] for row in rows],
+            ["Bob", "Carol", "Dave"],
+        )
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+
+        closes = timezone.now() - timedelta(days=5)
+        q1 = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Q1",
+            closes_at=closes,
+            resolved_at=timezone.now(),
+            order=0,
+        )
+        right = StreakQuestionChoice.objects.create(question=q1, label="Yes", order=0)
+        StreakQuestionChoice.objects.create(question=q1, label="No", order=1)
+        q1.correct_choice = right
+        q1.save(update_fields=["correct_choice"])
+        for user in (self.alice, self.bob):
+            StreakPick.objects.create(
+                streak_challenge=self.challenge,
+                question=q1,
+                user=user,
+                choice=right,
+            )
+
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        res = self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        dave_p = StreakParticipant.objects.get(user=self.dave)
+        carol_p = StreakParticipant.objects.get(user=self.carol)
+        self.assertIsNotNone(dave_p.consolation_eligible_from)
+        self.assertIsNotNone(carol_p.consolation_eligible_from)
+        self.assertFalse(dave_p.in_knockout_bracket)
+        self.assertFalse(carol_p.in_knockout_bracket)
+        consolation_names = {
+            row["display_name"] for row in res.json()["knockout"]["consolation"]
+        }
+        self.assertIn("Dave", consolation_names)
+        self.assertIn("Carol", consolation_names)

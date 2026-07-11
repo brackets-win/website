@@ -319,6 +319,19 @@
   width: 100%;
 }
 
+.streak-bf__third-place-section {
+  width: 100%;
+}
+
+.streak-bf__third-place-match {
+  width: 100%;
+}
+
+.streak-bf__third-place-label {
+  text-align: center;
+  margin: 0.5rem 0 0;
+}
+
 .streak-knockout__setup-panel {
   border-top: 1px solid var(--app-border);
   padding-top: 1rem;

@@ -49,6 +49,8 @@ from brackets.utils.streak_knockout_rules import (
     is_knockout_pick,
     knockout_phase_for_closes_at,
     knockout_phases_payload,
+    knockout_third_place_supported,
+    knockout_third_place_setting_editable,
     knockout_total_rounds,
     participant_in_knockout_bracket_at,
     question_visible_in_challenge,
@@ -162,6 +164,8 @@ def _streak_summary(
         else None,
         "knockout_round_starts": c.knockout_round_starts or {},
         "knockout_round_headstart": c.knockout_round_headstart or {},
+        "knockout_third_place_match": c.knockout_third_place_match,
+        "knockout_third_place_editable": knockout_third_place_setting_editable(c),
         "knockout_total_rounds": knockout_total_rounds(
             StreakParticipant.objects.filter(streak_challenge=c).count()
         ),
@@ -1330,6 +1334,38 @@ def streak_challenge_knockout_schedule(
     except json.JSONDecodeError:
         return _json_error("Invalid JSON body", 400)
 
+    participant_count = StreakParticipant.objects.filter(
+        streak_challenge=challenge
+    ).count()
+
+    if challenge.is_knockout:
+        if "knockout_third_place_match" not in body:
+            return _json_error("Knockout schedule is locked after knockout starts", 400)
+        third_place_match = bool(body.get("knockout_third_place_match"))
+        if third_place_match and not knockout_third_place_supported(participant_count):
+            return _json_error(
+                "Third place match requires at least four players in the bracket.",
+                400,
+            )
+        if not knockout_third_place_setting_editable(challenge):
+            return _json_error(
+                "Third place match can no longer be changed after the semi-finals.",
+                400,
+            )
+        challenge.knockout_third_place_match = third_place_match
+        challenge.save(update_fields=["knockout_third_place_match"])
+        participant = _streak_participant_or_none(challenge, user)
+        return JsonResponse(
+            {
+                "streak_challenge": _streak_summary(
+                    challenge, user, participant=participant
+                ),
+                "knockout_phases": knockout_phases_payload(
+                    challenge, participant_count
+                ),
+            }
+        )
+
     transition_raw = body.get("knockout_transition_at")
     if not transition_raw:
         return _json_error("knockout_transition_at is required", 400)
@@ -1359,9 +1395,17 @@ def streak_challenge_knockout_schedule(
             str(k): bool(v) for k, v in round_headstart_raw.items()
         }
 
-    participant_count = StreakParticipant.objects.filter(
-        streak_challenge=challenge
-    ).count()
+    if "knockout_third_place_match" in body:
+        third_place_match = bool(body.get("knockout_third_place_match"))
+    else:
+        third_place_match = challenge.knockout_third_place_match
+
+    if third_place_match and not knockout_third_place_supported(participant_count):
+        return _json_error(
+            "Third place match requires at least four players in the bracket.",
+            400,
+        )
+
     schedule_err = validate_knockout_schedule(
         challenge,
         transition_at=transition_at,
@@ -1374,11 +1418,13 @@ def streak_challenge_knockout_schedule(
     challenge.knockout_transition_at = transition_at
     challenge.knockout_round_starts = round_starts
     challenge.knockout_round_headstart = round_headstart
+    challenge.knockout_third_place_match = third_place_match
     challenge.save(
         update_fields=[
             "knockout_transition_at",
             "knockout_round_starts",
             "knockout_round_headstart",
+            "knockout_third_place_match",
         ]
     )
 

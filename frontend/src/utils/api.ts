@@ -173,6 +173,8 @@ export type StreakChallengeSummary = {
   knockout_transition_at?: string | null;
   knockout_round_starts?: Record<string, string>;
   knockout_round_headstart?: Record<string, boolean>;
+  knockout_third_place_match?: boolean;
+  knockout_third_place_editable?: boolean;
   knockout_total_rounds?: number;
   knockout_header?: StreakKnockoutHeaderSummary | null;
 };
@@ -318,6 +320,7 @@ export type StreakKnockoutMatch = {
   winner_user_id: number | null;
   finalized: boolean;
   is_live: boolean;
+  is_third_place?: boolean;
 };
 
 export type StreakKnockoutRound = {
@@ -339,6 +342,9 @@ export type StreakKnockoutPayload = {
   current_round: number;
   headstart_enabled: boolean;
   champion_user_id: number | null;
+  third_place_winner_user_id?: number | null;
+  third_place_match?: StreakKnockoutMatch | null;
+  third_place_match_enabled?: boolean;
   total_rounds: number;
   rounds: StreakKnockoutRound[];
   consolation: StreakConsolationEntry[];
@@ -1131,6 +1137,7 @@ export async function saveStreakKnockoutSchedule(
     knockout_transition_at: string;
     knockout_round_starts: Record<string, string>;
     knockout_round_headstart: Record<string, boolean>;
+    knockout_third_place_match?: boolean;
   },
 ): Promise<{
   streak_challenge: StreakChallengeSummary;
@@ -1140,6 +1147,20 @@ export async function saveStreakKnockoutSchedule(
     'PATCH',
     `streak-challenges/${streakChallengeId}/knockout/schedule`,
     body,
+  );
+}
+
+export async function saveStreakKnockoutThirdPlace(
+  streakChallengeId: number,
+  knockout_third_place_match: boolean,
+): Promise<{
+  streak_challenge: StreakChallengeSummary;
+  knockout_phases: KnockoutPhaseInfo[];
+}> {
+  return apiFetch(
+    'PATCH',
+    `streak-challenges/${streakChallengeId}/knockout/schedule`,
+    { knockout_third_place_match },
   );
 }
 

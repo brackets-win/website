@@ -11,6 +11,7 @@ import {
   getStreakParticipantPicks,
   clearStreakPick,
   saveStreakKnockoutSchedule,
+  saveStreakKnockoutThirdPlace,
   streakPick,
   type ApiUser,
   type KnockoutPhaseInfo,
@@ -27,6 +28,7 @@ import { estLocalInputToIso, formatDeadlineEst, isoToEstLocalInput } from '../..
 import {
   compareClosesAt,
   knockoutRoundLabel,
+  knockoutThirdPlaceSupported,
   makePickPhaseDividers,
   playerPickPhaseDividers,
   type PickResultsSort,
@@ -536,6 +538,7 @@ export function StreakChallengeView({
   const [scheduleRoundHeadstart, setScheduleRoundHeadstart] = useState<
     Record<string, boolean>
   >({});
+  const [scheduleThirdPlaceMatch, setScheduleThirdPlaceMatch] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleErr, setScheduleErr] = useState('');
   const [scheduleMsg, setScheduleMsg] = useState('');
@@ -646,7 +649,9 @@ export function StreakChallengeView({
   }, [knockoutPhases, summary?.knockout_round_headstart]);
 
   useEffect(() => {
-    if (!summary || isKnockout) return;
+    if (!summary) return;
+    setScheduleThirdPlaceMatch(summary.knockout_third_place_match === true);
+    if (isKnockout) return;
     setScheduleTransition(
       summary.knockout_transition_at
         ? isoToEstLocalInput(summary.knockout_transition_at)
@@ -1023,6 +1028,7 @@ export function StreakChallengeView({
         knockout_transition_at: transitionIso,
         knockout_round_starts: roundStarts,
         knockout_round_headstart: roundHeadstart,
+        knockout_third_place_match: scheduleThirdPlaceMatch,
       });
       setSummary(result.streak_challenge);
       setKnockoutPhases(result.knockout_phases);
@@ -1035,6 +1041,32 @@ export function StreakChallengeView({
     } catch (e) {
       setScheduleErr(
         e instanceof ApiError ? e.message : 'Could not save schedule.',
+      );
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
+
+  async function handleSaveThirdPlaceMatch() {
+    setScheduleBusy(true);
+    setScheduleErr('');
+    setScheduleMsg('');
+    try {
+      const result = await saveStreakKnockoutThirdPlace(
+        streakChallengeId,
+        scheduleThirdPlaceMatch,
+      );
+      setSummary(result.streak_challenge);
+      setKnockoutPhases(result.knockout_phases);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        summary: result.streak_challenge,
+        knockoutPhases: result.knockout_phases,
+      });
+      setScheduleMsg('Third place match setting saved.');
+      await reload();
+    } catch (e) {
+      setScheduleErr(
+        e instanceof ApiError ? e.message : 'Could not save third place setting.',
       );
     } finally {
       setScheduleBusy(false);
@@ -1545,6 +1577,43 @@ export function StreakChallengeView({
                       ))}
                     </ul>
                   ) : null}
+                  {summary.knockout_third_place_editable &&
+                  knockoutThirdPlaceSupported(entries.length) ? (
+                    <div className="streak-knockout-schedule-row streak-knockout-schedule-row--third-place">
+                      <label className="streak-knockout-schedule-row__headstart checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={scheduleThirdPlaceMatch}
+                          onChange={(e) => setScheduleThirdPlaceMatch(e.target.checked)}
+                          disabled={scheduleBusy}
+                        />
+                        Third Place Match
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        disabled={scheduleBusy}
+                        onClick={() => void handleSaveThirdPlaceMatch()}
+                      >
+                        {scheduleBusy ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="streak-view__muted">
+                      Third Place Match:{' '}
+                      {summary.knockout_third_place_match ? 'On' : 'Off'}
+                    </p>
+                  )}
+                  {scheduleErr ? (
+                    <div className="alert alert--error" role="status">
+                      {scheduleErr}
+                    </div>
+                  ) : null}
+                  {scheduleMsg ? (
+                    <div className="alert alert--success" role="status">
+                      {scheduleMsg}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <form
@@ -1557,6 +1626,17 @@ export function StreakChallengeView({
                     deadline. Start Knockout on the Knockout tab locks the bracket;
                     later rounds advance at these times.
                   </p>
+                  {knockoutThirdPlaceSupported(entries.length) ? (
+                    <label className="streak-knockout-schedule-row__headstart checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={scheduleThirdPlaceMatch}
+                        onChange={(e) => setScheduleThirdPlaceMatch(e.target.checked)}
+                        disabled={scheduleBusy}
+                      />
+                      Third Place Match
+                    </label>
+                  ) : null}
                   <div className="streak-knockout-schedule-row">
                     <div className="field">
                       <label htmlFor="streak-knockout-transition">

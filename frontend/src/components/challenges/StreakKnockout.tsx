@@ -277,6 +277,9 @@ function ChampionColumn({
     knockout.rounds.length > 0
       ? knockout.rounds[knockout.rounds.length - 1].matches[0] ?? null
       : null;
+  const thirdPlaceMatch = knockout.third_place_match_enabled
+    ? knockout.third_place_match ?? null
+    : null;
   const champion =
     finalMatch?.player_a?.user_id === knockout.champion_user_id
       ? finalMatch.player_a
@@ -299,47 +302,57 @@ function ChampionColumn({
 
   return (
     <div className="bf-stage-col bf-stage-col--champion">
-      <p className="bf-stage-title">Champion</p>
-      <div className="bf-stage-track">
-        <div
-          className="bf-matchup-anchor streak-bf__champion-anchor"
-          style={{ top: '50%', transform: 'translateY(-50%)' }}
-        >
-          <div
-            className={
-              champion
-                ? 'bf-champion-box bf-champion-box--active'
-                : 'bf-champion-box'
-            }
-          >
-            {champion ? (
-              <>
-                <button
-                  type="button"
-                  className="streak-bf__champion-name streak-leaderboard__player"
-                  onClick={() =>
-                    onSelectPlayer(
-                      champion.user_id,
-                      champion.display_name,
-                      {
-                        scope: 'round',
-                        roundIndex: knockout.rounds.length,
-                      },
-                      finalMatchup,
-                    )
-                  }
-                >
-                  {champion.display_name}
-                </button>
-                <span className="bf-champion-seed">
-                  Seed #{champion.seed || '—'}
-                </span>
-              </>
-            ) : (
-              <span className="bf-champion-placeholder">Champion</span>
-            )}
+      <div className="bf-champion-stack">
+        <div className="bf-champion-middle">
+          <p className="bf-stage-title">Champion</p>
+          <div className="bf-champion-box-wrap">
+            <div
+              className={
+                champion
+                  ? 'bf-champion-box bf-champion-box--active'
+                  : 'bf-champion-box'
+              }
+            >
+              {champion ? (
+                <>
+                  <button
+                    type="button"
+                    className="streak-bf__champion-name streak-leaderboard__player"
+                    onClick={() =>
+                      onSelectPlayer(
+                        champion.user_id,
+                        champion.display_name,
+                        {
+                          scope: 'round',
+                          roundIndex: knockout.rounds.length,
+                        },
+                        finalMatchup,
+                      )
+                    }
+                  >
+                    {champion.display_name}
+                  </button>
+                  <span className="bf-champion-seed">
+                    Seed #{champion.seed || '—'}
+                  </span>
+                </>
+              ) : (
+                <span className="bf-champion-placeholder">Champion</span>
+              )}
+            </div>
           </div>
         </div>
+        {thirdPlaceMatch ? (
+          <div className="bf-third-place-section streak-bf__third-place-section">
+            <div className="streak-bf__third-place-match">
+              <BracketMatchup
+                match={thirdPlaceMatch}
+                onSelectPlayer={onSelectPlayer}
+              />
+            </div>
+            <p className="bf-stage-title streak-bf__third-place-label">3RD PLACE</p>
+          </div>
+        ) : null}
       </div>
     </div>
   );

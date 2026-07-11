@@ -54,6 +54,7 @@ class StreakChallenge(models.Model):
     knockout_round_starts = models.JSONField(default=dict, blank=True)
     # Per-round headstart from frozen best streak ("1", "2", …); default on when missing.
     knockout_round_headstart = models.JSONField(default=dict, blank=True)
+    knockout_third_place_match = models.BooleanField(default=False)
     # Cached stats revision + payload (see streak_challenge_stats.py).
     metadata = models.JSONField(default=dict, blank=True)
 
@@ -223,6 +224,7 @@ class StreakKnockoutMatch(models.Model):
         related_name="knockout_match_wins",
     )
     finalized = models.BooleanField(default=False)
+    is_third_place = models.BooleanField(default=False)
     source_match_a = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,

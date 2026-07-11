@@ -118,6 +118,22 @@ function compareNumeric(
   return direction === 'asc' ? diff : -diff;
 }
 
+function compareConsolationStandings(
+  a: StreakLeaderboardEntry,
+  b: StreakLeaderboardEntry,
+  direction: 'asc' | 'desc',
+): number {
+  let result = compareNumeric(a.consolation_wins, b.consolation_wins, direction);
+  if (result !== 0) return result;
+  result = compareNumeric(a.consolation_win_pct, b.consolation_win_pct, direction);
+  if (result !== 0) return result;
+  result = compareNumeric(a.rank, b.rank, 'asc');
+  if (result !== 0) return result;
+  return playerLabel(a).localeCompare(playerLabel(b), undefined, {
+    sensitivity: 'base',
+  });
+}
+
 function compareEntries(
   a: StreakLeaderboardEntry,
   b: StreakLeaderboardEntry,
@@ -163,15 +179,21 @@ function compareEntries(
     result = compareNumeric(a.knockout_win_pct, b.knockout_win_pct, direction);
     return result;
   } else if (key === 'consolation_record') {
-    result = compareNumeric(a.consolation_wins, b.consolation_wins, direction);
-    return result;
+    return compareConsolationStandings(a, b, direction);
   } else if (key === 'consolation_win_pct') {
-    result = compareNumeric(
+    let result = compareNumeric(
       a.consolation_win_pct,
       b.consolation_win_pct,
       direction,
     );
-    return result;
+    if (result !== 0) return result;
+    result = compareNumeric(a.consolation_wins, b.consolation_wins, direction);
+    if (result !== 0) return result;
+    result = compareNumeric(a.rank, b.rank, 'asc');
+    if (result !== 0) return result;
+    return playerLabel(a).localeCompare(playerLabel(b), undefined, {
+      sensitivity: 'base',
+    });
   } else if (key === 'total_record') {
     result = compareNumeric(a.total_wins, b.total_wins, direction);
     return result;

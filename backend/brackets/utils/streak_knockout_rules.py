@@ -39,6 +39,51 @@ def knockout_total_rounds(participant_count: int) -> int:
     return int(math.log2(bracket_size))
 
 
+def knockout_third_place_supported(participant_count: int) -> bool:
+    return bracket_qualifier_count(participant_count) >= 4
+
+
+def third_place_match_enabled(
+    challenge: StreakChallenge, participant_count: int
+) -> bool:
+    return bool(challenge.knockout_third_place_match) and knockout_third_place_supported(
+        participant_count
+    )
+
+
+def knockout_third_place_setting_editable(challenge: StreakChallenge) -> bool:
+    if challenge.streak_competition.ended_at is not None:
+        return False
+    if not challenge.is_knockout:
+        return True
+    try:
+        knockout = challenge.knockout
+    except StreakKnockout.DoesNotExist:
+        return True
+    if knockout.status == StreakKnockout.Status.COMPLETE:
+        return False
+    if knockout.matches.filter(is_third_place=True).exists():
+        return False
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    semi_round = semi_final_round_index(total_rounds)
+    if semi_round is None:
+        return False
+    if knockout.matches.filter(
+        round_index=semi_round,
+        is_third_place=False,
+        finalized=True,
+    ).exists():
+        return False
+    return True
+
+
+def semi_final_round_index(total_rounds: int) -> int | None:
+    if total_rounds < 2:
+        return None
+    return total_rounds - 1
+
+
 def _parse_stored_dt(value: Any) -> datetime | None:
     if value is None:
         return None

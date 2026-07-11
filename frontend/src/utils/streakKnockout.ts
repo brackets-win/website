@@ -14,6 +14,15 @@ export function knockoutRoundLabel(
   return `Round ${roundIndex}`;
 }
 
+export function knockoutBracketSize(participantCount: number): number {
+  if (participantCount < 2) return participantCount;
+  return 2 ** Math.floor(Math.log2(participantCount));
+}
+
+export function knockoutThirdPlaceSupported(participantCount: number): boolean {
+  return knockoutBracketSize(participantCount) >= 4;
+}
+
 export type KnockoutPhaseInfo = {
   round_index: number;
   label: string;

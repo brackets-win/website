@@ -22,7 +22,10 @@ from brackets.utils.streak_knockout_rules import (
     headstart_for_round,
     knockout_round_label,
     knockout_total_rounds,
+    knockout_third_place_supported,
     round_start_at,
+    semi_final_round_index,
+    third_place_match_enabled,
 )
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.leaderboard_preview import streak_participant_label, streak_ranked_participants
@@ -311,59 +314,164 @@ def swap_round1_players(
         match.save(update_fields=["player_b", "seed_b"])
 
 
+def _eliminate_to_consolation(player: StreakParticipant, when: datetime) -> None:
+    player.bracket_eliminated_at = when
+    player.consolation_eligible_from = when
+    player.in_knockout_bracket = False
+    player.save(
+        update_fields=[
+            "bracket_eliminated_at",
+            "consolation_eligible_from",
+            "in_knockout_bracket",
+        ]
+    )
+
+
+def _eliminate_from_bracket_no_consolation(
+    player: StreakParticipant, when: datetime
+) -> None:
+    player.bracket_eliminated_at = when
+    player.in_knockout_bracket = False
+    player.save(update_fields=["bracket_eliminated_at", "in_knockout_bracket"])
+
+
+def _create_third_place_match(
+    knockout: StreakKnockout,
+    *,
+    loser_a: StreakParticipant,
+    loser_b: StreakParticipant,
+    source_a: StreakKnockoutMatch,
+    source_b: StreakKnockoutMatch,
+    total_rounds: int,
+) -> StreakKnockoutMatch:
+    existing = knockout.matches.filter(is_third_place=True).first()
+    if existing is not None:
+        return existing
+    return StreakKnockoutMatch.objects.create(
+        knockout=knockout,
+        round_index=total_rounds,
+        position=2,
+        is_third_place=True,
+        player_a=loser_a,
+        player_b=loser_b,
+        seed_a=loser_a.knockout_seed or 0,
+        seed_b=loser_b.knockout_seed or 0,
+        source_match_a=source_a,
+        source_match_b=source_b,
+    )
+
+
+def _score_match(
+    knockout: StreakKnockout,
+    match: StreakKnockoutMatch,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    headstart_enabled: bool,
+) -> None:
+    score_a = _match_score(
+        match.player_a,
+        challenge_id=knockout.streak_challenge_id,
+        window_start=window_start,
+        window_end=window_end,
+        headstart_enabled=headstart_enabled,
+    )
+    score_b = _match_score(
+        match.player_b,
+        challenge_id=knockout.streak_challenge_id,
+        window_start=window_start,
+        window_end=window_end,
+        headstart_enabled=headstart_enabled,
+    )
+    winner = _pick_winner(match, score_a, score_b)
+    match.score_a = score_a
+    match.score_b = score_b
+    match.winner = winner
+    match.finalized = True
+    match.save(update_fields=["score_a", "score_b", "winner", "finalized"])
+
+
 def _finalize_round(
     knockout: StreakKnockout,
     *,
     window_start: datetime,
     window_end: datetime,
 ) -> list[StreakKnockoutMatch]:
+    challenge = knockout.streak_challenge
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    third_place_on = third_place_match_enabled(challenge, participant_count)
+    semi_round = semi_final_round_index(total_rounds)
+    is_semi_round = (
+        semi_round is not None and knockout.current_round == semi_round
+    )
+    headstart_enabled = headstart_for_round(challenge, knockout.current_round)
+
     matches = list(
         knockout.matches.filter(
             round_index=knockout.current_round,
             finalized=False,
+            is_third_place=False,
         ).select_related("player_a", "player_b")
     )
     now = window_end
-    for match in matches:
-        score_a = _match_score(
-            match.player_a,
-            challenge_id=knockout.streak_challenge_id,
-            window_start=window_start,
-            window_end=window_end,
-            headstart_enabled=knockout.headstart_enabled,
-        )
-        score_b = _match_score(
-            match.player_b,
-            challenge_id=knockout.streak_challenge_id,
-            window_start=window_start,
-            window_end=window_end,
-            headstart_enabled=knockout.headstart_enabled,
-        )
-        winner = _pick_winner(match, score_a, score_b)
-        match.score_a = score_a
-        match.score_b = score_b
-        match.winner = winner
-        match.finalized = True
-        match.save(
-            update_fields=["score_a", "score_b", "winner", "finalized"]
-        )
+    semi_losers: list[tuple[StreakParticipant, StreakKnockoutMatch]] = []
 
+    for match in matches:
+        _score_match(
+            knockout,
+            match,
+            window_start=window_start,
+            window_end=window_end,
+            headstart_enabled=headstart_enabled,
+        )
+        winner = match.winner
         for player in (match.player_a, match.player_b):
             if player is None or winner is None:
                 continue
-            if player.id != winner.id:
-                player.bracket_eliminated_at = now
-                player.consolation_eligible_from = now
-                player.in_knockout_bracket = False
-                player.save(
-                    update_fields=[
-                        "bracket_eliminated_at",
-                        "consolation_eligible_from",
-                        "in_knockout_bracket",
-                    ]
-                )
+            if player.id == winner.id:
+                continue
+            if is_semi_round and third_place_on:
+                semi_losers.append((player, match))
+            else:
+                _eliminate_to_consolation(player, now)
+
+    if is_semi_round and third_place_on and len(semi_losers) == 2:
+        _create_third_place_match(
+            knockout,
+            loser_a=semi_losers[0][0],
+            loser_b=semi_losers[1][0],
+            source_a=semi_losers[0][1],
+            source_b=semi_losers[1][1],
+            total_rounds=total_rounds,
+        )
 
     return matches
+
+
+def _finalize_third_place_match(
+    knockout: StreakKnockout,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> StreakKnockoutMatch | None:
+    match = knockout.matches.filter(is_third_place=True, finalized=False).first()
+    if match is None:
+        return None
+    challenge = knockout.streak_challenge
+    headstart_enabled = headstart_for_round(challenge, match.round_index)
+    _score_match(
+        knockout,
+        match,
+        window_start=window_start,
+        window_end=window_end,
+        headstart_enabled=headstart_enabled,
+    )
+    now = window_end
+    for player in (match.player_a, match.player_b):
+        if player is not None:
+            _eliminate_from_bracket_no_consolation(player, now)
+    return match
 
 
 def _build_next_round(
@@ -457,6 +565,15 @@ def advance_knockout_round(
         window_start=knockout.round_started_at,
         window_end=window_end,
     )
+
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    if knockout.current_round == total_rounds:
+        _finalize_third_place_match(
+            knockout,
+            window_start=knockout.round_started_at,
+            window_end=window_end,
+        )
 
     winners = [m.winner for m in finalized if m.winner is not None]
     if len(winners) == 1:
@@ -668,11 +785,13 @@ def _empty_match_payload(
     *,
     round_index: int,
     position: int,
+    is_third_place: bool = False,
 ) -> dict[str, Any]:
     return {
         "id": -(round_index * 1000 + position),
         "round_index": round_index,
         "position": position,
+        "is_third_place": is_third_place,
         "player_a": None,
         "player_b": None,
         "seed_a": 0,
@@ -700,12 +819,22 @@ def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict
     setup_live = (
         knockout.status == StreakKnockout.Status.SETUP
         and match.round_index == 1
+        and not match.is_third_place
         and round_one_start is not None
         and now >= round_one_start
         and not match.finalized
     )
-    is_live = setup_live or (
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    third_place_live = (
+        match.is_third_place
+        and not match.finalized
+        and knockout.status == StreakKnockout.Status.IN_PROGRESS
+        and knockout.current_round == total_rounds
+    )
+    is_live = third_place_live or setup_live or (
         not match.finalized
+        and not match.is_third_place
         and knockout.status == StreakKnockout.Status.IN_PROGRESS
         and knockout.current_round == match.round_index
     )
@@ -713,6 +842,7 @@ def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict
         "id": match.id,
         "round_index": match.round_index,
         "position": match.position,
+        "is_third_place": match.is_third_place,
         "player_a": _participant_slot(match, match.player_a)
         if match.player_a
         else None,
@@ -734,9 +864,36 @@ def _match_payload(knockout: StreakKnockout, match: StreakKnockoutMatch) -> dict
     }
 
 
+def _season_ranks_by_user_id(
+    participants: list[StreakParticipant],
+) -> dict[int, int]:
+    return {
+        p.user_id: rank for p, rank in streak_ranked_participants(participants)
+    }
+
+
+def _consolation_row_sort_key(
+    row: dict[str, Any],
+    *,
+    season_ranks: dict[int, int],
+) -> tuple:
+    return (
+        -row["wins"],
+        -row["win_pct"],
+        season_ranks.get(row["user_id"], 999999),
+        row["display_name"].casefold(),
+    )
+
+
 def _consolation_rows(
     challenge: StreakChallenge, knockout: StreakKnockout
 ) -> list[dict[str, Any]]:
+    participants = list(
+        StreakParticipant.objects.filter(streak_challenge=challenge).select_related(
+            "user"
+        )
+    )
+    season_ranks = _season_ranks_by_user_id(participants)
     rows: list[dict[str, Any]] = []
     for p in StreakParticipant.objects.filter(
         streak_challenge=challenge,
@@ -756,13 +913,14 @@ def _consolation_rows(
                 "win_pct": round(rate * 100),
             }
         )
-    rows.sort(key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold()))
+    rows.sort(key=lambda r: _consolation_row_sort_key(r, season_ranks=season_ranks))
     return rows
 
 
 def _projected_consolation_rows(
     participants: list[StreakParticipant], qualifier_ids: set[int]
 ) -> list[dict[str, Any]]:
+    season_ranks = _season_ranks_by_user_id(participants)
     rows: list[dict[str, Any]] = []
     for p in participants:
         if p.id in qualifier_ids:
@@ -777,7 +935,7 @@ def _projected_consolation_rows(
                 "win_pct": 0,
             }
         )
-    rows.sort(key=lambda r: (-r["wins"], -r["win_pct"], r["display_name"].casefold()))
+    rows.sort(key=lambda r: _consolation_row_sort_key(r, season_ranks=season_ranks))
     return rows
 
 
@@ -799,6 +957,28 @@ def knockout_header_summary(
     except StreakKnockout.DoesNotExist:
         return None
 
+    third_place_match = knockout.matches.filter(is_third_place=True).first()
+    if third_place_match is not None and (
+        third_place_match.player_a_id == participant.id
+        or third_place_match.player_b_id == participant.id
+    ):
+        scores = _match_score_display_payload(knockout, third_place_match)
+        name_a = (
+            streak_participant_label(third_place_match.player_a)
+            if third_place_match.player_a
+            else "TBD"
+        )
+        name_b = (
+            streak_participant_label(third_place_match.player_b)
+            if third_place_match.player_b
+            else "TBD"
+        )
+        return {
+            "kind": "matchup",
+            "label": "3rd Place",
+            "value": f"{name_a} {scores['score_a']}-{scores['score_b']} {name_b}",
+        }
+
     if not participant.in_knockout_bracket and knockout.champion_id != participant.id:
         rows = _consolation_rows(challenge, knockout)
         rank = next(
@@ -815,11 +995,11 @@ def knockout_header_summary(
         }
 
     participant_matches = list(
-        knockout.matches.filter(player_a=participant).select_related(
+        knockout.matches.filter(player_a=participant, is_third_place=False).select_related(
             "player_a__user", "player_b__user", "winner__user"
         )
     ) + list(
-        knockout.matches.filter(player_b=participant).select_related(
+        knockout.matches.filter(player_b=participant, is_third_place=False).select_related(
             "player_a__user", "player_b__user", "winner__user"
         )
     )
@@ -914,11 +1094,24 @@ def projected_knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | N
         ]
         rounds.append({"round_index": round_index, "matches": matches})
 
+    third_place_payload = None
+    if third_place_match_enabled(challenge, len(participants)):
+        third_place_payload = _empty_match_payload(
+            round_index=total_rounds,
+            position=2,
+            is_third_place=True,
+        )
+
     return {
         "status": "SETUP",
         "current_round": 0,
         "headstart_enabled": False,
         "champion_user_id": None,
+        "third_place_winner_user_id": None,
+        "third_place_match": third_place_payload,
+        "third_place_match_enabled": third_place_match_enabled(
+            challenge, len(participants)
+        ),
         "total_rounds": total_rounds,
         "rounds": rounds,
         "consolation": _projected_consolation_rows(participants, qualifier_ids),
@@ -943,7 +1136,14 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
             "player_a__user",
             "player_b__user",
             "winner__user",
-        ).order_by("round_index", "position")
+        )
+        .filter(is_third_place=False)
+        .order_by("round_index", "position")
+    )
+    third_place_match = (
+        knockout.matches.filter(is_third_place=True)
+        .select_related("player_a__user", "player_b__user", "winner__user")
+        .first()
     )
     rounds: dict[int, list[dict[str, Any]]] = {}
     for match in matches:
@@ -961,12 +1161,26 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
         round_rows.append({"round_index": idx, "matches": match_rows})
 
     consolation_rows = _consolation_rows(challenge, knockout)
+    third_place_payload = (
+        _match_payload(knockout, third_place_match)
+        if third_place_match is not None
+        else None
+    )
 
     return {
         "status": knockout.status,
         "current_round": knockout.current_round,
         "headstart_enabled": knockout.headstart_enabled,
         "champion_user_id": knockout.champion.user_id if knockout.champion else None,
+        "third_place_winner_user_id": (
+            third_place_match.winner.user_id
+            if third_place_match and third_place_match.winner
+            else None
+        ),
+        "third_place_match": third_place_payload,
+        "third_place_match_enabled": third_place_match_enabled(
+            challenge, participant_count
+        ),
         "total_rounds": total_rounds,
         "rounds": round_rows,
         "consolation": consolation_rows,
