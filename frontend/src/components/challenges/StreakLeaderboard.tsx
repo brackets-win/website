@@ -17,8 +17,12 @@ type StreakSortKey =
   | 'long_l'
   | 'record'
   | 'win_pct'
-  | 'season_record'
-  | 'season_win_pct'
+  | 'streak_record'
+  | 'streak_win_pct'
+  | 'knockout_record'
+  | 'knockout_win_pct'
+  | 'consolation_record'
+  | 'consolation_win_pct'
   | 'total_record'
   | 'total_win_pct';
 
@@ -34,6 +38,45 @@ type Props = {
   isKnockout: boolean;
   knockoutCutoffCount: number | null;
 };
+
+type KnockoutSection = {
+  label: string;
+  recordKey: StreakSortKey;
+  winPctKey: StreakSortKey;
+  record: (entry: StreakLeaderboardEntry) => string;
+  winPct: (entry: StreakLeaderboardEntry) => number;
+};
+
+const KNOCKOUT_SECTIONS: KnockoutSection[] = [
+  {
+    label: 'Streak',
+    recordKey: 'streak_record',
+    winPctKey: 'streak_win_pct',
+    record: (e) => e.streak_record,
+    winPct: (e) => e.streak_win_pct,
+  },
+  {
+    label: 'Knockout',
+    recordKey: 'knockout_record',
+    winPctKey: 'knockout_win_pct',
+    record: (e) => e.knockout_record,
+    winPct: (e) => e.knockout_win_pct,
+  },
+  {
+    label: 'Consolation',
+    recordKey: 'consolation_record',
+    winPctKey: 'consolation_win_pct',
+    record: (e) => e.consolation_record,
+    winPct: (e) => e.consolation_win_pct,
+  },
+  {
+    label: 'Total',
+    recordKey: 'total_record',
+    winPctKey: 'total_win_pct',
+    record: (e) => e.total_record,
+    winPct: (e) => e.total_win_pct,
+  },
+];
 
 function playerLabel(entry: StreakLeaderboardEntry): string {
   return entry.display_name?.trim() || entry.username;
@@ -107,11 +150,27 @@ function compareEntries(
   } else if (key === 'win_pct') {
     result = compareNumeric(a.win_pct, b.win_pct, direction);
     return result;
-  } else if (key === 'season_record') {
-    result = compareNumeric(a.season_wins, b.season_wins, direction);
+  } else if (key === 'streak_record') {
+    result = compareNumeric(a.streak_wins, b.streak_wins, direction);
     return result;
-  } else if (key === 'season_win_pct') {
-    result = compareNumeric(a.season_win_pct, b.season_win_pct, direction);
+  } else if (key === 'streak_win_pct') {
+    result = compareNumeric(a.streak_win_pct, b.streak_win_pct, direction);
+    return result;
+  } else if (key === 'knockout_record') {
+    result = compareNumeric(a.knockout_wins, b.knockout_wins, direction);
+    return result;
+  } else if (key === 'knockout_win_pct') {
+    result = compareNumeric(a.knockout_win_pct, b.knockout_win_pct, direction);
+    return result;
+  } else if (key === 'consolation_record') {
+    result = compareNumeric(a.consolation_wins, b.consolation_wins, direction);
+    return result;
+  } else if (key === 'consolation_win_pct') {
+    result = compareNumeric(
+      a.consolation_win_pct,
+      b.consolation_win_pct,
+      direction,
+    );
     return result;
   } else if (key === 'total_record') {
     result = compareNumeric(a.total_wins, b.total_wins, direction);
@@ -129,11 +188,13 @@ function SortableHeader({
   sortKey,
   sort,
   onSort,
+  sectionDivider = false,
 }: {
   label: string;
   sortKey: StreakSortKey;
   sort: SortState;
   onSort: (key: StreakSortKey) => void;
+  sectionDivider?: boolean;
 }) {
   const active = sort.key === sortKey;
   const ariaSort = active
@@ -143,7 +204,15 @@ function SortableHeader({
     : 'none';
 
   return (
-    <th scope="col" className="is-num" aria-sort={ariaSort}>
+    <th
+      scope="col"
+      className={
+        sectionDivider
+          ? 'is-num streak-leaderboard__section-divider'
+          : 'is-num'
+      }
+      aria-sort={ariaSort}
+    >
       <button
         type="button"
         className={
@@ -171,9 +240,9 @@ const SORT_OPTIONS: {
   { key: 'player', label: 'Player' },
   { key: 'long_w', label: 'Best' },
   { key: 'current', label: 'Current' },
+  { key: 'long_l', label: 'Worst' },
   { key: 'record', label: 'Record' },
   { key: 'win_pct', label: 'Win %' },
-  { key: 'long_l', label: 'Worst' },
 ];
 
 const KNOCKOUT_SORT_OPTIONS: {
@@ -185,12 +254,64 @@ const KNOCKOUT_SORT_OPTIONS: {
   { key: 'player', label: 'Player' },
   { key: 'long_w', label: 'Best' },
   { key: 'current', label: 'Current' },
-  { key: 'season_record', label: 'Season Record', mobileLabel: 'Season Rec' },
-  { key: 'season_win_pct', label: 'Season Win %', mobileLabel: 'Season %' },
-  { key: 'total_record', label: 'Total Record', mobileLabel: 'Total Rec' },
-  { key: 'total_win_pct', label: 'Total Win %', mobileLabel: 'Total %' },
   { key: 'long_l', label: 'Worst' },
+  { key: 'streak_record', label: 'Streak W-L', mobileLabel: 'Streak' },
+  { key: 'streak_win_pct', label: 'Streak %', mobileLabel: 'Streak %' },
+  { key: 'knockout_record', label: 'Knockout W-L', mobileLabel: 'KO' },
+  { key: 'knockout_win_pct', label: 'Knockout %', mobileLabel: 'KO %' },
+  {
+    key: 'consolation_record',
+    label: 'Consolation W-L',
+    mobileLabel: 'Cons.',
+  },
+  {
+    key: 'consolation_win_pct',
+    label: 'Consolation %',
+    mobileLabel: 'Cons. %',
+  },
+  { key: 'total_record', label: 'Total W-L', mobileLabel: 'Total' },
+  { key: 'total_win_pct', label: 'Total %', mobileLabel: 'Total %' },
 ];
+
+function FixedHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className = 'is-num',
+}: {
+  label: string;
+  sortKey: StreakSortKey;
+  sort: SortState;
+  onSort: (key: StreakSortKey) => void;
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  const ariaSort = active
+    ? sort.direction === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+
+  return (
+    <th scope="col" rowSpan={2} className={className} aria-sort={ariaSort}>
+      <button
+        type="button"
+        className={
+          active
+            ? 'challenge-leaderboard__th-btn challenge-leaderboard__th-btn--active'
+            : 'challenge-leaderboard__th-btn'
+        }
+        onClick={() => onSort(sortKey)}
+      >
+        <span>{label}</span>
+        <span className="challenge-leaderboard__sort-icon" aria-hidden>
+          {active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
 
 export function StreakLeaderboard({
   entries,
@@ -320,29 +441,34 @@ export function StreakLeaderboard({
                       <dd>{e.current_display}</dd>
                     </div>
                     <div className="leaderboard-card__stat">
-                      <dt>{isKnockout ? 'Season Record' : 'Record'}</dt>
-                      <dd>{isKnockout ? e.season_record : e.record}</dd>
-                    </div>
-                    <div className="leaderboard-card__stat">
                       <dt>Worst</dt>
                       <dd>{e.long_loss_display}</dd>
                     </div>
-                    <div className="leaderboard-card__stat">
-                      <dt>{isKnockout ? 'Season Win %' : 'Win %'}</dt>
-                      <dd>{isKnockout ? e.season_win_pct : e.win_pct}%</dd>
-                    </div>
                     {isKnockout ? (
+                      KNOCKOUT_SECTIONS.map((section) => (
+                        <Fragment key={section.label}>
+                          <div className="leaderboard-card__stat">
+                            <dt>{section.label} W-L</dt>
+                            <dd>{section.record(e)}</dd>
+                          </div>
+                          <div className="leaderboard-card__stat">
+                            <dt>{section.label} %</dt>
+                            <dd>{section.winPct(e)}%</dd>
+                          </div>
+                        </Fragment>
+                      ))
+                    ) : (
                       <>
                         <div className="leaderboard-card__stat">
-                          <dt>Total Record</dt>
-                          <dd>{e.total_record}</dd>
+                          <dt>Record</dt>
+                          <dd>{e.record}</dd>
                         </div>
                         <div className="leaderboard-card__stat">
-                          <dt>Total Win %</dt>
-                          <dd>{e.total_win_pct}%</dd>
+                          <dt>Win %</dt>
+                          <dd>{e.win_pct}%</dd>
                         </div>
                       </>
-                    ) : null}
+                    )}
                   </dl>
                 </li>
               </Fragment>
@@ -353,80 +479,138 @@ export function StreakLeaderboard({
       <div className="table-scroll streak-leaderboard__desktop">
         <table className="data-table streak-leaderboard__table">
           <thead>
-            <tr>
-              <SortableHeader
-                label="#"
-                sortKey="rank"
-                sort={sort}
-                onSort={onSort}
-              />
-              <th scope="col" className="is-player">
-                <button
-                  type="button"
-                  className={
-                    sort.key === 'player'
-                      ? 'challenge-leaderboard__th-btn challenge-leaderboard__th-btn--active'
-                      : 'challenge-leaderboard__th-btn'
-                  }
-                  onClick={() => onSort('player')}
-                >
-                  <span>Player</span>
-                  <span className="challenge-leaderboard__sort-icon" aria-hidden>
-                    {sort.key === 'player'
-                      ? sort.direction === 'asc'
-                        ? '↑'
-                        : '↓'
-                      : '↕'}
-                  </span>
-                </button>
-              </th>
-              <SortableHeader
-                label="Best"
-                sortKey="long_w"
-                sort={sort}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label="Current"
-                sortKey="current"
-                sort={sort}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label={isKnockout ? 'Season Record' : 'Record'}
-                sortKey={isKnockout ? 'season_record' : 'record'}
-                sort={sort}
-                onSort={onSort}
-              />
-              <SortableHeader
-                label={isKnockout ? 'SEASON WIN %' : 'WIN %'}
-                sortKey={isKnockout ? 'season_win_pct' : 'win_pct'}
-                sort={sort}
-                onSort={onSort}
-              />
-              {isKnockout ? (
-                <>
-                  <SortableHeader
-                    label="Total Record"
-                    sortKey="total_record"
+            {isKnockout ? (
+              <>
+                <tr className="streak-leaderboard__section-row">
+                  <FixedHeader
+                    label="#"
+                    sortKey="rank"
                     sort={sort}
                     onSort={onSort}
                   />
-                  <SortableHeader
-                    label="TOTAL WIN %"
-                    sortKey="total_win_pct"
+                  <FixedHeader
+                    label="Player"
+                    sortKey="player"
+                    sort={sort}
+                    onSort={onSort}
+                    className="is-player"
+                  />
+                  <FixedHeader
+                    label="Best"
+                    sortKey="long_w"
                     sort={sort}
                     onSort={onSort}
                   />
-                </>
-              ) : null}
-              <SortableHeader
-                label="Worst"
-                sortKey="long_l"
-                sort={sort}
-                onSort={onSort}
-              />
-            </tr>
+                  <FixedHeader
+                    label="Current"
+                    sortKey="current"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  <FixedHeader
+                    label="Worst"
+                    sortKey="long_l"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                    <th
+                      key={section.label}
+                      scope="colgroup"
+                      colSpan={2}
+                      className={
+                        index === 0
+                          ? 'streak-leaderboard__section-label'
+                          : 'streak-leaderboard__section-label streak-leaderboard__section-divider'
+                      }
+                    >
+                      {section.label}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                    <Fragment key={section.label}>
+                      <SortableHeader
+                        label="W-L"
+                        sortKey={section.recordKey}
+                        sort={sort}
+                        onSort={onSort}
+                        sectionDivider={index > 0}
+                      />
+                      <SortableHeader
+                        label="%"
+                        sortKey={section.winPctKey}
+                        sort={sort}
+                        onSort={onSort}
+                      />
+                    </Fragment>
+                  ))}
+                </tr>
+              </>
+            ) : (
+              <tr>
+                <SortableHeader
+                  label="#"
+                  sortKey="rank"
+                  sort={sort}
+                  onSort={onSort}
+                />
+                <th scope="col" className="is-player">
+                  <button
+                    type="button"
+                    className={
+                      sort.key === 'player'
+                        ? 'challenge-leaderboard__th-btn challenge-leaderboard__th-btn--active'
+                        : 'challenge-leaderboard__th-btn'
+                    }
+                    onClick={() => onSort('player')}
+                  >
+                    <span>Player</span>
+                    <span
+                      className="challenge-leaderboard__sort-icon"
+                      aria-hidden
+                    >
+                      {sort.key === 'player'
+                        ? sort.direction === 'asc'
+                          ? '↑'
+                          : '↓'
+                        : '↕'}
+                    </span>
+                  </button>
+                </th>
+                <SortableHeader
+                  label="Best"
+                  sortKey="long_w"
+                  sort={sort}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Current"
+                  sortKey="current"
+                  sort={sort}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Worst"
+                  sortKey="long_l"
+                  sort={sort}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Record"
+                  sortKey="record"
+                  sort={sort}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Win %"
+                  sortKey="win_pct"
+                  sort={sort}
+                  onSort={onSort}
+                />
+              </tr>
+            )}
           </thead>
           <tbody>
             {sortedEntries.map((e, index) => {
@@ -465,19 +649,28 @@ export function StreakLeaderboard({
                   </td>
                   <td className="is-num">{e.long_win_display}</td>
                   <td className="is-num">{e.current_display}</td>
-                  <td className="is-num">
-                    {isKnockout ? e.season_record : e.record}
-                  </td>
-                  <td className="is-num">
-                    {isKnockout ? e.season_win_pct : e.win_pct}%
-                  </td>
-                  {isKnockout ? (
-                    <>
-                      <td className="is-num">{e.total_record}</td>
-                      <td className="is-num">{e.total_win_pct}%</td>
-                    </>
-                  ) : null}
                   <td className="is-num">{e.long_loss_display}</td>
+                  {isKnockout ? (
+                    KNOCKOUT_SECTIONS.map((section, sectionIndex) => (
+                      <Fragment key={section.label}>
+                        <td
+                          className={
+                            sectionIndex === 0
+                              ? 'is-num'
+                              : 'is-num streak-leaderboard__section-divider'
+                          }
+                        >
+                          {section.record(e)}
+                        </td>
+                        <td className="is-num">{section.winPct(e)}%</td>
+                      </Fragment>
+                    ))
+                  ) : (
+                    <>
+                      <td className="is-num">{e.record}</td>
+                      <td className="is-num">{e.win_pct}%</td>
+                    </>
+                  )}
                 </tr>
               );
             })}

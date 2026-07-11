@@ -633,6 +633,18 @@ export function StreakChallengeView({
       ? 2 ** (summary.knockout_total_rounds ?? 0)
       : null;
 
+  const knockoutBestStreakBonusEnabled = useMemo(() => {
+    if (knockoutPhases.length > 0) {
+      return knockoutPhases.some((phase) => phase.headstart_enabled !== false);
+    }
+    if (summary?.knockout_round_headstart) {
+      return Object.values(summary.knockout_round_headstart).some(
+        (enabled) => enabled !== false,
+      );
+    }
+    return true;
+  }, [knockoutPhases, summary?.knockout_round_headstart]);
+
   useEffect(() => {
     if (!summary || isKnockout) return;
     setScheduleTransition(
@@ -1363,6 +1375,12 @@ export function StreakChallengeView({
 
       {tab === 'leaderboard' ? (
         <section className="card streak-view__panel">
+          {isKnockout ? (
+            <p className="streak-view__knockout-note">
+              This streak challenge is in a knockout phase. Regular season streaks
+              are no longer affected by picks.
+            </p>
+          ) : null}
           <StreakLeaderboard
             entries={entries}
             viewerUserId={currentUser.id}
@@ -1426,7 +1444,7 @@ export function StreakChallengeView({
             <>
               <h2 className="streak-view__rules-heading">Streak Mode</h2>
               <p>
-                Win the challenge by earning the longest winning streak, active or
+                Climb the leaderboard by earning the longest winning streak, active or
                 inactive.
               </p>
               <ul className="streak-view__rules-list">
@@ -1454,24 +1472,20 @@ export function StreakChallengeView({
                   bracket.
                 </li>
                 <li>
-                  Each round counts total correct picks plus an optional best streak
-                  bonus from your frozen best streak.
+                  {knockoutBestStreakBonusEnabled
+                    ? 'Each knockout round counts total correct picks plus a bonus based on your best streak in the regular streak season.'
+                    : 'Each knockout round counts total correct picks.'}
                 </li>
+                <li>Ties go to the higher seed.</li>
                 <li>
-                  Ties go to the higher seed. Round times are set in Settings; Start
-                  Knockout locks round-one matchups and later rounds advance on
-                  schedule.
-                </li>
-                <li>
-                  Eliminated and non-qualifying players can keep picking for the
-                  consolation leaderboard.
+                  Eliminated players can keep making picks to be the consolation winner.
                 </li>
               </ul>
             </>
           ) : (
             <>
               <p>
-                Win the challenge by earning the longest winning streak, active or
+                Climb the leaderboard by earning the longest winning streak, active or
                 inactive.
               </p>
               <ul className="streak-view__rules-list">

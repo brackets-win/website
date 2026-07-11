@@ -301,21 +301,44 @@ def _participant_pick_section(
     return ("consolation", "Consolation")
 
 
+def _win_loss_bundle(wins: int, losses: int) -> dict[str, int | str]:
+    answered = wins + losses
+    rate = wins / answered if answered else 0.0
+    return {
+        "wins": wins,
+        "losses": losses,
+        "record": f"{wins}-{losses}",
+        "win_pct": round(rate * 100),
+    }
+
+
 def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
     answered = p.wins + p.losses
     rate = p.wins / answered if answered else 0.0
     if p.streak_challenge.is_knockout:
         season_wins = p.frozen_wins
         season_losses = p.frozen_losses
+        knockout_wins = p.wins - season_wins - p.consolation_wins
+        knockout_losses = p.losses - season_losses - p.consolation_losses
+        consolation_wins = p.consolation_wins
+        consolation_losses = p.consolation_losses
     else:
         season_wins = p.wins
         season_losses = p.losses
+        knockout_wins = 0
+        knockout_losses = 0
+        consolation_wins = 0
+        consolation_losses = 0
     season_answered = season_wins + season_losses
     season_rate = season_wins / season_answered if season_answered else 0.0
     streak_signed = season_streak_signed(p)
     best_win_streak = season_best_win_streak(p)
     best_loss_streak = season_best_loss_streak(p)
     broken_win_streak = season_broken_win_streak(p)
+    streak_bundle = _win_loss_bundle(season_wins, season_losses)
+    knockout_bundle = _win_loss_bundle(knockout_wins, knockout_losses)
+    consolation_bundle = _win_loss_bundle(consolation_wins, consolation_losses)
+    total_bundle = _win_loss_bundle(p.wins, p.losses)
     return {
         "rank": rank,
         "user_id": p.user_id,
@@ -331,12 +354,24 @@ def _leaderboard_entry(p: StreakParticipant, rank: int) -> dict[str, Any]:
         "win_pct": round(rate * 100),
         "season_wins": season_wins,
         "season_losses": season_losses,
-        "season_record": f"{season_wins}-{season_losses}",
-        "season_win_pct": round(season_rate * 100),
+        "season_record": streak_bundle["record"],
+        "season_win_pct": streak_bundle["win_pct"],
+        "streak_wins": season_wins,
+        "streak_losses": season_losses,
+        "streak_record": streak_bundle["record"],
+        "streak_win_pct": streak_bundle["win_pct"],
+        "knockout_wins": knockout_wins,
+        "knockout_losses": knockout_losses,
+        "knockout_record": knockout_bundle["record"],
+        "knockout_win_pct": knockout_bundle["win_pct"],
+        "consolation_wins": consolation_wins,
+        "consolation_losses": consolation_losses,
+        "consolation_record": consolation_bundle["record"],
+        "consolation_win_pct": consolation_bundle["win_pct"],
         "total_wins": p.wins,
         "total_losses": p.losses,
-        "total_record": f"{p.wins}-{p.losses}",
-        "total_win_pct": round(rate * 100),
+        "total_record": total_bundle["record"],
+        "total_win_pct": total_bundle["win_pct"],
         "best_win_streak": best_win_streak,
         "best_loss_streak": best_loss_streak,
         "broken_win_streak": broken_win_streak,

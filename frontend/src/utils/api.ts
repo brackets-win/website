@@ -214,6 +214,18 @@ export type StreakLeaderboardEntry = {
   season_losses: number;
   season_record: string;
   season_win_pct: number;
+  streak_wins: number;
+  streak_losses: number;
+  streak_record: string;
+  streak_win_pct: number;
+  knockout_wins: number;
+  knockout_losses: number;
+  knockout_record: string;
+  knockout_win_pct: number;
+  consolation_wins: number;
+  consolation_losses: number;
+  consolation_record: string;
+  consolation_win_pct: number;
   total_wins: number;
   total_losses: number;
   total_record: string;

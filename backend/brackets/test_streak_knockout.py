@@ -451,6 +451,9 @@ class StreakKnockoutTests(TestCase):
         self.assertEqual(res.status_code, 200)
         row = next(r for r in res.json()["entries"] if r["user_id"] == self.alice.id)
         self.assertEqual(row["season_record"], "5-2")
+        self.assertEqual(row["streak_record"], "5-2")
+        self.assertEqual(row["knockout_record"], "1-0")
+        self.assertEqual(row["consolation_record"], "0-0")
         self.assertEqual(row["total_record"], "6-2")
         self.assertEqual(row["total_win_pct"], 75)
 

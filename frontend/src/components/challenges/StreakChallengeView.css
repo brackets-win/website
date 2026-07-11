@@ -78,6 +78,13 @@
   gap: 0.18rem;
 }
 
+.streak-view__knockout-note {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+  color: var(--app-muted);
+  font-size: 0.9375rem;
+}
+
 .streak-view__rules {
   padding: 1.25rem 1.5rem;
 }
@@ -298,6 +305,30 @@
 .streak-leaderboard__table th.is-num,
 .streak-leaderboard__table td.is-num {
   text-align: center;
+}
+
+.streak-leaderboard__section-row th {
+  vertical-align: bottom;
+}
+
+.streak-leaderboard__section-label {
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-muted, #64748b);
+  padding-top: 0.35rem;
+  padding-bottom: 0.15rem;
+}
+
+.streak-leaderboard__section-divider {
+  border-left: 1px solid var(--app-border, #e2e8f0);
+}
+
+.streak-leaderboard__table th.streak-leaderboard__section-divider,
+.streak-leaderboard__table td.streak-leaderboard__section-divider {
+  border-left: 1px solid var(--app-border, #e2e8f0);
 }
 
 .streak-leaderboard__table th.is-player,
