@@ -629,6 +629,7 @@ export function StreakChallengeView({
   const competitionIsOver = summary?.competition_is_over === true;
   const isKnockout = summary?.is_knockout === true;
   const hasScheduledKnockout = summary?.knockout_transition_at != null;
+  const useKnockoutLayout = isKnockout || hasScheduledKnockout;
   const canManageKnockout =
     summary?.is_creator === true || currentUser.is_staff === true;
   const knockoutCutoffCount =
@@ -1127,7 +1128,7 @@ export function StreakChallengeView({
   if (selectedPlayer != null) {
     const matchup = selectedPlayer.matchup;
     const rootClassName = `${streakThemeClass} streak-view${
-      hasScheduledKnockout ? ' streak-view--wide' : ''
+      useKnockoutLayout ? ' streak-view--wide' : ''
     }`;
     return (
       <div className={rootClassName}>
@@ -1243,7 +1244,7 @@ export function StreakChallengeView({
     summary.broken_win_streak ?? 0,
   );
   const rootClassName = `${streakThemeClass} streak-view${
-    hasScheduledKnockout ? ' streak-view--wide' : ''
+    useKnockoutLayout ? ' streak-view--wide' : ''
   }`;
 
   return (

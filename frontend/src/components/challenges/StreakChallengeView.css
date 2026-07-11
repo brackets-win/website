@@ -4,7 +4,7 @@
 }
 
 .streak-view--wide {
-  max-width: 68rem;
+  max-width: 76rem;
 }
 
 .streak-view__back {
@@ -305,40 +305,35 @@
 .streak-leaderboard__table--knockout {
   table-layout: fixed;
   width: 100%;
-  min-width: 58rem;
+  min-width: 64rem;
 }
 
 .streak-leaderboard__col-rank {
-  width: 3%;
+  width: 2.75rem;
 }
 
 .streak-leaderboard__col-player {
-  width: 14%;
+  width: 9rem;
 }
 
 .streak-leaderboard__col-streak-stat {
-  width: 5%;
+  width: 4.25rem;
 }
 
 .streak-leaderboard__col-section {
-  width: 8.375%;
+  width: 5rem;
 }
 
 .streak-leaderboard__table--knockout th.is-num,
 .streak-leaderboard__table--knockout td.is-num {
   white-space: nowrap;
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 .streak-leaderboard__table--knockout th.is-player,
 .streak-leaderboard__table--knockout td.is-player {
-  padding-right: 0.25rem;
-}
-
-.streak-leaderboard__table--knockout thead tr:nth-child(2) th.is-num:nth-child(3),
-.streak-leaderboard__table--knockout tbody td.is-num:nth-child(3) {
-  padding-left: 0.2rem;
+  padding-right: 0.5rem;
 }
 
 .streak-leaderboard__table th.is-num .challenge-leaderboard__th-btn {
@@ -351,39 +346,12 @@
   text-align: center;
 }
 
-.streak-leaderboard__section-spacer {
-  padding: 0;
-  border-bottom: none;
-}
-
 .streak-leaderboard__section-row th {
   vertical-align: bottom;
 }
 
-.streak-leaderboard__section-pair-start,
-.streak-leaderboard__section-pair-end {
-  position: relative;
-  border-bottom: none;
-  padding: 0;
-  overflow: visible;
-}
-
-.streak-leaderboard__section-pair-end {
-  border-bottom: none;
-}
-
-.streak-leaderboard__section-overhang {
-  position: absolute;
-  left: 0;
-  bottom: 0.35rem;
-  width: 200%;
-  text-align: center;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--app-muted, #64748b);
-  pointer-events: none;
+.streak-leaderboard__table--knockout thead th[rowspan] {
+  vertical-align: bottom;
 }
 
 .streak-leaderboard__section-label {
@@ -393,9 +361,9 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--app-muted, #64748b);
-  padding-top: 0.35rem;
-  padding-bottom: 0.35rem;
+  padding: 0.4rem 0.5rem 0.25rem;
   border-bottom: none;
+  white-space: nowrap;
 }
 
 .streak-leaderboard__section-divider {

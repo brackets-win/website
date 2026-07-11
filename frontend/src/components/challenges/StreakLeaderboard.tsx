@@ -295,10 +295,28 @@ const KNOCKOUT_SORT_OPTIONS: {
   { key: 'total_win_pct', label: 'Total %', mobileLabel: 'Total %' },
 ];
 
-function playerHeaderCell(sort: SortState, onSort: (key: StreakSortKey) => void) {
-  const active = sort.key === 'player';
+function FixedHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className = 'is-num',
+}: {
+  label: string;
+  sortKey: StreakSortKey;
+  sort: SortState;
+  onSort: (key: StreakSortKey) => void;
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  const ariaSort = active
+    ? sort.direction === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+
   return (
-    <th scope="col" className="is-player" aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+    <th scope="col" rowSpan={2} className={className} aria-sort={ariaSort}>
       <button
         type="button"
         className={
@@ -306,9 +324,9 @@ function playerHeaderCell(sort: SortState, onSort: (key: StreakSortKey) => void)
             ? 'challenge-leaderboard__th-btn challenge-leaderboard__th-btn--active'
             : 'challenge-leaderboard__th-btn'
         }
-        onClick={() => onSort('player')}
+        onClick={() => onSort(sortKey)}
       >
-        <span>Player</span>
+        <span>{label}</span>
         <span className="challenge-leaderboard__sort-icon" aria-hidden>
           {active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}
         </span>
@@ -511,63 +529,61 @@ export function StreakLeaderboard({
             {isKnockout ? (
               <>
                 <tr className="streak-leaderboard__section-row">
-                  <th
-                    colSpan={5}
-                    className="streak-leaderboard__section-spacer"
-                    aria-hidden
-                  />
-                  {KNOCKOUT_SECTIONS.map((section) => (
-                    <Fragment key={section.label}>
-                      <th
-                        scope="colgroup"
-                        className="streak-leaderboard__section-pair-start streak-leaderboard__section-divider"
-                      >
-                        <span className="streak-leaderboard__section-overhang">
-                          {section.label}
-                        </span>
-                      </th>
-                      <th
-                        scope="colgroup"
-                        className="streak-leaderboard__section-pair-end"
-                        aria-hidden
-                      />
-                    </Fragment>
-                  ))}
-                </tr>
-                <tr>
-                  <SortableHeader
+                  <FixedHeader
                     label="#"
                     sortKey="rank"
                     sort={sort}
                     onSort={onSort}
                   />
-                  {playerHeaderCell(sort, onSort)}
-                  <SortableHeader
+                  <FixedHeader
+                    label="Player"
+                    sortKey="player"
+                    sort={sort}
+                    onSort={onSort}
+                    className="is-player"
+                  />
+                  <FixedHeader
                     label="Best"
                     sortKey="long_w"
                     sort={sort}
                     onSort={onSort}
                   />
-                  <SortableHeader
+                  <FixedHeader
                     label="Current"
                     sortKey="current"
                     sort={sort}
                     onSort={onSort}
                   />
-                  <SortableHeader
+                  <FixedHeader
                     label="Worst"
                     sortKey="long_l"
                     sort={sort}
                     onSort={onSort}
                   />
-                  {KNOCKOUT_SECTIONS.map((section) => (
+                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                    <th
+                      key={section.label}
+                      scope="colgroup"
+                      colSpan={2}
+                      className={
+                        index === 0
+                          ? 'streak-leaderboard__section-label'
+                          : 'streak-leaderboard__section-label streak-leaderboard__section-divider'
+                      }
+                    >
+                      {section.label}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {KNOCKOUT_SECTIONS.map((section, index) => (
                     <Fragment key={section.label}>
                       <SortableHeader
                         label="W-L"
                         sortKey={section.recordKey}
                         sort={sort}
                         onSort={onSort}
-                        sectionDivider
+                        sectionDivider={index > 0}
                       />
                       <SortableHeader
                         label="%"
