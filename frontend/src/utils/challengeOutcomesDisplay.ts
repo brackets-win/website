@@ -117,6 +117,130 @@ export function isExhaustiveCluster(
   return teamSetKey(teams) === teamSetKey(universe);
 }
 
+export function pathOutcomeKey(
+  championId: number,
+  runnerUpId?: number,
+  thirdId?: number,
+  fourthId?: number,
+  semiId?: number,
+): string {
+  const parts: Array<string | number> = ['c', championId];
+  if (runnerUpId == null) return parts.join(':');
+  parts.push('ru', runnerUpId);
+  if (thirdId == null && semiId == null) return parts.join(':');
+  if (semiId != null) {
+    parts.push('s', semiId);
+    return parts.join(':');
+  }
+  parts.push('t', thirdId!);
+  if (fourthId == null) return parts.join(':');
+  parts.push('f', fourthId);
+  return parts.join(':');
+}
+
+function deepestPathOutcomeKey(
+  leaf: OutcomeLeafPath,
+  hasThirdPlace: boolean,
+): string | null {
+  const championId = leaf.champion.bracket_contestant_id;
+  const runnerUpId = leaf.runnerUp.bracket_contestant_id;
+  if (hasThirdPlace) {
+    if (!leaf.third || !leaf.fourth) return null;
+    return pathOutcomeKey(
+      championId,
+      runnerUpId,
+      leaf.third.bracket_contestant_id,
+      leaf.fourth.bracket_contestant_id,
+    );
+  }
+  const semi = leaf.semifinalists?.[0];
+  if (!semi) return null;
+  return pathOutcomeKey(
+    championId,
+    runnerUpId,
+    undefined,
+    undefined,
+    semi.bracket_contestant_id,
+  );
+}
+
+/** Leaves that collapse into a display row (full branch, not just a prefix). */
+export function leavesMatchingDisplayRow(
+  row: OutcomeDisplayRow,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+): OutcomeLeafPath[] {
+  const championId = row.champion.bracket_contestant_id;
+  const ruIds = new Set(
+    row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+  );
+  const winnerIds = new Set(
+    row.winners.map((winner) => winner.user_bracket_id),
+  );
+
+  return leaves.filter((leaf) => {
+    if (leaf.champion.bracket_contestant_id !== championId) return false;
+    if (!ruIds.has(leaf.runnerUp.bracket_contestant_id)) return false;
+    if (!leaf.winners.some((winner) => winnerIds.has(winner.user_bracket_id))) {
+      return false;
+    }
+
+    if (hasThirdPlace) {
+      const thirdIds = new Set(
+        row.thirdTeams.map((team) => team.bracket_contestant_id),
+      );
+      const fourthIds = new Set(
+        row.fourthTeams.map((team) => team.bracket_contestant_id),
+      );
+      if (!leaf.third || !thirdIds.has(leaf.third.bracket_contestant_id)) {
+        return false;
+      }
+      if (!leaf.fourth || !fourthIds.has(leaf.fourth.bracket_contestant_id)) {
+        return false;
+      }
+      return true;
+    }
+
+    const semiIds = new Set(
+      row.semiTeams.map((team) => team.bracket_contestant_id),
+    );
+    for (const semi of leaf.semifinalists ?? []) {
+      if (!semiIds.has(semi.bracket_contestant_id)) return false;
+    }
+    return (leaf.semifinalists?.length ?? 0) > 0;
+  });
+}
+
+export type OutcomeTeamMetricMode = 'outcomes' | 'likelihood';
+
+/** Entry-mode champion cell: total mass for this whole branch row. */
+export function sumDisplayRowBranchMetric(
+  row: OutcomeDisplayRow,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  metricMode: OutcomeTeamMetricMode,
+  pathLikelihood?: Record<string, number>,
+): number | null {
+  const matching = leavesMatchingDisplayRow(row, leaves, hasThirdPlace);
+  if (matching.length === 0) return null;
+
+  if (metricMode === 'outcomes') {
+    return matching.length;
+  }
+
+  let total = 0;
+  let found = false;
+  for (const leaf of matching) {
+    const key = deepestPathOutcomeKey(leaf, hasThirdPlace);
+    if (!key) continue;
+    const value = pathLikelihood?.[key];
+    if (value == null || Number.isNaN(value)) continue;
+    total += value;
+    found = true;
+  }
+  return found ? total : null;
+}
+
 /** Global remaining teams under a prefix — from the FULL outcome tree. */
 export class OutcomeGlobalUniverse {
   constructor(private readonly allLeaves: OutcomeLeafPath[]) {}

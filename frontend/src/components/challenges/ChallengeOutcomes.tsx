@@ -11,6 +11,8 @@ import {
   collectOutcomeLeafPaths,
   isExhaustiveCluster,
   OutcomeGlobalUniverse,
+  pathOutcomeKey,
+  sumDisplayRowBranchMetric,
   type OutcomeDisplayRow,
   type OutcomeLeafPath,
   teamSetKey,
@@ -425,25 +427,30 @@ type PathContext = {
   thirdIds: number[];
 };
 
-function pathOutcomeKey(
-  championId: number,
-  runnerUpId?: number,
-  thirdId?: number,
-  fourthId?: number,
-  semiId?: number,
-): string {
-  const parts: Array<string | number> = ['c', championId];
-  if (runnerUpId == null) return parts.join(':');
-  parts.push('ru', runnerUpId);
-  if (thirdId == null && semiId == null) return parts.join(':');
-  if (semiId != null) {
-    parts.push('s', semiId);
-    return parts.join(':');
+function lookupEntryChampionMetricPct(
+  row: DisplayRow,
+  allLeaves: LeafPath[],
+  hasThirdPlace: boolean,
+  teamMetricMode: TeamMetricMode,
+  globalOutcomeTotal: number,
+  pathLikelihood?: Record<string, number>,
+): string | null {
+  if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
+    return null;
   }
-  parts.push('t', thirdId!);
-  if (fourthId == null) return parts.join(':');
-  parts.push('f', fourthId);
-  return parts.join(':');
+  const raw = sumDisplayRowBranchMetric(
+    row,
+    allLeaves,
+    hasThirdPlace,
+    teamMetricMode,
+    pathLikelihood,
+  );
+  if (raw == null) return null;
+  return formatRoundedTeamMetricPct(
+    raw,
+    teamMetricMode,
+    globalOutcomeTotal,
+  );
 }
 
 function buildPathOutcomeCounts(
@@ -1034,6 +1041,8 @@ function PathsTable({
   globalOutcomeTotal,
   pathLikelihood,
   sortKey,
+  groupMode,
+  allLeaves,
 }: {
   rows: TableRow[];
   hasThirdPlace: boolean;
@@ -1045,6 +1054,8 @@ function PathsTable({
   globalOutcomeTotal: number;
   pathLikelihood?: Record<string, number>;
   sortKey: SortKey;
+  groupMode: GroupMode;
+  allLeaves: LeafPath[];
 }) {
   return (
     <div className="challenge-stats__sim-scroll">
@@ -1119,15 +1130,26 @@ function PathsTable({
                     <TeamFlag
                       team={row.champion}
                       size="lg"
-                      metricPct={lookupTeamMetricPct(
-                        champContext,
-                        'champion',
-                        row.champion.bracket_contestant_id,
-                        teamMetricMode,
-                        pathOutcomeCounts,
-                        globalOutcomeTotal,
-                        pathLikelihood,
-                      )}
+                      metricPct={
+                        groupMode === 'entry'
+                          ? lookupEntryChampionMetricPct(
+                              row,
+                              allLeaves,
+                              hasThirdPlace,
+                              teamMetricMode,
+                              globalOutcomeTotal,
+                              pathLikelihood,
+                            )
+                          : lookupTeamMetricPct(
+                              champContext,
+                              'champion',
+                              row.champion.bracket_contestant_id,
+                              teamMetricMode,
+                              pathOutcomeCounts,
+                              globalOutcomeTotal,
+                              pathLikelihood,
+                            )
+                      }
                     />
                   </td>
                 ) : null}
@@ -1517,6 +1539,8 @@ export function ChallengeOutcomes({
                   globalOutcomeTotal={globalOutcomeTotal}
                   pathLikelihood={teamLikelihood}
                   sortKey={sortKey}
+                  groupMode="entry"
+                  allLeaves={allLeaves}
                 />
               </article>
             ))}
@@ -1536,6 +1560,8 @@ export function ChallengeOutcomes({
                   globalOutcomeTotal={globalOutcomeTotal}
                   pathLikelihood={teamLikelihood}
                   sortKey={sortKey}
+                  groupMode="team"
+                  allLeaves={allLeaves}
                 />
               </article>
             ))}
