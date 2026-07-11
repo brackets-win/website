@@ -195,6 +195,14 @@
   --bf-ko-col-width: 220px;
 }
 
+.streak-bf .bf-stage-col--champion {
+  align-self: flex-start;
+}
+
+.streak-bf .bf-board-inner {
+  align-items: flex-start;
+}
+
 .streak-bf--projected {
   opacity: 0.72;
 }
@@ -315,21 +323,38 @@
   text-decoration: none;
 }
 
+.streak-bf__champion-stack {
+  min-height: 0;
+}
+
 .streak-bf__champion-anchor {
-  width: 100%;
+  left: 0;
+  right: 0;
 }
 
-.streak-bf__third-place-section {
+.streak-bf__champion-anchor .bf-champion-box {
+  flex: none;
+  min-height: 3.25rem;
   width: 100%;
+  margin-left: 0;
 }
 
-.streak-bf__third-place-match {
-  width: 100%;
+.streak-bf__third-place-anchor {
+  left: 0;
+  right: 0;
+}
+
+.streak-bf__third-place-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
 }
 
 .streak-bf__third-place-label {
   text-align: center;
-  margin: 0.5rem 0 0;
+  margin: 0;
+  padding-bottom: 0;
 }
 
 .streak-knockout__setup-panel {

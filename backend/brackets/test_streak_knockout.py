@@ -927,6 +927,24 @@ class StreakKnockoutTests(TestCase):
         self.assertIsNotNone(payload["third_place_match"])
         self.assertTrue(payload["third_place_match"]["is_third_place"])
 
+    def test_started_knockout_includes_empty_third_place_slot_when_enabled(self):
+        self.challenge.knockout_third_place_match = True
+        self.challenge.save(update_fields=["knockout_third_place_match"])
+
+        self.client.force_login(self.host)
+        res = self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()["knockout"]
+        self.assertTrue(payload["third_place_match_enabled"])
+        self.assertIsNotNone(payload["third_place_match"])
+        self.assertTrue(payload["third_place_match"]["is_third_place"])
+        self.assertIsNone(payload["third_place_match"]["player_a"])
+        self.assertIsNone(payload["third_place_match"]["player_b"])
+
     def test_semi_losers_join_third_place_not_consolation_when_enabled(self):
         from brackets.models import StreakKnockoutMatch
 

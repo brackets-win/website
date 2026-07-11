@@ -1161,11 +1161,17 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
         round_rows.append({"round_index": idx, "matches": match_rows})
 
     consolation_rows = _consolation_rows(challenge, knockout)
-    third_place_payload = (
-        _match_payload(knockout, third_place_match)
-        if third_place_match is not None
-        else None
-    )
+    third_place_on = third_place_match_enabled(challenge, participant_count)
+    if third_place_match is not None:
+        third_place_payload = _match_payload(knockout, third_place_match)
+    elif third_place_on:
+        third_place_payload = _empty_match_payload(
+            round_index=total_rounds,
+            position=2,
+            is_third_place=True,
+        )
+    else:
+        third_place_payload = None
 
     return {
         "status": knockout.status,
@@ -1178,9 +1184,7 @@ def knockout_payload(challenge: StreakChallenge) -> dict[str, Any] | None:
             else None
         ),
         "third_place_match": third_place_payload,
-        "third_place_match_enabled": third_place_match_enabled(
-            challenge, participant_count
-        ),
+        "third_place_match_enabled": third_place_on,
         "total_rounds": total_rounds,
         "rounds": round_rows,
         "consolation": consolation_rows,

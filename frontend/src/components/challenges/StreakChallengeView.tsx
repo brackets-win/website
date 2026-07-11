@@ -7,6 +7,7 @@ import {
   deleteStreakChallenge,
   getStreakAwards,
   getStreakChallenge,
+  getStreakKnockout,
   getStreakLeaderboard,
   getStreakParticipantPicks,
   clearStreakPick,
@@ -1000,6 +1001,18 @@ export function StreakChallengeView({
     );
   }
 
+  async function refreshKnockoutCache() {
+    if (!hasScheduledKnockout) return;
+    try {
+      const data = await getStreakKnockout(streakChallengeId);
+      writeStreakChallengeSessionCache(streakChallengeId, {
+        knockout: data.knockout,
+      });
+    } catch {
+      // Knockout tab reloads on its own; ignore prefetch errors here.
+    }
+  }
+
   async function handleSaveKnockoutSchedule(e: React.FormEvent) {
     e.preventDefault();
     const transitionIso = estLocalInputToIso(scheduleTransition);
@@ -1038,6 +1051,7 @@ export function StreakChallengeView({
       });
       setScheduleMsg('Knockout schedule saved.');
       await reload();
+      await refreshKnockoutCache();
     } catch (e) {
       setScheduleErr(
         e instanceof ApiError ? e.message : 'Could not save schedule.',
@@ -1064,6 +1078,7 @@ export function StreakChallengeView({
       });
       setScheduleMsg('Third place match setting saved.');
       await reload();
+      await refreshKnockoutCache();
     } catch (e) {
       setScheduleErr(
         e instanceof ApiError ? e.message : 'Could not save third place setting.',
@@ -1425,6 +1440,7 @@ export function StreakChallengeView({
 
       {tab === 'knockout' && hasScheduledKnockout ? (
         <StreakKnockout
+          key={`${streakChallengeId}-${summary?.knockout_third_place_match === true}`}
           streakChallengeId={streakChallengeId}
           onSelectPlayer={onSelectKnockoutPlayer}
         />

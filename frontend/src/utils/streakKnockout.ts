@@ -1,4 +1,5 @@
 import type {
+  StreakKnockoutMatch,
   StreakKnockoutPayload,
   StreakParticipantPickRow,
   StreakQuestionInfo,
@@ -21,6 +22,40 @@ export function knockoutBracketSize(participantCount: number): number {
 
 export function knockoutThirdPlaceSupported(participantCount: number): boolean {
   return knockoutBracketSize(participantCount) >= 4;
+}
+
+export function emptyThirdPlaceMatch(totalRounds: number): StreakKnockoutMatch {
+  return {
+    id: -(totalRounds * 1000 + 2),
+    round_index: totalRounds,
+    position: 2,
+    is_third_place: true,
+    player_a: null,
+    player_b: null,
+    seed_a: 0,
+    seed_b: 0,
+    score_a: 0,
+    score_b: 0,
+    score_a_correct: 0,
+    score_b_correct: 0,
+    score_a_bonus: 0,
+    score_b_bonus: 0,
+    score_bonus_enabled: false,
+    winner_user_id: null,
+    finalized: false,
+    is_live: false,
+  };
+}
+
+/** Placeholder TBD slots when enabled, same as unfilled later-round matchups. */
+export function thirdPlaceMatchForDisplay(
+  knockout: StreakKnockoutPayload,
+): StreakKnockoutMatch | null {
+  if (!knockout.third_place_match_enabled) return null;
+  return (
+    knockout.third_place_match ??
+    emptyThirdPlaceMatch(knockout.total_rounds || knockout.rounds.length)
+  );
 }
 
 export type KnockoutPhaseInfo = {

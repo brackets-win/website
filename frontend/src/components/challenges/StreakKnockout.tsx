@@ -26,6 +26,7 @@ import {
   activeKnockoutRoundIndex,
   knockoutRoundLabel as roundLabel,
   stageQuestionProgress,
+  thirdPlaceMatchForDisplay,
   type KnockoutPhaseInfo,
 } from '../../utils/streakKnockout';
 import {
@@ -266,20 +267,44 @@ function ConnectorStrip({
   );
 }
 
+function thirdPlaceAnchorTopPct(
+  finalStageIdx: number,
+  openingMatchCount: number,
+): number {
+  if (finalStageIdx <= 0) return 82;
+  const semiIdx = finalStageIdx - 1;
+  const lowerSemiPct = columnMatchupCenterPct(
+    semiIdx,
+    openingMatchCount,
+    1,
+    openingMatchCount,
+    1,
+  );
+  return Math.min(86, lowerSemiPct + 6);
+}
+
 function ChampionColumn({
   knockout,
+  openingMatchCount,
+  finalStageIdx,
   onSelectPlayer,
 }: {
   knockout: StreakKnockoutPayload;
+  openingMatchCount: number;
+  finalStageIdx: number;
   onSelectPlayer: Props['onSelectPlayer'];
 }) {
   const finalMatch =
     knockout.rounds.length > 0
       ? knockout.rounds[knockout.rounds.length - 1].matches[0] ?? null
       : null;
-  const thirdPlaceMatch = knockout.third_place_match_enabled
-    ? knockout.third_place_match ?? null
-    : null;
+  const championCenterPct = columnMatchupCenterPct(
+    finalStageIdx,
+    1,
+    1,
+    openingMatchCount,
+    1,
+  );
   const champion =
     finalMatch?.player_a?.user_id === knockout.champion_user_id
       ? finalMatch.player_a
@@ -302,57 +327,54 @@ function ChampionColumn({
 
   return (
     <div className="bf-stage-col bf-stage-col--champion">
-      <div className="bf-champion-stack">
-        <div className="bf-champion-middle">
-          <p className="bf-stage-title">Champion</p>
-          <div className="bf-champion-box-wrap">
-            <div
-              className={
-                champion
-                  ? 'bf-champion-box bf-champion-box--active'
-                  : 'bf-champion-box'
-              }
-            >
-              {champion ? (
-                <>
-                  <button
-                    type="button"
-                    className="streak-bf__champion-name streak-leaderboard__player"
-                    onClick={() =>
-                      onSelectPlayer(
-                        champion.user_id,
-                        champion.display_name,
-                        {
-                          scope: 'round',
-                          roundIndex: knockout.rounds.length,
-                        },
-                        finalMatchup,
-                      )
-                    }
-                  >
-                    {champion.display_name}
-                  </button>
-                  <span className="bf-champion-seed">
-                    Seed #{champion.seed || '—'}
-                  </span>
-                </>
-              ) : (
-                <span className="bf-champion-placeholder">Champion</span>
-              )}
+      <p className="bf-stage-title">Champion</p>
+      <div className="bf-champion-stack streak-bf__champion-stack">
+        <div className="bf-stage-track">
+          <div
+            className="bf-matchup-anchor streak-bf__champion-anchor"
+            style={{
+              top: `${championCenterPct}%`,
+              transform: 'translateY(-50%)',
+            }}
+          >
+            <div className="bf-champion-box-wrap">
+              <div
+                className={
+                  champion
+                    ? 'bf-champion-box bf-champion-box--active'
+                    : 'bf-champion-box'
+                }
+              >
+                {champion ? (
+                  <>
+                    <button
+                      type="button"
+                      className="streak-bf__champion-name streak-leaderboard__player"
+                      onClick={() =>
+                        onSelectPlayer(
+                          champion.user_id,
+                          champion.display_name,
+                          {
+                            scope: 'round',
+                            roundIndex: knockout.rounds.length,
+                          },
+                          finalMatchup,
+                        )
+                      }
+                    >
+                      {champion.display_name}
+                    </button>
+                    <span className="bf-champion-seed">
+                      Seed #{champion.seed || '—'}
+                    </span>
+                  </>
+                ) : (
+                  <span className="bf-champion-placeholder">Champion</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
-        {thirdPlaceMatch ? (
-          <div className="bf-third-place-section streak-bf__third-place-section">
-            <div className="streak-bf__third-place-match">
-              <BracketMatchup
-                match={thirdPlaceMatch}
-                onSelectPlayer={onSelectPlayer}
-              />
-            </div>
-            <p className="bf-stage-title streak-bf__third-place-label">3RD PLACE</p>
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -461,6 +483,12 @@ export function StreakKnockout({
   const isProjected = knockout.projected === true;
   const activeRoundIndex = activeKnockoutRoundIndex(knockout);
   const openingMatchCount = knockout.rounds[0]?.matches.length ?? 0;
+  const finalStageIdx = knockout.rounds.length - 1;
+  const thirdPlaceMatch = thirdPlaceMatchForDisplay(knockout);
+  const thirdPlaceTopPct = thirdPlaceAnchorTopPct(
+    finalStageIdx,
+    openingMatchCount,
+  );
   const boardHeightPx = Math.max(
     520,
     openingMatchCount * (knockout.status === 'SETUP' && !isProjected ? 210 : 160),
@@ -519,6 +547,7 @@ export function StreakKnockout({
                     phase != null
                       ? stageQuestionProgress(questions, phase.starts_at)
                       : null;
+                  const isFinalRound = stageIdx === finalStageIdx;
 
                   return (
                   <Fragment key={round.round_index}>
@@ -549,6 +578,25 @@ export function StreakKnockout({
                             />
                           </div>
                         ))}
+                        {isFinalRound && thirdPlaceMatch ? (
+                          <div
+                            className="bf-matchup-anchor streak-bf__third-place-anchor"
+                            style={{
+                              top: `${thirdPlaceTopPct}%`,
+                              transform: 'translateY(-50%)',
+                            }}
+                          >
+                            <div className="streak-bf__third-place-stack">
+                              <BracketMatchup
+                                match={thirdPlaceMatch}
+                                onSelectPlayer={onSelectPlayer}
+                              />
+                              <p className="bf-stage-title streak-bf__third-place-label">
+                                3RD PLACE
+                              </p>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                     {stageIdx < knockout.rounds.length - 1 ? (
@@ -563,6 +611,8 @@ export function StreakKnockout({
                 })}
                 <ChampionColumn
                   knockout={knockout}
+                  openingMatchCount={openingMatchCount}
+                  finalStageIdx={finalStageIdx}
                   onSelectPlayer={onSelectPlayer}
                 />
               </div>

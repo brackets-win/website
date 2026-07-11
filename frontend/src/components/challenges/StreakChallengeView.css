@@ -305,30 +305,40 @@
 .streak-leaderboard__table--knockout {
   table-layout: fixed;
   width: 100%;
-  min-width: 52rem;
+  min-width: 58rem;
 }
 
 .streak-leaderboard__col-rank {
-  width: 3.5%;
+  width: 3%;
 }
 
 .streak-leaderboard__col-player {
-  width: 17%;
+  width: 14%;
 }
 
 .streak-leaderboard__col-streak-stat {
-  width: 5.5%;
+  width: 5%;
 }
 
 .streak-leaderboard__col-section {
-  width: 7.875%;
+  width: 8.375%;
 }
 
 .streak-leaderboard__table--knockout th.is-num,
 .streak-leaderboard__table--knockout td.is-num {
   white-space: nowrap;
-  padding-left: 0.45rem;
-  padding-right: 0.45rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.streak-leaderboard__table--knockout th.is-player,
+.streak-leaderboard__table--knockout td.is-player {
+  padding-right: 0.25rem;
+}
+
+.streak-leaderboard__table--knockout thead tr:nth-child(2) th.is-num:nth-child(3),
+.streak-leaderboard__table--knockout tbody td.is-num:nth-child(3) {
+  padding-left: 0.2rem;
 }
 
 .streak-leaderboard__table th.is-num .challenge-leaderboard__th-btn {
@@ -348,6 +358,32 @@
 
 .streak-leaderboard__section-row th {
   vertical-align: bottom;
+}
+
+.streak-leaderboard__section-pair-start,
+.streak-leaderboard__section-pair-end {
+  position: relative;
+  border-bottom: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.streak-leaderboard__section-pair-end {
+  border-bottom: none;
+}
+
+.streak-leaderboard__section-overhang {
+  position: absolute;
+  left: 0;
+  bottom: 0.35rem;
+  width: 200%;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-muted, #64748b);
+  pointer-events: none;
 }
 
 .streak-leaderboard__section-label {

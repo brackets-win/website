@@ -517,14 +517,21 @@ export function StreakLeaderboard({
                     aria-hidden
                   />
                   {KNOCKOUT_SECTIONS.map((section) => (
-                    <th
-                      key={section.label}
-                      scope="colgroup"
-                      colSpan={2}
-                      className="streak-leaderboard__section-label streak-leaderboard__section-divider"
-                    >
-                      {section.label}
-                    </th>
+                    <Fragment key={section.label}>
+                      <th
+                        scope="colgroup"
+                        className="streak-leaderboard__section-pair-start streak-leaderboard__section-divider"
+                      >
+                        <span className="streak-leaderboard__section-overhang">
+                          {section.label}
+                        </span>
+                      </th>
+                      <th
+                        scope="colgroup"
+                        className="streak-leaderboard__section-pair-end"
+                        aria-hidden
+                      />
+                    </Fragment>
                   ))}
                 </tr>
                 <tr>
