@@ -560,30 +560,26 @@ export function StreakLeaderboard({
                     sort={sort}
                     onSort={onSort}
                   />
-                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                  {KNOCKOUT_SECTIONS.map((section) => (
                     <th
                       key={section.label}
                       scope="colgroup"
                       colSpan={2}
-                      className={
-                        index === 0
-                          ? 'streak-leaderboard__section-label'
-                          : 'streak-leaderboard__section-label streak-leaderboard__section-divider'
-                      }
+                      className="streak-leaderboard__section-label streak-leaderboard__section-divider"
                     >
                       {section.label}
                     </th>
                   ))}
                 </tr>
                 <tr>
-                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                  {KNOCKOUT_SECTIONS.map((section) => (
                     <Fragment key={section.label}>
                       <SortableHeader
                         label="W-L"
                         sortKey={section.recordKey}
                         sort={sort}
                         onSort={onSort}
-                        sectionDivider={index > 0}
+                        sectionDivider
                       />
                       <SortableHeader
                         label="%"

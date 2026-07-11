@@ -354,7 +354,7 @@
   vertical-align: bottom;
 }
 
-.streak-leaderboard__section-label {
+.streak-leaderboard__table th.streak-leaderboard__section-label {
   text-align: center;
   font-size: 0.6875rem;
   font-weight: 600;
