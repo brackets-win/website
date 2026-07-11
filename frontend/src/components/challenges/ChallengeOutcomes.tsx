@@ -1233,17 +1233,18 @@ export function ChallengeOutcomes({
     const allLeaves = collectOutcomeLeafPaths(tree, hasThirdPlace);
     const universe = new OutcomeGlobalUniverse(allLeaves);
 
+    const globalDisplayRows = buildOutcomeDisplayRows(
+      allLeaves,
+      hasThirdPlace,
+      universe,
+    );
+
     const entryCards = winnerOdds
       .map((odds) => {
-        const entryLeaves = allLeaves.filter((leaf) =>
-          leaf.winners.some(
+        const displayRows = globalDisplayRows.filter((row) =>
+          row.winners.some(
             (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
           ),
-        );
-        const displayRows = buildOutcomeDisplayRows(
-          entryLeaves,
-          hasThirdPlace,
-          universe,
         );
         return {
           odds,
@@ -1252,11 +1253,7 @@ export function ChallengeOutcomes({
       })
       .filter((card) => card.displayRows.length > 0);
 
-    const teamDisplayRows = buildOutcomeDisplayRows(
-      allLeaves,
-      hasThirdPlace,
-      universe,
-    );
+    const teamDisplayRows = globalDisplayRows;
 
     const teamChampionCards: {
       champId: number;

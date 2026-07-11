@@ -191,3 +191,46 @@ test('third ALL collapses only within the same runner-up sibling group', () => {
   assert.equal(nateRow.thirdTeams[0].bracket_contestant_id, germany.bracket_contestant_id);
   assert.equal(harryRow.thirdTeams[0].bracket_contestant_id, england.bracket_contestant_id);
 });
+
+test('entry cards reuse globally reconciled rows instead of re-collapsing per entry', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const england = team(5, 'England');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [thirdBranch(england, france, [harry])]),
+    ruBranch(france, [thirdBranch(germany, england, [nate])]),
+    ruBranch(germany, [thirdBranch(england, france, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const globalRows = buildOutcomeDisplayRows(leaves, true, universe);
+
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const harryRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === harry.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 1);
+  assert.equal(harryRows.length, 1);
+
+  const ruUniverse = universe.runnerUps(spain.bracket_contestant_id);
+  assert.equal(
+    isExhaustiveCluster(nateRows[0].runnerUpTeams, ruUniverse),
+    false,
+    'Nate entry card must not inherit a per-entry ALL runner-up row',
+  );
+  assert.equal(nateRows[0].runnerUpTeams.length, 2);
+  assert.deepEqual(
+    harryRows[0].runnerUpTeams.map((rowTeam) => rowTeam.bracket_contestant_id),
+    [argentina.bracket_contestant_id],
+  );
+});
