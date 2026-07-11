@@ -60,6 +60,13 @@ function winnersKey(winners: ChallengeOutcomesEntry[]): string {
     .join(',');
 }
 
+function leafMatchesRowWinners(
+  leaf: OutcomeLeafPath,
+  row: OutcomeDisplayRow,
+): boolean {
+  return winnersKey(leaf.winners) === winnersKey(row.winners);
+}
+
 function sortWinners(winners: ChallengeOutcomesEntry[]): ChallengeOutcomesEntry[] {
   return [...winners].sort((a, b) =>
     a.display_name.localeCompare(b.display_name, undefined, {
@@ -174,16 +181,10 @@ export function leavesMatchingDisplayRow(
   const ruIds = new Set(
     row.runnerUpTeams.map((team) => team.bracket_contestant_id),
   );
-  const winnerIds = new Set(
-    row.winners.map((winner) => winner.user_bracket_id),
-  );
-
   return leaves.filter((leaf) => {
     if (leaf.champion.bracket_contestant_id !== championId) return false;
     if (!ruIds.has(leaf.runnerUp.bracket_contestant_id)) return false;
-    if (!leaf.winners.some((winner) => winnerIds.has(winner.user_bracket_id))) {
-      return false;
-    }
+    if (!leafMatchesRowWinners(leaf, row)) return false;
 
     if (hasThirdPlace) {
       const thirdIds = new Set(
@@ -224,9 +225,6 @@ export function leavesMatchingDisplayRowPlacement(
   teamIds: number[],
 ): OutcomeLeafPath[] {
   const championId = row.champion.bracket_contestant_id;
-  const winnerIds = new Set(
-    row.winners.map((winner) => winner.user_bracket_id),
-  );
   const rowRuIds = new Set(
     row.runnerUpTeams.map((team) => team.bracket_contestant_id),
   );
@@ -243,9 +241,7 @@ export function leavesMatchingDisplayRowPlacement(
 
   return leaves.filter((leaf) => {
     if (leaf.champion.bracket_contestant_id !== championId) return false;
-    if (!leaf.winners.some((winner) => winnerIds.has(winner.user_bracket_id))) {
-      return false;
-    }
+    if (!leafMatchesRowWinners(leaf, row)) return false;
 
     if (role === 'runner_up') {
       if (!placementIds.has(leaf.runnerUp.bracket_contestant_id)) return false;
@@ -650,6 +646,92 @@ function refreshFourthFromLeaves(
 
 type RowWithLeaves = { row: OutcomeDisplayRow; leaves: OutcomeLeafPath[] };
 
+function restoreEmptyRunnerUpsFromLeaves(
+  rows: OutcomeDisplayRow[],
+  items: RowWithLeaves[],
+): OutcomeDisplayRow[] {
+  return rows.map((row, index) => {
+    if (row.runnerUpTeams.length > 0) return row;
+    const teams = dedupeTeams(items[index].leaves.map((leaf) => leaf.runnerUp));
+    return teams.length > 0 ? { ...row, runnerUpTeams: teams } : row;
+  });
+}
+
+function restoreEmptyThirdsFromLeaves(
+  rows: OutcomeDisplayRow[],
+  items: RowWithLeaves[],
+): OutcomeDisplayRow[] {
+  return rows.map((row, index) => {
+    if (row.thirdTeams.length > 0) return row;
+    const ruIds = new Set(
+      row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+    );
+    const teams = dedupeTeams(
+      items[index].leaves
+        .filter((leaf) => ruIds.has(leaf.runnerUp.bracket_contestant_id))
+        .flatMap((leaf) => (leaf.third ? [leaf.third] : [])),
+    );
+    return teams.length > 0 ? { ...row, thirdTeams: teams } : row;
+  });
+}
+
+function restoreEmptyFourthsFromLeaves(
+  rows: OutcomeDisplayRow[],
+  items: RowWithLeaves[],
+): OutcomeDisplayRow[] {
+  return rows.map((row, index) => {
+    if (row.fourthTeams.length > 0) return row;
+    const ruIds = new Set(
+      row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+    );
+    const thirdIds = new Set(
+      row.thirdTeams.map((team) => team.bracket_contestant_id),
+    );
+    const teams = dedupeTeams(
+      items[index].leaves
+        .filter(
+          (leaf) =>
+            ruIds.has(leaf.runnerUp.bracket_contestant_id) &&
+            leaf.third != null &&
+            thirdIds.has(leaf.third.bracket_contestant_id),
+        )
+        .flatMap((leaf) => (leaf.fourth ? [leaf.fourth] : [])),
+    );
+    return teams.length > 0 ? { ...row, fourthTeams: teams } : row;
+  });
+}
+
+function restoreEmptySemisFromLeaves(
+  rows: OutcomeDisplayRow[],
+  items: RowWithLeaves[],
+): OutcomeDisplayRow[] {
+  return rows.map((row, index) => {
+    if (row.semiTeams.length > 0) return row;
+    const ruIds = new Set(
+      row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+    );
+    const teams = dedupeTeams(
+      items[index].leaves
+        .filter((leaf) => ruIds.has(leaf.runnerUp.bracket_contestant_id))
+        .flatMap((leaf) => leaf.semifinalists ?? []),
+    );
+    return teams.length > 0 ? { ...row, semiTeams: teams } : row;
+  });
+}
+
+function dropUnrenderableDisplayRows(
+  rows: OutcomeDisplayRow[],
+  hasThirdPlace: boolean,
+): OutcomeDisplayRow[] {
+  return rows.filter((row) => {
+    if (row.runnerUpTeams.length === 0) return false;
+    if (hasThirdPlace) {
+      return row.thirdTeams.length > 0 && row.fourthTeams.length > 0;
+    }
+    return row.semiTeams.length > 0;
+  });
+}
+
 function reconcileSiblingPlacementSplits(
   items: RowWithLeaves[],
   universe: OutcomeGlobalUniverse,
@@ -666,6 +748,7 @@ function reconcileSiblingPlacementSplits(
     (row) => row.runnerUpTeams,
     (row, teams) => ({ ...row, runnerUpTeams: teams }),
   );
+  rows = restoreEmptyRunnerUpsFromLeaves(rows, items);
   rows = rows.map((row, index) =>
     refreshDownstreamFromLeaves(
       row,
@@ -676,7 +759,7 @@ function reconcileSiblingPlacementSplits(
   );
 
   if (!hasThirdPlace) {
-    return reconcileColumnForSiblings(
+    rows = reconcileColumnForSiblings(
       rows,
       (row) => teamSetKey(row.runnerUpTeams),
       (row) => {
@@ -688,6 +771,8 @@ function reconcileSiblingPlacementSplits(
       (row) => row.semiTeams,
       (row, teams) => ({ ...row, semiTeams: teams }),
     );
+    rows = restoreEmptySemisFromLeaves(rows, items);
+    return dropUnrenderableDisplayRows(rows, hasThirdPlace);
   }
 
   rows = reconcileColumnForSiblings(
@@ -702,11 +787,12 @@ function reconcileSiblingPlacementSplits(
     (row) => row.thirdTeams,
     (row, teams) => ({ ...row, thirdTeams: teams }),
   );
+  rows = restoreEmptyThirdsFromLeaves(rows, items);
   rows = rows.map((row, index) =>
     refreshFourthFromLeaves(row, items[index].leaves, hasThirdPlace, universe),
   );
 
-  return reconcileColumnForSiblings(
+  rows = reconcileColumnForSiblings(
     rows,
     (row) =>
       `${teamSetKey(row.runnerUpTeams)}|${teamSetKey(row.thirdTeams)}`,
@@ -726,6 +812,8 @@ function reconcileSiblingPlacementSplits(
     (row) => row.fourthTeams,
     (row, teams) => ({ ...row, fourthTeams: teams }),
   );
+  rows = restoreEmptyFourthsFromLeaves(rows, items);
+  return dropUnrenderableDisplayRows(rows, hasThirdPlace);
 }
 
 export function buildOutcomeDisplayRows(

@@ -17,6 +17,7 @@ import {
   sumDisplayRowsPlacementMetric,
   sumDisplayRowSpanBranchMetric,
   teamSetKey,
+  type OutcomeLeafPath,
 } from './challengeOutcomesDisplay';
 
 function team(
@@ -548,4 +549,134 @@ test('third span metric sums rows split below on fourth place', () => {
       0,
     ),
   );
+});
+
+test('row metrics only include leaves with the exact same winner set', () => {
+  const england = team(5, 'England');
+  const spain = team(1, 'Spain');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(england, [
+    ruBranch(spain, [thirdBranch(germany, portugal, [nate, harry])]),
+    ruBranch(spain, [thirdBranch(portugal, germany, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const tieRow = globalRows.find(
+    (row) => row.winners.length === 2,
+  )!;
+  const soloRow = globalRows.find(
+    (row) => row.winners.length === 1,
+  )!;
+  const soloLeaf = leaves.find(
+    (leaf) =>
+      leaf.runnerUp.bracket_contestant_id === spain.bracket_contestant_id &&
+      leaf.winners.length === 1,
+  )!;
+  const tieLeaf = leaves.find((leaf) => leaf.winners.length === 2)!;
+
+  assert.equal(
+    leavesMatchingDisplayRow(tieRow, [soloLeaf], true).length,
+    0,
+    'solo-win leaf must not count toward a tie row',
+  );
+  assert.equal(
+    leavesMatchingDisplayRow(soloRow, [tieLeaf], true).length,
+    0,
+    'tie leaf must not count toward a solo-win row',
+  );
+  assert.equal(sumDisplayRowBranchMetric(tieRow, leaves, true, 'outcomes'), 1);
+  assert.equal(sumDisplayRowBranchMetric(soloRow, leaves, true, 'outcomes'), 1);
+});
+
+test('buildOutcomeDisplayRows never emits rows with empty placement columns', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const england = team(5, 'England');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+  const keaton = winner(30, 'Keaton');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [thirdBranch(england, france, [harry])]),
+    ruBranch(france, [thirdBranch(germany, england, [nate])]),
+    ruBranch(germany, [thirdBranch(england, portugal, [keaton])]),
+    ruBranch(argentina, [thirdBranch(germany, portugal, [keaton])]),
+    ruBranch(france, [thirdBranch(england, portugal, [keaton])]),
+    ruBranch(germany, [thirdBranch(england, france, [keaton])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const rows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+
+  for (const row of rows) {
+    assert.ok(row.runnerUpTeams.length > 0, 'runner-up must not be empty');
+    assert.ok(row.thirdTeams.length > 0, 'third must not be empty');
+    assert.ok(row.fourthTeams.length > 0, 'fourth must not be empty');
+  }
+});
+
+test('entry card branch metrics partition an entry winning leaves exactly once', () => {
+  const england = team(5, 'England');
+  const spain = team(1, 'Spain');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(england, [
+    ruBranch(spain, [
+      thirdBranch(germany, portugal, [nate]),
+      thirdBranch(portugal, germany, [nate]),
+    ]),
+    ruBranch(france, [thirdBranch(germany, portugal, [nate, harry])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const nateLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+
+  const branchTotal = nateRows.reduce(
+    (total, row) => total + sumDisplayRowBranchMetric(row, leaves, true, 'outcomes')!,
+    0,
+  );
+  assert.equal(branchTotal, nateLeaves.length);
+
+  const matched = new Set<OutcomeLeafPath>();
+  for (const row of nateRows) {
+    for (const leaf of leavesMatchingDisplayRow(row, leaves, true)) {
+      assert.ok(!matched.has(leaf), 'each winning leaf must map to one row');
+      matched.add(leaf);
+    }
+  }
+  assert.equal(matched.size, nateLeaves.length);
 });
