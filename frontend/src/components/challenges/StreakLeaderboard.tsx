@@ -273,28 +273,10 @@ const KNOCKOUT_SORT_OPTIONS: {
   { key: 'total_win_pct', label: 'Total %', mobileLabel: 'Total %' },
 ];
 
-function FixedHeader({
-  label,
-  sortKey,
-  sort,
-  onSort,
-  className = 'is-num',
-}: {
-  label: string;
-  sortKey: StreakSortKey;
-  sort: SortState;
-  onSort: (key: StreakSortKey) => void;
-  className?: string;
-}) {
-  const active = sort.key === sortKey;
-  const ariaSort = active
-    ? sort.direction === 'asc'
-      ? 'ascending'
-      : 'descending'
-    : 'none';
-
+function playerHeaderCell(sort: SortState, onSort: (key: StreakSortKey) => void) {
+  const active = sort.key === 'player';
   return (
-    <th scope="col" rowSpan={2} className={className} aria-sort={ariaSort}>
+    <th scope="col" className="is-player" aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
       <button
         type="button"
         className={
@@ -302,9 +284,9 @@ function FixedHeader({
             ? 'challenge-leaderboard__th-btn challenge-leaderboard__th-btn--active'
             : 'challenge-leaderboard__th-btn'
         }
-        onClick={() => onSort(sortKey)}
+        onClick={() => onSort('player')}
       >
-        <span>{label}</span>
+        <span>Player</span>
         <span className="challenge-leaderboard__sort-icon" aria-hidden>
           {active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}
         </span>
@@ -477,66 +459,86 @@ export function StreakLeaderboard({
         </ol>
       </div>
       <div className="table-scroll streak-leaderboard__desktop">
-        <table className="data-table streak-leaderboard__table">
+        <table
+          className={
+            isKnockout
+              ? 'data-table streak-leaderboard__table streak-leaderboard__table--knockout'
+              : 'data-table streak-leaderboard__table'
+          }
+        >
+          {isKnockout ? (
+            <colgroup>
+              <col className="streak-leaderboard__col-rank" />
+              <col className="streak-leaderboard__col-player" />
+              <col className="streak-leaderboard__col-streak-stat" />
+              <col className="streak-leaderboard__col-streak-stat" />
+              <col className="streak-leaderboard__col-streak-stat" />
+              {KNOCKOUT_SECTIONS.flatMap((section) => [
+                <col
+                  key={`${section.label}-record`}
+                  className="streak-leaderboard__col-section"
+                />,
+                <col
+                  key={`${section.label}-pct`}
+                  className="streak-leaderboard__col-section"
+                />,
+              ])}
+            </colgroup>
+          ) : null}
           <thead>
             {isKnockout ? (
               <>
                 <tr className="streak-leaderboard__section-row">
-                  <FixedHeader
-                    label="#"
-                    sortKey="rank"
-                    sort={sort}
-                    onSort={onSort}
+                  <th
+                    colSpan={5}
+                    className="streak-leaderboard__section-spacer"
+                    aria-hidden
                   />
-                  <FixedHeader
-                    label="Player"
-                    sortKey="player"
-                    sort={sort}
-                    onSort={onSort}
-                    className="is-player"
-                  />
-                  <FixedHeader
-                    label="Best"
-                    sortKey="long_w"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  <FixedHeader
-                    label="Current"
-                    sortKey="current"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  <FixedHeader
-                    label="Worst"
-                    sortKey="long_l"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                  {KNOCKOUT_SECTIONS.map((section) => (
                     <th
                       key={section.label}
                       scope="colgroup"
                       colSpan={2}
-                      className={
-                        index === 0
-                          ? 'streak-leaderboard__section-label'
-                          : 'streak-leaderboard__section-label streak-leaderboard__section-divider'
-                      }
+                      className="streak-leaderboard__section-label streak-leaderboard__section-divider"
                     >
                       {section.label}
                     </th>
                   ))}
                 </tr>
                 <tr>
-                  {KNOCKOUT_SECTIONS.map((section, index) => (
+                  <SortableHeader
+                    label="#"
+                    sortKey="rank"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  {playerHeaderCell(sort, onSort)}
+                  <SortableHeader
+                    label="Best"
+                    sortKey="long_w"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  <SortableHeader
+                    label="Current"
+                    sortKey="current"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  <SortableHeader
+                    label="Worst"
+                    sortKey="long_l"
+                    sort={sort}
+                    onSort={onSort}
+                  />
+                  {KNOCKOUT_SECTIONS.map((section) => (
                     <Fragment key={section.label}>
                       <SortableHeader
                         label="W-L"
                         sortKey={section.recordKey}
                         sort={sort}
                         onSort={onSort}
-                        sectionDivider={index > 0}
+                        sectionDivider
                       />
                       <SortableHeader
                         label="%"
@@ -651,15 +653,9 @@ export function StreakLeaderboard({
                   <td className="is-num">{e.current_display}</td>
                   <td className="is-num">{e.long_loss_display}</td>
                   {isKnockout ? (
-                    KNOCKOUT_SECTIONS.map((section, sectionIndex) => (
+                    KNOCKOUT_SECTIONS.map((section) => (
                       <Fragment key={section.label}>
-                        <td
-                          className={
-                            sectionIndex === 0
-                              ? 'is-num'
-                              : 'is-num streak-leaderboard__section-divider'
-                          }
-                        >
+                        <td className="is-num streak-leaderboard__section-divider">
                           {section.record(e)}
                         </td>
                         <td className="is-num">{section.winPct(e)}%</td>

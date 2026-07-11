@@ -4,7 +4,7 @@
 }
 
 .streak-view--wide {
-  max-width: 72rem;
+  max-width: 80rem;
 }
 
 .streak-view__back {
@@ -302,9 +302,40 @@
   width: 100%;
 }
 
+.streak-leaderboard__table--knockout {
+  table-layout: fixed;
+  min-width: 58rem;
+}
+
+.streak-leaderboard__col-rank {
+  width: 2.75rem;
+}
+
+.streak-leaderboard__col-player {
+  width: auto;
+}
+
+.streak-leaderboard__col-streak-stat {
+  width: 3.5rem;
+}
+
+.streak-leaderboard__col-section {
+  width: 3.75rem;
+}
+
+.streak-leaderboard__table th.is-num .challenge-leaderboard__th-btn {
+  width: 100%;
+  justify-content: center;
+}
+
 .streak-leaderboard__table th.is-num,
 .streak-leaderboard__table td.is-num {
   text-align: center;
+}
+
+.streak-leaderboard__section-spacer {
+  padding: 0;
+  border-bottom: none;
 }
 
 .streak-leaderboard__section-row th {
@@ -319,7 +350,8 @@
   text-transform: uppercase;
   color: var(--app-muted, #64748b);
   padding-top: 0.35rem;
-  padding-bottom: 0.15rem;
+  padding-bottom: 0.35rem;
+  border-bottom: none;
 }
 
 .streak-leaderboard__section-divider {
