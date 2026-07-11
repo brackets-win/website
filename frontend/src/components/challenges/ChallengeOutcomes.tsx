@@ -13,6 +13,8 @@ import {
   OutcomeGlobalUniverse,
   pathOutcomeKey,
   sumDisplayRowBranchMetric,
+  sumDisplayRowPlacementMetric,
+  type DisplayRowPlacementRole,
   type OutcomeDisplayRow,
   type OutcomeLeafPath,
   teamSetKey,
@@ -182,6 +184,12 @@ function TeamFlag({
   );
 }
 
+type EntryMetricContext = {
+  row: DisplayRow;
+  allLeaves: LeafPath[];
+  hasThirdPlace: boolean;
+};
+
 function TeamCluster({
   teams,
   singleSize = 'sm',
@@ -192,6 +200,8 @@ function TeamCluster({
   globalOutcomeTotal,
   pathLikelihood,
   sortKey,
+  groupMode,
+  entryMetric,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   singleSize?: 'lg' | 'md' | 'sm' | 'xs';
@@ -202,6 +212,8 @@ function TeamCluster({
   globalOutcomeTotal: number;
   pathLikelihood?: Record<string, number>;
   sortKey: SortKey;
+  groupMode: GroupMode;
+  entryMetric?: EntryMetricContext;
 }) {
   const sorted = sortTeamsForPathSort(
     teams,
@@ -218,10 +230,12 @@ function TeamCluster({
       <TeamFlag
         team={sorted[0]}
         size={singleSize}
-        metricPct={lookupTeamMetricPct(
-          pathContext,
+        metricPct={resolvePlacementMetricPct(
+          groupMode,
           role,
-          sorted[0].bracket_contestant_id,
+          [sorted[0].bracket_contestant_id],
+          entryMetric,
+          pathContext,
           teamMetricMode,
           pathOutcomeCounts,
           globalOutcomeTotal,
@@ -240,10 +254,12 @@ function TeamCluster({
           key={team.bracket_contestant_id}
           team={team}
           size="xs"
-          metricPct={lookupTeamMetricPct(
-            pathContext,
+          metricPct={resolvePlacementMetricPct(
+            groupMode,
             role,
-            team.bracket_contestant_id,
+            [team.bracket_contestant_id],
+            entryMetric,
+            pathContext,
             teamMetricMode,
             pathOutcomeCounts,
             globalOutcomeTotal,
@@ -303,6 +319,8 @@ function PlacementCell({
   globalOutcomeTotal,
   pathLikelihood,
   sortKey,
+  groupMode,
+  entryMetric,
 }: {
   teams: ChallengeStatsSimilarityTeam[];
   universe: ChallengeStatsSimilarityTeam[];
@@ -315,6 +333,8 @@ function PlacementCell({
   globalOutcomeTotal: number;
   pathLikelihood?: Record<string, number>;
   sortKey: SortKey;
+  groupMode: GroupMode;
+  entryMetric?: EntryMetricContext;
 }) {
   const sorted = sortTeamsForPathSort(
     teams,
@@ -331,10 +351,12 @@ function PlacementCell({
       <AllPill
         label={allLabel}
         size={singleSize === 'md' ? 'md' : 'sm'}
-        metricPct={lookupClusterMetricPct(
-          pathContext,
+        metricPct={resolvePlacementMetricPct(
+          groupMode,
           role,
-          universe,
+          sorted.map((team) => team.bracket_contestant_id),
+          entryMetric,
+          pathContext,
           teamMetricMode,
           pathOutcomeCounts,
           globalOutcomeTotal,
@@ -354,6 +376,8 @@ function PlacementCell({
       globalOutcomeTotal={globalOutcomeTotal}
       pathLikelihood={pathLikelihood}
       sortKey={sortKey}
+      groupMode={groupMode}
+      entryMetric={entryMetric}
     />
   );
 }
@@ -450,6 +474,95 @@ function lookupEntryChampionMetricPct(
     raw,
     teamMetricMode,
     globalOutcomeTotal,
+  );
+}
+
+function toDisplayRowPlacementRole(
+  role: PlacementRole,
+): DisplayRowPlacementRole | null {
+  if (role === 'champion') return null;
+  return role;
+}
+
+function lookupEntryPlacementMetricPct(
+  row: DisplayRow,
+  allLeaves: LeafPath[],
+  hasThirdPlace: boolean,
+  role: DisplayRowPlacementRole,
+  teamIds: number[],
+  teamMetricMode: TeamMetricMode,
+  globalOutcomeTotal: number,
+  pathLikelihood?: Record<string, number>,
+): string | null {
+  if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
+    return null;
+  }
+  const raw = sumDisplayRowPlacementMetric(
+    row,
+    allLeaves,
+    hasThirdPlace,
+    role,
+    teamIds,
+    teamMetricMode,
+    pathLikelihood,
+  );
+  if (raw == null) return null;
+  return formatRoundedTeamMetricPct(
+    raw,
+    teamMetricMode,
+    globalOutcomeTotal,
+  );
+}
+
+function resolvePlacementMetricPct(
+  groupMode: GroupMode,
+  role: PlacementRole,
+  teamIds: number[],
+  entryMetric: EntryMetricContext | undefined,
+  pathContext: PathContext,
+  teamMetricMode: TeamMetricMode,
+  pathOutcomeCounts: Map<string, number>,
+  globalOutcomeTotal: number,
+  pathLikelihood?: Record<string, number>,
+): string | null {
+  if (groupMode === 'entry' && entryMetric) {
+    const placementRole = toDisplayRowPlacementRole(role);
+    if (placementRole) {
+      return lookupEntryPlacementMetricPct(
+        entryMetric.row,
+        entryMetric.allLeaves,
+        entryMetric.hasThirdPlace,
+        placementRole,
+        teamIds,
+        teamMetricMode,
+        globalOutcomeTotal,
+        pathLikelihood,
+      );
+    }
+  }
+  if (teamIds.length === 1) {
+    return lookupTeamMetricPct(
+      pathContext,
+      role,
+      teamIds[0],
+      teamMetricMode,
+      pathOutcomeCounts,
+      globalOutcomeTotal,
+      pathLikelihood,
+    );
+  }
+  return lookupClusterMetricPct(
+    pathContext,
+    role,
+    teamIds.map((teamId) => ({
+      bracket_contestant_id: teamId,
+      display_name: '',
+      image_url: null,
+    })),
+    teamMetricMode,
+    pathOutcomeCounts,
+    globalOutcomeTotal,
+    pathLikelihood,
   );
 }
 
@@ -1112,6 +1225,10 @@ function PathsTable({
             const thirdContext = buildPathContext(row, 'third');
             const fourthContext = buildPathContext(row, 'fourth');
             const semiContext = buildPathContext(row, 'semi');
+            const entryMetric =
+              groupMode === 'entry'
+                ? { row, allLeaves, hasThirdPlace }
+                : undefined;
 
             return (
               <tr
@@ -1167,6 +1284,8 @@ function PathsTable({
                       globalOutcomeTotal={globalOutcomeTotal}
                       pathLikelihood={pathLikelihood}
                       sortKey={sortKey}
+                      groupMode={groupMode}
+                      entryMetric={entryMetric}
                     />
                   </td>
                 ) : null}
@@ -1185,6 +1304,8 @@ function PathsTable({
                           globalOutcomeTotal={globalOutcomeTotal}
                           pathLikelihood={pathLikelihood}
                           sortKey={sortKey}
+                          groupMode={groupMode}
+                          entryMetric={entryMetric}
                         />
                       </td>
                     ) : null}
@@ -1200,6 +1321,8 @@ function PathsTable({
                         globalOutcomeTotal={globalOutcomeTotal}
                         pathLikelihood={pathLikelihood}
                         sortKey={sortKey}
+                        groupMode={groupMode}
+                        entryMetric={entryMetric}
                       />
                     </td>
                   </>
@@ -1217,6 +1340,8 @@ function PathsTable({
                       globalOutcomeTotal={globalOutcomeTotal}
                       pathLikelihood={pathLikelihood}
                       sortKey={sortKey}
+                      groupMode={groupMode}
+                      entryMetric={entryMetric}
                     />
                   </td>
                 )}

@@ -442,6 +442,12 @@
     padding: 0.4rem 0.35rem 0.4rem 0.5rem;
     min-width: 7.25rem;
   }
+
+  .challenge-outcomes__td--winner .challenge-stats__group-points-name,
+  .challenge-outcomes__td--winner .challenge-stats__group-points-name--btn {
+    font-size: 0.625rem;
+    line-height: 1.25;
+  }
 }
 
 @media (min-width: 900px) {

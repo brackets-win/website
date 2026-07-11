@@ -13,6 +13,7 @@ import {
   leavesMatchingDisplayRow,
   OutcomeGlobalUniverse,
   sumDisplayRowBranchMetric,
+  sumDisplayRowPlacementMetric,
 } from './challengeOutcomesDisplay';
 
 function team(
@@ -268,4 +269,67 @@ test('entry champion branch metric counts only matching leaves, not champion pre
     leavesMatchingDisplayRow(nateRow, leaves, true).length,
     2,
   );
+});
+
+test('entry placement metrics stay within the row branch', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const england = team(5, 'England');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [thirdBranch(england, france, [harry])]),
+    ruBranch(france, [thirdBranch(germany, england, [nate])]),
+    ruBranch(germany, [thirdBranch(england, france, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRow = globalRows.find((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  )!;
+  const harryRow = globalRows.find((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === harry.user_bracket_id),
+  )!;
+
+  const nateBranch = sumDisplayRowBranchMetric(nateRow, leaves, true, 'outcomes')!;
+  const harryBranch = sumDisplayRowBranchMetric(harryRow, leaves, true, 'outcomes')!;
+
+  const nateFranceRu = sumDisplayRowPlacementMetric(
+    nateRow,
+    leaves,
+    true,
+    'runner_up',
+    [france.bracket_contestant_id],
+    'outcomes',
+  )!;
+  const nateGermanyRu = sumDisplayRowPlacementMetric(
+    nateRow,
+    leaves,
+    true,
+    'runner_up',
+    [germany.bracket_contestant_id],
+    'outcomes',
+  )!;
+  const harryArgentinaRu = sumDisplayRowPlacementMetric(
+    harryRow,
+    leaves,
+    true,
+    'runner_up',
+    [argentina.bracket_contestant_id],
+    'outcomes',
+  )!;
+
+  assert.equal(nateFranceRu + nateGermanyRu, nateBranch);
+  assert.ok(nateFranceRu <= nateBranch);
+  assert.ok(nateGermanyRu <= nateBranch);
+  assert.equal(harryArgentinaRu, harryBranch);
 });

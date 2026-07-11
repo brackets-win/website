@@ -213,6 +213,116 @@ export function leavesMatchingDisplayRow(
 
 export type OutcomeTeamMetricMode = 'outcomes' | 'likelihood';
 
+export type DisplayRowPlacementRole = 'runner_up' | 'third' | 'fourth' | 'semi';
+
+/** Leaves in this display row scoped to specific team(s) at one placement column. */
+export function leavesMatchingDisplayRowPlacement(
+  row: OutcomeDisplayRow,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  role: DisplayRowPlacementRole,
+  teamIds: number[],
+): OutcomeLeafPath[] {
+  const championId = row.champion.bracket_contestant_id;
+  const winnerIds = new Set(
+    row.winners.map((winner) => winner.user_bracket_id),
+  );
+  const rowRuIds = new Set(
+    row.runnerUpTeams.map((team) => team.bracket_contestant_id),
+  );
+  const rowThirdIds = new Set(
+    row.thirdTeams.map((team) => team.bracket_contestant_id),
+  );
+  const rowFourthIds = new Set(
+    row.fourthTeams.map((team) => team.bracket_contestant_id),
+  );
+  const rowSemiIds = new Set(
+    row.semiTeams.map((team) => team.bracket_contestant_id),
+  );
+  const placementIds = new Set(teamIds);
+
+  return leaves.filter((leaf) => {
+    if (leaf.champion.bracket_contestant_id !== championId) return false;
+    if (!leaf.winners.some((winner) => winnerIds.has(winner.user_bracket_id))) {
+      return false;
+    }
+
+    if (role === 'runner_up') {
+      if (!placementIds.has(leaf.runnerUp.bracket_contestant_id)) return false;
+      if (hasThirdPlace) {
+        if (!leaf.third || !rowThirdIds.has(leaf.third.bracket_contestant_id)) {
+          return false;
+        }
+        if (!leaf.fourth || !rowFourthIds.has(leaf.fourth.bracket_contestant_id)) {
+          return false;
+        }
+        return true;
+      }
+      for (const semi of leaf.semifinalists ?? []) {
+        if (!rowSemiIds.has(semi.bracket_contestant_id)) return false;
+      }
+      return (leaf.semifinalists?.length ?? 0) > 0;
+    }
+
+    if (!rowRuIds.has(leaf.runnerUp.bracket_contestant_id)) return false;
+
+    if (hasThirdPlace) {
+      if (!leaf.third || !rowThirdIds.has(leaf.third.bracket_contestant_id)) {
+        return false;
+      }
+      if (role === 'third') {
+        if (!placementIds.has(leaf.third.bracket_contestant_id)) return false;
+        if (!leaf.fourth || !rowFourthIds.has(leaf.fourth.bracket_contestant_id)) {
+          return false;
+        }
+        return true;
+      }
+      if (!leaf.fourth) return false;
+      return placementIds.has(leaf.fourth.bracket_contestant_id);
+    }
+
+    return leaf.semifinalists?.some((semi) =>
+      placementIds.has(semi.bracket_contestant_id),
+    );
+  });
+}
+
+/** Entry-mode placement cell: mass for this row at a specific column team/cluster. */
+export function sumDisplayRowPlacementMetric(
+  row: OutcomeDisplayRow,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  role: DisplayRowPlacementRole,
+  teamIds: number[],
+  metricMode: OutcomeTeamMetricMode,
+  pathLikelihood?: Record<string, number>,
+): number | null {
+  const matching = leavesMatchingDisplayRowPlacement(
+    row,
+    leaves,
+    hasThirdPlace,
+    role,
+    teamIds,
+  );
+  if (matching.length === 0) return null;
+
+  if (metricMode === 'outcomes') {
+    return matching.length;
+  }
+
+  let total = 0;
+  let found = false;
+  for (const leaf of matching) {
+    const key = deepestPathOutcomeKey(leaf, hasThirdPlace);
+    if (!key) continue;
+    const value = pathLikelihood?.[key];
+    if (value == null || Number.isNaN(value)) continue;
+    total += value;
+    found = true;
+  }
+  return found ? total : null;
+}
+
 /** Entry-mode champion cell: total mass for this whole branch row. */
 export function sumDisplayRowBranchMetric(
   row: OutcomeDisplayRow,
