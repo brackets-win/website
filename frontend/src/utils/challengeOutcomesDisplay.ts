@@ -351,6 +351,68 @@ export function sumDisplayRowBranchMetric(
   return found ? total : null;
 }
 
+/** Entry-mode champion cell spanning multiple sibling display rows. */
+export function sumDisplayRowSpanBranchMetric(
+  rows: OutcomeDisplayRow[],
+  startIndex: number,
+  span: number,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  metricMode: OutcomeTeamMetricMode,
+  pathLikelihood?: Record<string, number>,
+): number | null {
+  if (span <= 0 || startIndex < 0 || startIndex + span > rows.length) {
+    return null;
+  }
+
+  let total = 0;
+  let found = false;
+  for (let index = startIndex; index < startIndex + span; index++) {
+    const raw = sumDisplayRowBranchMetric(
+      rows[index],
+      leaves,
+      hasThirdPlace,
+      metricMode,
+      pathLikelihood,
+    );
+    if (raw == null) continue;
+    total += raw;
+    found = true;
+  }
+  return found ? total : null;
+}
+
+/** Entry-mode placement cell spanning multiple sibling display rows. */
+export function sumDisplayRowsPlacementMetric(
+  rows: OutcomeDisplayRow[],
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  role: DisplayRowPlacementRole,
+  teamIds: number[],
+  metricMode: OutcomeTeamMetricMode,
+  pathLikelihood?: Record<string, number>,
+): number | null {
+  if (rows.length === 0) return null;
+
+  let total = 0;
+  let found = false;
+  for (const row of rows) {
+    const raw = sumDisplayRowPlacementMetric(
+      row,
+      leaves,
+      hasThirdPlace,
+      role,
+      teamIds,
+      metricMode,
+      pathLikelihood,
+    );
+    if (raw == null) continue;
+    total += raw;
+    found = true;
+  }
+  return found ? total : null;
+}
+
 /** Global remaining teams under a prefix — from the FULL outcome tree. */
 export class OutcomeGlobalUniverse {
   constructor(private readonly allLeaves: OutcomeLeafPath[]) {}

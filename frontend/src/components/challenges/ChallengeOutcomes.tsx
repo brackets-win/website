@@ -12,8 +12,8 @@ import {
   isExhaustiveCluster,
   OutcomeGlobalUniverse,
   pathOutcomeKey,
-  sumDisplayRowBranchMetric,
-  sumDisplayRowPlacementMetric,
+  sumDisplayRowsPlacementMetric,
+  sumDisplayRowSpanBranchMetric,
   type DisplayRowPlacementRole,
   type OutcomeDisplayRow,
   type OutcomeLeafPath,
@@ -186,9 +186,25 @@ function TeamFlag({
 
 type EntryMetricContext = {
   row: DisplayRow;
+  metricRows: DisplayRow[];
   allLeaves: LeafPath[];
   hasThirdPlace: boolean;
 };
+
+function buildEntryMetric(
+  rows: DisplayRow[],
+  rowIndex: number,
+  span: number,
+  allLeaves: LeafPath[],
+  hasThirdPlace: boolean,
+): EntryMetricContext {
+  return {
+    row: rows[rowIndex],
+    metricRows: rows.slice(rowIndex, rowIndex + span),
+    allLeaves,
+    hasThirdPlace,
+  };
+}
 
 function TeamCluster({
   teams,
@@ -452,7 +468,9 @@ type PathContext = {
 };
 
 function lookupEntryChampionMetricPct(
-  row: DisplayRow,
+  rows: DisplayRow[],
+  startIndex: number,
+  span: number,
   allLeaves: LeafPath[],
   hasThirdPlace: boolean,
   teamMetricMode: TeamMetricMode,
@@ -462,8 +480,10 @@ function lookupEntryChampionMetricPct(
   if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
     return null;
   }
-  const raw = sumDisplayRowBranchMetric(
-    row,
+  const raw = sumDisplayRowSpanBranchMetric(
+    rows,
+    startIndex,
+    span,
     allLeaves,
     hasThirdPlace,
     teamMetricMode,
@@ -485,9 +505,7 @@ function toDisplayRowPlacementRole(
 }
 
 function lookupEntryPlacementMetricPct(
-  row: DisplayRow,
-  allLeaves: LeafPath[],
-  hasThirdPlace: boolean,
+  entryMetric: EntryMetricContext,
   role: DisplayRowPlacementRole,
   teamIds: number[],
   teamMetricMode: TeamMetricMode,
@@ -497,10 +515,10 @@ function lookupEntryPlacementMetricPct(
   if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
     return null;
   }
-  const raw = sumDisplayRowPlacementMetric(
-    row,
-    allLeaves,
-    hasThirdPlace,
+  const raw = sumDisplayRowsPlacementMetric(
+    entryMetric.metricRows,
+    entryMetric.allLeaves,
+    entryMetric.hasThirdPlace,
     role,
     teamIds,
     teamMetricMode,
@@ -529,9 +547,7 @@ function resolvePlacementMetricPct(
     const placementRole = toDisplayRowPlacementRole(role);
     if (placementRole) {
       return lookupEntryPlacementMetricPct(
-        entryMetric.row,
-        entryMetric.allLeaves,
-        entryMetric.hasThirdPlace,
+        entryMetric,
         placementRole,
         teamIds,
         teamMetricMode,
@@ -1225,9 +1241,29 @@ function PathsTable({
             const thirdContext = buildPathContext(row, 'third');
             const fourthContext = buildPathContext(row, 'fourth');
             const semiContext = buildPathContext(row, 'semi');
-            const entryMetric =
+            const entryMetricForFourth =
               groupMode === 'entry'
-                ? { row, allLeaves, hasThirdPlace }
+                ? buildEntryMetric(rows, rowIndex, 1, allLeaves, hasThirdPlace)
+                : undefined;
+            const entryMetricForRu =
+              groupMode === 'entry' && row.showRuCell
+                ? buildEntryMetric(
+                    rows,
+                    rowIndex,
+                    row.ruRowSpan,
+                    allLeaves,
+                    hasThirdPlace,
+                  )
+                : undefined;
+            const entryMetricForThird =
+              groupMode === 'entry' && row.showThirdCell
+                ? buildEntryMetric(
+                    rows,
+                    rowIndex,
+                    row.thirdRowSpan,
+                    allLeaves,
+                    hasThirdPlace,
+                  )
                 : undefined;
 
             return (
@@ -1250,7 +1286,9 @@ function PathsTable({
                       metricPct={
                         groupMode === 'entry'
                           ? lookupEntryChampionMetricPct(
-                              row,
+                              rows,
+                              rowIndex,
+                              row.champRowSpan,
                               allLeaves,
                               hasThirdPlace,
                               teamMetricMode,
@@ -1285,7 +1323,7 @@ function PathsTable({
                       pathLikelihood={pathLikelihood}
                       sortKey={sortKey}
                       groupMode={groupMode}
-                      entryMetric={entryMetric}
+                      entryMetric={entryMetricForRu}
                     />
                   </td>
                 ) : null}
@@ -1305,7 +1343,7 @@ function PathsTable({
                           pathLikelihood={pathLikelihood}
                           sortKey={sortKey}
                           groupMode={groupMode}
-                          entryMetric={entryMetric}
+                          entryMetric={entryMetricForThird}
                         />
                       </td>
                     ) : null}
@@ -1322,7 +1360,7 @@ function PathsTable({
                         pathLikelihood={pathLikelihood}
                         sortKey={sortKey}
                         groupMode={groupMode}
-                        entryMetric={entryMetric}
+                        entryMetric={entryMetricForFourth}
                       />
                     </td>
                   </>
@@ -1341,7 +1379,7 @@ function PathsTable({
                       pathLikelihood={pathLikelihood}
                       sortKey={sortKey}
                       groupMode={groupMode}
-                      entryMetric={entryMetric}
+                      entryMetric={entryMetricForFourth}
                     />
                   </td>
                 )}

@@ -14,6 +14,9 @@ import {
   OutcomeGlobalUniverse,
   sumDisplayRowBranchMetric,
   sumDisplayRowPlacementMetric,
+  sumDisplayRowsPlacementMetric,
+  sumDisplayRowSpanBranchMetric,
+  teamSetKey,
 } from './challengeOutcomesDisplay';
 
 function team(
@@ -332,4 +335,217 @@ test('entry placement metrics stay within the row branch', () => {
   assert.ok(nateFranceRu <= nateBranch);
   assert.ok(nateGermanyRu <= nateBranch);
   assert.equal(harryArgentinaRu, harryBranch);
+});
+
+test('champion span metric sums sibling display rows under the same champion', () => {
+  const england = team(5, 'England');
+  const spain = team(1, 'Spain');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(england, [
+    ruBranch(spain, [
+      thirdBranch(germany, portugal, [nate]),
+      thirdBranch(portugal, germany, [nate]),
+    ]),
+    ruBranch(france, [thirdBranch(germany, portugal, [nate, harry])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 2);
+
+  const spainRow = nateRows.find(
+    (row) => row.runnerUpTeams[0]?.bracket_contestant_id === spain.bracket_contestant_id,
+  )!;
+  const franceRow = nateRows.find(
+    (row) => row.runnerUpTeams[0]?.bracket_contestant_id === france.bracket_contestant_id,
+  )!;
+  assert.ok(spainRow);
+  assert.ok(franceRow);
+
+  const spainBranch = sumDisplayRowBranchMetric(spainRow, leaves, true, 'outcomes')!;
+  const franceBranch = sumDisplayRowBranchMetric(franceRow, leaves, true, 'outcomes')!;
+  const spanTotal = sumDisplayRowSpanBranchMetric(
+    nateRows,
+    0,
+    nateRows.length,
+    leaves,
+    true,
+    'outcomes',
+  )!;
+
+  assert.equal(spainBranch, 2);
+  assert.equal(franceBranch, 1);
+  assert.equal(spanTotal, spainBranch + franceBranch);
+
+  const spainRu = sumDisplayRowPlacementMetric(
+    spainRow,
+    leaves,
+    true,
+    'runner_up',
+    [spain.bracket_contestant_id],
+    'outcomes',
+  )!;
+  const franceRu = sumDisplayRowPlacementMetric(
+    franceRow,
+    leaves,
+    true,
+    'runner_up',
+    [france.bracket_contestant_id],
+    'outcomes',
+  )!;
+  assert.equal(spainRu + franceRu, spanTotal);
+});
+
+test('runner-up span metric sums rows split below on third place', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const england = team(4, 'England');
+  const france = team(3, 'France');
+  const germany = team(5, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [
+      thirdBranch(england, france, [nate]),
+      thirdBranch(germany, portugal, [nate, harry]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 2);
+  assert.equal(
+    teamSetKey(nateRows[0].runnerUpTeams),
+    teamSetKey(nateRows[1].runnerUpTeams),
+  );
+
+  const argentinaId = argentina.bracket_contestant_id;
+  const rowMetrics = nateRows.map(
+    (row) =>
+      sumDisplayRowPlacementMetric(
+        row,
+        leaves,
+        true,
+        'runner_up',
+        [argentinaId],
+        'outcomes',
+      )!,
+  );
+  const spanTotal = sumDisplayRowsPlacementMetric(
+    nateRows,
+    leaves,
+    true,
+    'runner_up',
+    [argentinaId],
+    'outcomes',
+  )!;
+
+  assert.equal(spanTotal, rowMetrics[0] + rowMetrics[1]);
+  assert.equal(
+    spanTotal,
+    nateRows.reduce(
+      (total, row) =>
+        total +
+        sumDisplayRowBranchMetric(row, leaves, true, 'outcomes')!,
+      0,
+    ),
+  );
+});
+
+test('third span metric sums rows split below on fourth place', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const england = team(4, 'England');
+  const france = team(3, 'France');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [
+      thirdBranch(england, france, [nate]),
+      thirdBranch(england, portugal, [nate, harry]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 2);
+  assert.equal(
+    teamSetKey(nateRows[0].thirdTeams),
+    teamSetKey(nateRows[1].thirdTeams),
+  );
+
+  const englandId = england.bracket_contestant_id;
+  const rowMetrics = nateRows.map(
+    (row) =>
+      sumDisplayRowPlacementMetric(
+        row,
+        leaves,
+        true,
+        'third',
+        [englandId],
+        'outcomes',
+      )!,
+  );
+  const spanTotal = sumDisplayRowsPlacementMetric(
+    nateRows,
+    leaves,
+    true,
+    'third',
+    [englandId],
+    'outcomes',
+  )!;
+
+  assert.equal(spanTotal, rowMetrics[0] + rowMetrics[1]);
+  assert.equal(
+    spanTotal,
+    nateRows.reduce(
+      (total, row) =>
+        total +
+        sumDisplayRowPlacementMetric(
+          row,
+          leaves,
+          true,
+          'runner_up',
+          [argentina.bracket_contestant_id],
+          'outcomes',
+        )!,
+      0,
+    ),
+  );
 });
