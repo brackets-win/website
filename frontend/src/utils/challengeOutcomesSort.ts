@@ -3,9 +3,13 @@ import {
   isExhaustiveCluster,
   OutcomeGlobalUniverse,
   pathOutcomeKey,
+  sumDisplayRowBranchMetric,
+  sumDisplayRowPlacementMetric,
   teamSetKey,
+  type DisplayRowPlacementRole,
   type OutcomeDisplayRow,
   type OutcomeLeafPath,
+  type OutcomeTeamMetricMode,
 } from './challengeOutcomesDisplay';
 
 export type OutcomeSortKey = 'outcomes' | 'likelihood' | 'name';
@@ -150,6 +154,7 @@ function sumPathMetricValues(
   return found ? total : null;
 }
 
+/** Team-mode card ordering: total mass under a champion prefix. */
 export function championCardMetricScore(
   champId: number,
   metric: 'outcome_count' | 'likelihood',
@@ -201,19 +206,60 @@ function placementTeamsNameKey(teams: ChallengeStatsSimilarityTeam[]): string {
     .join(', ');
 }
 
-function placementColumnSortScore(
+function roleTeams(
   row: OutcomeDisplayRow,
   role: PlacementRole,
-  teams: ChallengeStatsSimilarityTeam[],
-  universe: ChallengeStatsSimilarityTeam[],
+): ChallengeStatsSimilarityTeam[] {
+  if (role === 'champion') return [row.champion];
+  if (role === 'runner_up') return row.runnerUpTeams;
+  if (role === 'third') return row.thirdTeams;
+  if (role === 'fourth') return row.fourthTeams;
+  return row.semiTeams;
+}
+
+function roleUniverse(
+  row: OutcomeDisplayRow,
+  role: PlacementRole,
+  universe: OutcomeGlobalUniverse,
+  ruIds: Set<number>,
+  thirdIds: Set<number>,
+): ChallengeStatsSimilarityTeam[] {
+  const champId = row.champion.bracket_contestant_id;
+  if (role === 'champion') return [row.champion];
+  if (role === 'runner_up') return universe.runnerUps(champId);
+  if (role === 'third') return universe.thirds(champId, ruIds);
+  if (role === 'fourth') return universe.fourths(champId, ruIds, thirdIds);
+  return universe.semis(champId, ruIds);
+}
+
+function normalizeSortScore(
+  raw: number | null,
   sortKey: OutcomeSortKey,
+  globalOutcomeTotal: number,
+): number {
+  if (raw == null) return -1;
+  if (sortKey === 'likelihood') return raw;
+  return globalOutcomeTotal > 0 ? (100 * raw) / globalOutcomeTotal : raw;
+}
+
+function teamRowColumnSortScore(
+  row: OutcomeDisplayRow,
+  role: PlacementRole,
+  sortKey: OutcomeSortKey,
+  universe: OutcomeGlobalUniverse,
   pathOutcomeCounts: Map<string, number>,
   globalOutcomeTotal: number,
-  pathLikelihood?: Record<string, number>,
+  pathLikelihood: Record<string, number> | undefined,
+  ruIds: Set<number>,
+  thirdIds: Set<number>,
 ): number {
+  const teams = roleTeams(row, role);
   if (teams.length === 0) return -1;
+  const columnUniverse = roleUniverse(row, role, universe, ruIds, thirdIds);
   const context = buildPathContext(row, role);
-  const clusterTeams = isExhaustiveCluster(teams, universe) ? universe : teams;
+  const clusterTeams = isExhaustiveCluster(teams, columnUniverse)
+    ? columnUniverse
+    : teams;
   let total = 0;
   let found = false;
   for (const team of clusterTeams) {
@@ -233,6 +279,126 @@ function placementColumnSortScore(
   return found ? total : -1;
 }
 
+function entryRowColumnSortScore(
+  row: OutcomeDisplayRow,
+  role: PlacementRole,
+  sortKey: OutcomeSortKey,
+  entryLeaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  globalOutcomeTotal: number,
+  pathLikelihood: Record<string, number> | undefined,
+): number {
+  const metricMode: OutcomeTeamMetricMode =
+    sortKey === 'likelihood' ? 'likelihood' : 'outcomes';
+  const teams = roleTeams(row, role);
+  if (teams.length === 0) return -1;
+
+  let raw: number | null;
+  if (role === 'champion') {
+    raw = sumDisplayRowBranchMetric(
+      row,
+      entryLeaves,
+      hasThirdPlace,
+      metricMode,
+      pathLikelihood,
+    );
+  } else {
+    raw = sumDisplayRowPlacementMetric(
+      row,
+      entryLeaves,
+      hasThirdPlace,
+      role as DisplayRowPlacementRole,
+      teams.map((team) => team.bracket_contestant_id),
+      metricMode,
+      pathLikelihood,
+    );
+  }
+  return normalizeSortScore(raw, sortKey, globalOutcomeTotal);
+}
+
+function rowColumnSortScore(
+  row: OutcomeDisplayRow,
+  role: PlacementRole,
+  sortKey: OutcomeSortKey,
+  hasThirdPlace: boolean,
+  universe: OutcomeGlobalUniverse,
+  pathOutcomeCounts: Map<string, number>,
+  globalOutcomeTotal: number,
+  pathLikelihood: Record<string, number> | undefined,
+  entryLeaves: OutcomeLeafPath[] | undefined,
+  ruIds: Set<number>,
+  thirdIds: Set<number>,
+): number {
+  if (entryLeaves) {
+    return entryRowColumnSortScore(
+      row,
+      role,
+      sortKey,
+      entryLeaves,
+      hasThirdPlace,
+      globalOutcomeTotal,
+      pathLikelihood,
+    );
+  }
+  return teamRowColumnSortScore(
+    row,
+    role,
+    sortKey,
+    universe,
+    pathOutcomeCounts,
+    globalOutcomeTotal,
+    pathLikelihood,
+    ruIds,
+    thirdIds,
+  );
+}
+
+function compareRowColumnLevel(
+  a: OutcomeDisplayRow,
+  b: OutcomeDisplayRow,
+  role: PlacementRole,
+  sortKey: OutcomeSortKey,
+  hasThirdPlace: boolean,
+  universe: OutcomeGlobalUniverse,
+  pathOutcomeCounts: Map<string, number>,
+  globalOutcomeTotal: number,
+  pathLikelihood: Record<string, number> | undefined,
+  entryLeaves: OutcomeLeafPath[] | undefined,
+  ruIdsA: Set<number>,
+  ruIdsB: Set<number>,
+  thirdIdsA: Set<number>,
+  thirdIdsB: Set<number>,
+): number | null {
+  const scoreA = rowColumnSortScore(
+    a,
+    role,
+    sortKey,
+    hasThirdPlace,
+    universe,
+    pathOutcomeCounts,
+    globalOutcomeTotal,
+    pathLikelihood,
+    entryLeaves,
+    ruIdsA,
+    thirdIdsA,
+  );
+  const scoreB = rowColumnSortScore(
+    b,
+    role,
+    sortKey,
+    hasThirdPlace,
+    universe,
+    pathOutcomeCounts,
+    globalOutcomeTotal,
+    pathLikelihood,
+    entryLeaves,
+    ruIdsB,
+    thirdIdsB,
+  );
+  if (scoreB !== scoreA) return scoreB - scoreA;
+  return null;
+}
+
 function compareDisplayRows(
   a: OutcomeDisplayRow,
   b: OutcomeDisplayRow,
@@ -242,11 +408,18 @@ function compareDisplayRows(
   pathOutcomeCounts: Map<string, number>,
   globalOutcomeTotal: number,
   pathLikelihood?: Record<string, number>,
+  entryLeaves?: OutcomeLeafPath[],
 ): number {
   const champIdA = a.champion.bracket_contestant_id;
   const champIdB = b.champion.bracket_contestant_id;
   const ruIdsA = new Set(a.runnerUpTeams.map((team) => team.bracket_contestant_id));
   const ruIdsB = new Set(b.runnerUpTeams.map((team) => team.bracket_contestant_id));
+  const thirdIdsA = new Set(
+    a.thirdTeams.map((team) => team.bracket_contestant_id),
+  );
+  const thirdIdsB = new Set(
+    b.thirdTeams.map((team) => team.bracket_contestant_id),
+  );
 
   if (sortKey === 'name') {
     const cmpChamp = a.champion.display_name.localeCompare(
@@ -285,161 +458,53 @@ function compareDisplayRows(
     return winnersKey(a.winners).localeCompare(winnersKey(b.winners));
   }
 
-  // Hierarchical grouping (champ → runner-up → third → fourth) so rowSpan cells
-  // merge correctly; only order sibling branches by metric within each level.
-  if (champIdA !== champIdB) {
-    const metric =
-      sortKey === 'likelihood' ? 'likelihood' : 'outcome_count';
-    const champScoreA = championCardMetricScore(
-      champIdA,
-      metric,
-      pathOutcomeCounts,
-      pathLikelihood,
-    );
-    const champScoreB = championCardMetricScore(
-      champIdB,
-      metric,
-      pathOutcomeCounts,
-      pathLikelihood,
-    );
-    if (champScoreB !== champScoreA) return champScoreB - champScoreA;
-    return a.champion.display_name.localeCompare(
-      b.champion.display_name,
-      undefined,
-      { sensitivity: 'base' },
-    );
-  }
+  // Group by shared cell identity at each column (for rowSpan), then order
+  // sibling branches using that column's row-level metric left → right.
+  const columnLevels: PlacementRole[] = hasThirdPlace
+    ? ['champion', 'runner_up', 'third', 'fourth']
+    : ['champion', 'runner_up', 'semi'];
 
-  const ruKeyA = teamSetKey(a.runnerUpTeams);
-  const ruKeyB = teamSetKey(b.runnerUpTeams);
-  if (ruKeyA !== ruKeyB) {
-    const ruScoreA = placementColumnSortScore(
+  for (const role of columnLevels) {
+    const keysDiffer =
+      role === 'champion'
+        ? champIdA !== champIdB
+        : role === 'runner_up'
+          ? teamSetKey(a.runnerUpTeams) !== teamSetKey(b.runnerUpTeams)
+          : role === 'third'
+            ? teamSetKey(a.thirdTeams) !== teamSetKey(b.thirdTeams)
+            : role === 'fourth'
+              ? teamSetKey(a.fourthTeams) !== teamSetKey(b.fourthTeams)
+              : teamSetKey(a.semiTeams) !== teamSetKey(b.semiTeams);
+
+    if (!keysDiffer) continue;
+
+    const metricCmp = compareRowColumnLevel(
       a,
-      'runner_up',
-      a.runnerUpTeams,
-      universe.runnerUps(champIdA),
-      sortKey,
-      pathOutcomeCounts,
-      globalOutcomeTotal,
-      pathLikelihood,
-    );
-    const ruScoreB = placementColumnSortScore(
       b,
-      'runner_up',
-      b.runnerUpTeams,
-      universe.runnerUps(champIdB),
+      role,
       sortKey,
+      hasThirdPlace,
+      universe,
       pathOutcomeCounts,
       globalOutcomeTotal,
       pathLikelihood,
+      entryLeaves,
+      ruIdsA,
+      ruIdsB,
+      thirdIdsA,
+      thirdIdsB,
     );
-    if (ruScoreB !== ruScoreA) return ruScoreB - ruScoreA;
-    return placementTeamsNameKey(a.runnerUpTeams).localeCompare(
-      placementTeamsNameKey(b.runnerUpTeams),
-      undefined,
-      { sensitivity: 'base' },
-    );
-  }
+    if (metricCmp != null) return metricCmp;
 
-  if (hasThirdPlace) {
-    const thirdKeyA = teamSetKey(a.thirdTeams);
-    const thirdKeyB = teamSetKey(b.thirdTeams);
-    if (thirdKeyA !== thirdKeyB) {
-      const thirdScoreA = placementColumnSortScore(
-        a,
-        'third',
-        a.thirdTeams,
-        universe.thirds(champIdA, ruIdsA),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      const thirdScoreB = placementColumnSortScore(
-        b,
-        'third',
-        b.thirdTeams,
-        universe.thirds(champIdB, ruIdsB),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      if (thirdScoreB !== thirdScoreA) return thirdScoreB - thirdScoreA;
-      return placementTeamsNameKey(a.thirdTeams).localeCompare(
-        placementTeamsNameKey(b.thirdTeams),
-        undefined,
-        { sensitivity: 'base' },
-      );
-    }
-
-    const thirdIdsA = new Set(
-      a.thirdTeams.map((team) => team.bracket_contestant_id),
-    );
-    const thirdIdsB = new Set(
-      b.thirdTeams.map((team) => team.bracket_contestant_id),
-    );
-    const fourthKeyA = teamSetKey(a.fourthTeams);
-    const fourthKeyB = teamSetKey(b.fourthTeams);
-    if (fourthKeyA !== fourthKeyB) {
-      const fourthScoreA = placementColumnSortScore(
-        a,
-        'fourth',
-        a.fourthTeams,
-        universe.fourths(champIdA, ruIdsA, thirdIdsA),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      const fourthScoreB = placementColumnSortScore(
-        b,
-        'fourth',
-        b.fourthTeams,
-        universe.fourths(champIdB, ruIdsB, thirdIdsB),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      if (fourthScoreB !== fourthScoreA) return fourthScoreB - fourthScoreA;
-      return placementTeamsNameKey(a.fourthTeams).localeCompare(
-        placementTeamsNameKey(b.fourthTeams),
-        undefined,
-        { sensitivity: 'base' },
-      );
-    }
-  } else {
-    const semiKeyA = teamSetKey(a.semiTeams);
-    const semiKeyB = teamSetKey(b.semiTeams);
-    if (semiKeyA !== semiKeyB) {
-      const semiScoreA = placementColumnSortScore(
-        a,
-        'semi',
-        a.semiTeams,
-        universe.semis(champIdA, ruIdsA),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      const semiScoreB = placementColumnSortScore(
-        b,
-        'semi',
-        b.semiTeams,
-        universe.semis(champIdB, ruIdsB),
-        sortKey,
-        pathOutcomeCounts,
-        globalOutcomeTotal,
-        pathLikelihood,
-      );
-      if (semiScoreB !== semiScoreA) return semiScoreB - semiScoreA;
-      return placementTeamsNameKey(a.semiTeams).localeCompare(
-        placementTeamsNameKey(b.semiTeams),
-        undefined,
-        { sensitivity: 'base' },
-      );
-    }
+    const nameKeyA =
+      role === 'champion'
+        ? a.champion.display_name
+        : placementTeamsNameKey(roleTeams(a, role));
+    const nameKeyB =
+      role === 'champion'
+        ? b.champion.display_name
+        : placementTeamsNameKey(roleTeams(b, role));
+    return nameKeyA.localeCompare(nameKeyB, undefined, { sensitivity: 'base' });
   }
 
   return winnersKey(a.winners).localeCompare(winnersKey(b.winners));
@@ -453,6 +518,7 @@ export function sortOutcomeDisplayRows(
   pathOutcomeCounts: Map<string, number>,
   globalOutcomeTotal: number,
   pathLikelihood?: Record<string, number>,
+  entryLeaves?: OutcomeLeafPath[],
 ): OutcomeDisplayRow[] {
   return [...rows].sort((a, b) =>
     compareDisplayRows(
@@ -464,6 +530,7 @@ export function sortOutcomeDisplayRows(
       pathOutcomeCounts,
       globalOutcomeTotal,
       pathLikelihood,
+      entryLeaves,
     ),
   );
 }

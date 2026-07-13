@@ -1229,20 +1229,29 @@ export function ChallengeOutcomes({
     if (universe == null) return [];
     return [...entryCards]
       .sort((a, b) => compareOutcomesSort(a.odds, b.odds, sortKey))
-      .map((card) => ({
-        ...card,
-        rows: flattenTableRows(
-          sortOutcomeDisplayRows(
-            card.displayRows,
-            sortKey,
-            hasThirdPlace,
-            universe,
-            pathOutcomeCounts,
-            globalOutcomeTotal,
-            teamLikelihood,
+      .map((card) => {
+        const entryLeaves = allLeaves.filter((leaf) =>
+          leaf.winners.some(
+            (winner) =>
+              winner.user_bracket_id === card.odds.entry.user_bracket_id,
           ),
-        ),
-      }));
+        );
+        return {
+          ...card,
+          rows: flattenTableRows(
+            sortOutcomeDisplayRows(
+              card.displayRows,
+              sortKey,
+              hasThirdPlace,
+              universe,
+              pathOutcomeCounts,
+              globalOutcomeTotal,
+              teamLikelihood,
+              entryLeaves,
+            ),
+          ),
+        };
+      });
   }, [
     entryCards,
     sortKey,
@@ -1251,6 +1260,7 @@ export function ChallengeOutcomes({
     pathOutcomeCounts,
     globalOutcomeTotal,
     teamLikelihood,
+    allLeaves,
   ]);
 
   const sortedTeamChampionCards = useMemo(() => {

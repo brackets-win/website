@@ -749,3 +749,153 @@ test('metric sort keeps shared runner-up rows adjacent within a champion card', 
     'France runner-up rows must not be separated by another branch',
   );
 });
+
+test('entry card metric sort orders rows by entry branch mass not global prefix', () => {
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const jake = winner(10, 'Jake');
+  const katie = winner(20, 'Katie');
+  const nate = winner(30, 'Nate');
+
+  const tree: ChallengeOutcomesChampionBranch[] = [
+    {
+      team: argentina,
+      children: [
+        ruBranch(spain, [thirdBranch(france, england, [jake, katie])]),
+        ruBranch(france, [thirdBranch(germany, portugal, [nate])]),
+        ruBranch(france, [thirdBranch(england, portugal, [nate])]),
+        ruBranch(germany, [thirdBranch(england, portugal, [nate])]),
+      ],
+    },
+    {
+      team: spain,
+      children: [
+        ruBranch(argentina, [
+          thirdBranch(france, england, [katie]),
+          thirdBranch(germany, portugal, [katie]),
+        ]),
+      ],
+    },
+  ];
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const globalRows = buildOutcomeDisplayRows(leaves, true, universe);
+  const katieLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+  const katieRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+  assert.equal(katieRows.length, 2);
+
+  const argentinaChampRow = katieRows.find(
+    (row) => row.champion.bracket_contestant_id === argentina.bracket_contestant_id,
+  )!;
+  const spainChampRow = katieRows.find(
+    (row) => row.champion.bracket_contestant_id === spain.bracket_contestant_id,
+  )!;
+  assert.ok(argentinaChampRow);
+  assert.ok(spainChampRow);
+
+  const argentinaBranch = sumDisplayRowBranchMetric(
+    argentinaChampRow,
+    katieLeaves,
+    true,
+    'outcomes',
+  )!;
+  const spainBranch = sumDisplayRowBranchMetric(
+    spainChampRow,
+    katieLeaves,
+    true,
+    'outcomes',
+  )!;
+  assert.ok(spainBranch > argentinaBranch);
+
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+  const sortedGlobal = sortOutcomeDisplayRows(
+    [argentinaChampRow, spainChampRow],
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+  );
+  assert.equal(
+    sortedGlobal[0].champion.bracket_contestant_id,
+    argentina.bracket_contestant_id,
+    'global champion prefix can rank a smaller entry branch first',
+  );
+
+  const sortedEntry = sortOutcomeDisplayRows(
+    [argentinaChampRow, spainChampRow],
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+    undefined,
+    katieLeaves,
+  );
+  assert.equal(
+    sortedEntry[0].champion.bracket_contestant_id,
+    spain.bracket_contestant_id,
+    'entry card rows should sort by this entry branch mass',
+  );
+});
+
+test('split runner-up rows under the same champion sort by runner-up column metric', () => {
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const jake = winner(10, 'Jake');
+  const katie = winner(20, 'Katie');
+
+  const tree = buildTree(argentina, [
+    ruBranch(france, [thirdBranch(england, portugal, [jake])]),
+    ruBranch(spain, [
+      thirdBranch(england, portugal, [katie]),
+      thirdBranch(germany, portugal, [katie]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const rows = buildOutcomeDisplayRows(leaves, true, universe);
+  assert.equal(rows.length, 2);
+
+  const franceRuRow = rows.find(
+    (row) =>
+      row.runnerUpTeams[0]?.bracket_contestant_id === france.bracket_contestant_id,
+  )!;
+  const spainRuRow = rows.find(
+    (row) =>
+      row.runnerUpTeams[0]?.bracket_contestant_id === spain.bracket_contestant_id,
+  )!;
+  assert.ok(franceRuRow);
+  assert.ok(spainRuRow);
+
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+  const sorted = sortOutcomeDisplayRows(
+    [franceRuRow, spainRuRow],
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+  );
+  assert.equal(
+    sorted[0].runnerUpTeams[0].bracket_contestant_id,
+    spain.bracket_contestant_id,
+    'split rows under the same champion should sort by runner-up column mass',
+  );
+});
