@@ -88,6 +88,22 @@ export function activeKnockoutRoundIndex(
   return null;
 }
 
+export function isKnockoutRoundComplete(
+  knockout: StreakKnockoutPayload,
+  roundIndex: number,
+  activeRoundIndex: number | null,
+): boolean {
+  if (activeRoundIndex === roundIndex) return false;
+  if (knockout.status === 'SETUP') return false;
+  if (knockout.status === 'COMPLETE') return true;
+  if (activeRoundIndex != null && roundIndex < activeRoundIndex) return true;
+  const round = knockout.rounds.find((entry) => entry.round_index === roundIndex);
+  if (!round) return false;
+  const bracketMatches = round.matches.filter((match) => !match.is_third_place);
+  if (bracketMatches.length === 0) return false;
+  return bracketMatches.every((match) => match.finalized);
+}
+
 export function stageQuestionProgress(
   questions: StreakQuestionInfo[],
   phaseStartsAt: string,

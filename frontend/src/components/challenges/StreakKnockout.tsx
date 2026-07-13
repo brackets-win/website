@@ -24,6 +24,7 @@ import './StreakKnockout.css';
 import { columnMatchupCenterPct } from '../bracket/bracketMirrorLayout';
 import {
   activeKnockoutRoundIndex,
+  isKnockoutRoundComplete,
   knockoutRoundLabel as roundLabel,
   stageQuestionProgress,
   thirdPlaceMatchForDisplay,
@@ -175,23 +176,32 @@ function BracketMatchup({
 function StageTitle({
   label,
   isActive,
+  isComplete,
   progress,
 }: {
   label: string;
   isActive: boolean;
+  isComplete: boolean;
   progress: { resolved: number; total: number } | null;
 }) {
-  if (!isActive || progress == null) {
+  const showProgress =
+    progress != null && progress.total > 0 && (isActive || isComplete);
+
+  if (!showProgress) {
     return <p className="bf-stage-title">{label}</p>;
   }
 
   return (
     <p className="bf-stage-title streak-bf__stage-title">
       <span className="streak-bf__stage-title-inner">
-        <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
+        {isActive ? (
+          <span className="streak-bf__stage-live" aria-label="Live" title="Live" />
+        ) : null}
         <span className="streak-bf__stage-title-label">{label}</span>
         <span className="streak-bf__stage-progress">
-          ({progress.resolved} out of {progress.total})
+          {isActive
+            ? `(${progress.resolved} out of ${progress.total})`
+            : `(${progress.total})`}
         </span>
       </span>
     </p>
@@ -543,6 +553,11 @@ export function StreakKnockout({
                     (entry) => entry.round_index === round.round_index,
                   );
                   const isActive = activeRoundIndex === round.round_index;
+                  const isComplete = isKnockoutRoundComplete(
+                    knockout,
+                    round.round_index,
+                    activeRoundIndex,
+                  );
                   const progress =
                     phase != null
                       ? stageQuestionProgress(questions, phase.starts_at)
@@ -555,6 +570,7 @@ export function StreakKnockout({
                       <StageTitle
                         label={roundLabel(round.round_index, totalRounds)}
                         isActive={isActive}
+                        isComplete={isComplete}
                         progress={progress}
                       />
                       <div className="bf-stage-track">
