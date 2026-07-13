@@ -908,6 +908,7 @@ export function ChallengeView({
           ) : outcomes ? (
             <ChallengeOutcomes
               hasThirdPlace={outcomes.has_third_place}
+              totalOutcomes={outcomes.total_outcomes}
               winnerOdds={outcomes.winner_odds ?? []}
               teamLikelihood={outcomes.team_likelihood}
               tree={outcomes.tree}

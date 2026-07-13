@@ -7,14 +7,16 @@ import type {
   ChallengeStatsSimilarityTeam,
 } from '../../utils/api';
 import {
+  buildEntryCardMetrics,
   buildOutcomeDisplayRows,
   collectOutcomeLeafPaths,
   isExhaustiveCluster,
   OutcomeGlobalUniverse,
   pathOutcomeKey,
+  scaledEntryCardBranchRaw,
   sumDisplayRowsPlacementMetric,
-  sumDisplayRowSpanBranchMetric,
   type DisplayRowPlacementRole,
+  type EntryCardMetrics,
   type OutcomeDisplayRow,
   type OutcomeLeafPath,
   teamSetKey,
@@ -37,6 +39,7 @@ type PlacementRole = 'champion' | 'runner_up' | 'third' | 'fourth' | 'semi';
 
 type Props = {
   hasThirdPlace: boolean;
+  totalOutcomes: number;
   winnerOdds: ChallengeOutcomesWinnerOdds[];
   teamLikelihood?: Record<string, number>;
   tree: ChallengeOutcomesChampionBranch[];
@@ -192,22 +195,27 @@ function TeamFlag({
 type EntryMetricContext = {
   row: DisplayRow;
   metricRows: DisplayRow[];
-  allLeaves: LeafPath[];
+  metricLeaves: LeafPath[];
   hasThirdPlace: boolean;
+  rowIndex: number;
+  entryCardMetrics: EntryCardMetrics;
 };
 
 function buildEntryMetric(
   rows: DisplayRow[],
   rowIndex: number,
   span: number,
-  allLeaves: LeafPath[],
+  metricLeaves: LeafPath[],
   hasThirdPlace: boolean,
+  entryCardMetrics: EntryCardMetrics,
 ): EntryMetricContext {
   return {
     row: rows[rowIndex],
     metricRows: rows.slice(rowIndex, rowIndex + span),
-    allLeaves,
+    metricLeaves,
     hasThirdPlace,
+    rowIndex,
+    entryCardMetrics,
   };
 }
 
@@ -472,30 +480,36 @@ type PathContext = {
   thirdIds: number[];
 };
 
-function lookupEntryChampionMetricPct(
-  rows: DisplayRow[],
-  startIndex: number,
-  span: number,
-  allLeaves: LeafPath[],
-  hasThirdPlace: boolean,
+function formatEntryCardMetricDisplay(
+  raw: number,
   teamMetricMode: TeamMetricMode,
   globalOutcomeTotal: number,
-  pathLikelihood?: Record<string, number>,
+): string {
+  if (teamMetricMode === 'outcomes') {
+    if (globalOutcomeTotal === 0) return '—';
+    return formatOutcomePct((100 * raw) / globalOutcomeTotal);
+  }
+  return formatLikelihood(raw);
+}
+
+function lookupEntryChampionMetricPct(
+  entryCardMetrics: EntryCardMetrics,
+  startIndex: number,
+  span: number,
+  teamMetricMode: TeamMetricMode,
+  globalOutcomeTotal: number,
 ): string | null {
   if (teamMetricMode === 'outcomes' && globalOutcomeTotal === 0) {
     return null;
   }
-  const raw = sumDisplayRowSpanBranchMetric(
-    rows,
+  const raw = scaledEntryCardBranchRaw(
+    entryCardMetrics,
     startIndex,
     span,
-    allLeaves,
-    hasThirdPlace,
     teamMetricMode,
-    pathLikelihood,
   );
   if (raw == null) return null;
-  return formatRoundedTeamMetricPct(
+  return formatEntryCardMetricDisplay(
     raw,
     teamMetricMode,
     globalOutcomeTotal,
@@ -522,7 +536,7 @@ function lookupEntryPlacementMetricPct(
   }
   const raw = sumDisplayRowsPlacementMetric(
     entryMetric.metricRows,
-    entryMetric.allLeaves,
+    entryMetric.metricLeaves,
     entryMetric.hasThirdPlace,
     role,
     teamIds,
@@ -530,8 +544,12 @@ function lookupEntryPlacementMetricPct(
     pathLikelihood,
   );
   if (raw == null) return null;
-  return formatRoundedTeamMetricPct(
-    raw,
+  const scale =
+    teamMetricMode === 'outcomes'
+      ? entryMetric.entryCardMetrics.outcomesScale
+      : entryMetric.entryCardMetrics.likelihoodScale;
+  return formatEntryCardMetricDisplay(
+    raw * scale,
     teamMetricMode,
     globalOutcomeTotal,
   );
@@ -913,6 +931,8 @@ function PathsTable({
   sortKey,
   groupMode,
   allLeaves,
+  entryMetricLeaves,
+  entryCardMetrics,
 }: {
   rows: TableRow[];
   hasThirdPlace: boolean;
@@ -926,7 +946,14 @@ function PathsTable({
   sortKey: SortKey;
   groupMode: GroupMode;
   allLeaves: LeafPath[];
+  entryMetricLeaves?: LeafPath[];
+  entryCardMetrics?: EntryCardMetrics;
 }) {
+  const metricLeaves =
+    groupMode === 'entry' && entryMetricLeaves ? entryMetricLeaves : allLeaves;
+  if (groupMode === 'entry' && !entryCardMetrics) {
+    return null;
+  }
   return (
     <div className="challenge-stats__sim-scroll">
       <table
@@ -983,27 +1010,36 @@ function PathsTable({
             const fourthContext = buildPathContext(row, 'fourth');
             const semiContext = buildPathContext(row, 'semi');
             const entryMetricForFourth =
-              groupMode === 'entry'
-                ? buildEntryMetric(rows, rowIndex, 1, allLeaves, hasThirdPlace)
+              groupMode === 'entry' && entryCardMetrics
+                ? buildEntryMetric(
+                    rows,
+                    rowIndex,
+                    1,
+                    metricLeaves,
+                    hasThirdPlace,
+                    entryCardMetrics,
+                  )
                 : undefined;
             const entryMetricForRu =
-              groupMode === 'entry' && row.showRuCell
+              groupMode === 'entry' && row.showRuCell && entryCardMetrics
                 ? buildEntryMetric(
                     rows,
                     rowIndex,
                     row.ruRowSpan,
-                    allLeaves,
+                    metricLeaves,
                     hasThirdPlace,
+                    entryCardMetrics,
                   )
                 : undefined;
             const entryMetricForThird =
-              groupMode === 'entry' && row.showThirdCell
+              groupMode === 'entry' && row.showThirdCell && entryCardMetrics
                 ? buildEntryMetric(
                     rows,
                     rowIndex,
                     row.thirdRowSpan,
-                    allLeaves,
+                    metricLeaves,
                     hasThirdPlace,
+                    entryCardMetrics,
                   )
                 : undefined;
 
@@ -1025,16 +1061,13 @@ function PathsTable({
                       team={row.champion}
                       size="lg"
                       metricPct={
-                        groupMode === 'entry'
+                        groupMode === 'entry' && entryCardMetrics
                           ? lookupEntryChampionMetricPct(
-                              rows,
+                              entryCardMetrics,
                               rowIndex,
                               row.champRowSpan,
-                              allLeaves,
-                              hasThirdPlace,
                               teamMetricMode,
                               globalOutcomeTotal,
-                              pathLikelihood,
                             )
                           : lookupTeamMetricPct(
                               champContext,
@@ -1142,6 +1175,7 @@ function PathsTable({
 
 export function ChallengeOutcomes({
   hasThirdPlace,
+  totalOutcomes,
   winnerOdds,
   teamLikelihood,
   tree,
@@ -1167,14 +1201,21 @@ export function ChallengeOutcomes({
 
     const entryCards = winnerOdds
       .map((odds) => {
-        const displayRows = globalDisplayRows.filter((row) =>
-          row.winners.some(
+        const entryLeaves = allLeaves.filter((leaf) =>
+          leaf.winners.some(
             (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
           ),
+        );
+        const entryUniverse = new OutcomeGlobalUniverse(entryLeaves);
+        const displayRows = buildOutcomeDisplayRows(
+          entryLeaves,
+          hasThirdPlace,
+          entryUniverse,
         );
         return {
           odds,
           displayRows,
+          entryLeaves,
         };
       })
       .filter((card) => card.displayRows.length > 0);
@@ -1213,7 +1254,8 @@ export function ChallengeOutcomes({
   const teamChampionCards = viewModel?.teamChampionCards ?? [];
   const universe = viewModel?.universe;
   const allLeaves = viewModel?.allLeaves ?? [];
-  const globalOutcomeTotal = allLeaves.length;
+  const globalOutcomeTotal =
+    totalOutcomes > 0 ? totalOutcomes : allLeaves.length;
 
   const pathOutcomeCounts = useMemo(
     () => buildPathOutcomeCounts(allLeaves, hasThirdPlace),
@@ -1230,12 +1272,7 @@ export function ChallengeOutcomes({
     return [...entryCards]
       .sort((a, b) => compareOutcomesSort(a.odds, b.odds, sortKey))
       .map((card) => {
-        const entryLeaves = allLeaves.filter((leaf) =>
-          leaf.winners.some(
-            (winner) =>
-              winner.user_bracket_id === card.odds.entry.user_bracket_id,
-          ),
-        );
+        const entryUniverse = new OutcomeGlobalUniverse(card.entryLeaves);
         return {
           ...card,
           rows: flattenTableRows(
@@ -1243,11 +1280,11 @@ export function ChallengeOutcomes({
               card.displayRows,
               sortKey,
               hasThirdPlace,
-              universe,
+              entryUniverse,
               pathOutcomeCounts,
               globalOutcomeTotal,
               teamLikelihood,
-              entryLeaves,
+              card.entryLeaves,
             ),
           ),
         };
@@ -1412,7 +1449,17 @@ export function ChallengeOutcomes({
 
         {groupMode === 'entry' ? (
           <div className="challenge-outcomes__entry-cards">
-            {sortedEntryCards.map(({ odds, rows }) => (
+            {sortedEntryCards.map(({ odds, rows, entryLeaves }) => {
+              const entryCardMetrics = buildEntryCardMetrics(
+                rows,
+                entryLeaves,
+                hasThirdPlace,
+                odds.outcome_count,
+                odds.likelihood,
+                teamLikelihood,
+              );
+              const entryUniverse = new OutcomeGlobalUniverse(entryLeaves);
+              return (
               <article
                 key={odds.entry.user_bracket_id}
                 className="challenge-stats__sim-card challenge-outcomes__entry-card"
@@ -1445,7 +1492,7 @@ export function ChallengeOutcomes({
                 <PathsTable
                   rows={rows}
                   hasThirdPlace={hasThirdPlace}
-                  universe={universe!}
+                  universe={entryUniverse}
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
                   teamMetricMode={teamMetricMode}
@@ -1455,9 +1502,12 @@ export function ChallengeOutcomes({
                   sortKey={sortKey}
                   groupMode="entry"
                   allLeaves={allLeaves}
+                  entryMetricLeaves={entryLeaves}
+                  entryCardMetrics={entryCardMetrics}
                 />
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="challenge-stats__sim-cards">

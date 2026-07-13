@@ -347,6 +347,90 @@ export function sumDisplayRowBranchMetric(
   return found ? total : null;
 }
 
+/** Per-row branch masses on an entry card, scaled to match API winner_odds totals. */
+export type EntryCardMetrics = {
+  branchOutcomes: number[];
+  branchLikelihood: number[];
+  outcomesScale: number;
+  likelihoodScale: number;
+};
+
+export function buildEntryCardMetrics(
+  displayRows: OutcomeDisplayRow[],
+  entryLeaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  canonicalOutcomeCount: number,
+  canonicalLikelihoodPct: number | null | undefined,
+  pathLikelihood?: Record<string, number>,
+): EntryCardMetrics {
+  const branchOutcomes = displayRows.map(
+    (row) =>
+      sumDisplayRowBranchMetric(row, entryLeaves, hasThirdPlace, 'outcomes') ??
+      0,
+  );
+  const branchLikelihood = displayRows.map(
+    (row) =>
+      sumDisplayRowBranchMetric(
+        row,
+        entryLeaves,
+        hasThirdPlace,
+        'likelihood',
+        pathLikelihood,
+      ) ?? 0,
+  );
+
+  const outcomeSum = branchOutcomes.reduce((total, count) => total + count, 0);
+  const likelihoodSum = branchLikelihood.reduce(
+    (total, mass) => total + mass,
+    0,
+  );
+
+  const outcomesScale =
+    outcomeSum > 0 && canonicalOutcomeCount > 0
+      ? canonicalOutcomeCount / outcomeSum
+      : 1;
+  const likelihoodScale =
+    likelihoodSum > 0 &&
+    canonicalLikelihoodPct != null &&
+    !Number.isNaN(canonicalLikelihoodPct)
+      ? canonicalLikelihoodPct / likelihoodSum
+      : 1;
+
+  return {
+    branchOutcomes,
+    branchLikelihood,
+    outcomesScale,
+    likelihoodScale,
+  };
+}
+
+export function scaledEntryCardBranchRaw(
+  metrics: EntryCardMetrics,
+  rowIndex: number,
+  span: number,
+  metricMode: OutcomeTeamMetricMode,
+): number | null {
+  if (span <= 0 || rowIndex < 0 || rowIndex + span > metrics.branchOutcomes.length) {
+    return null;
+  }
+
+  const source =
+    metricMode === 'outcomes' ? metrics.branchOutcomes : metrics.branchLikelihood;
+  const scale =
+    metricMode === 'outcomes' ? metrics.outcomesScale : metrics.likelihoodScale;
+
+  let total = 0;
+  let found = false;
+  for (let index = rowIndex; index < rowIndex + span; index++) {
+    const raw = source[index];
+    if (raw <= 0) continue;
+    total += raw;
+    found = true;
+  }
+  if (!found) return null;
+  return total * scale;
+}
+
 /** Entry-mode champion cell spanning multiple sibling display rows. */
 export function sumDisplayRowSpanBranchMetric(
   rows: OutcomeDisplayRow[],
@@ -857,13 +941,17 @@ export function buildOutcomeDisplayRows(
       winnersKey(a[0].winners).localeCompare(winnersKey(b[0].winners)),
     );
 
-    const champItems: RowWithLeaves[] = winnerGroups.map((group) => ({
-      row: buildMaxClusteredRow(champion, group, hasThirdPlace, universe),
-      leaves: group,
-    }));
-    rows.push(
-      ...reconcileSiblingPlacementSplits(champItems, universe, hasThirdPlace),
-    );
+    for (const group of winnerGroups) {
+      const groupItems: RowWithLeaves[] = [
+        {
+          row: buildMaxClusteredRow(champion, group, hasThirdPlace, universe),
+          leaves: group,
+        },
+      ];
+      rows.push(
+        ...reconcileSiblingPlacementSplits(groupItems, universe, hasThirdPlace),
+      );
+    }
   }
 
   return rows;

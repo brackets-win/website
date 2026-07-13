@@ -7,11 +7,13 @@ import type {
   ChallengeStatsSimilarityTeam,
 } from './api';
 import {
+  buildEntryCardMetrics,
   buildOutcomeDisplayRows,
   collectOutcomeLeafPaths,
   isExhaustiveCluster,
   leavesMatchingDisplayRow,
   OutcomeGlobalUniverse,
+  scaledEntryCardBranchRaw,
   sumDisplayRowBranchMetric,
   sumDisplayRowPlacementMetric,
   sumDisplayRowsPlacementMetric,
@@ -203,7 +205,7 @@ test('third ALL collapses only within the same runner-up sibling group', () => {
   assert.equal(harryRow.thirdTeams[0].bracket_contestant_id, england.bracket_contestant_id);
 });
 
-test('entry cards reuse globally reconciled rows instead of re-collapsing per entry', () => {
+test('entry cards build rows from only that entry winning leaves', () => {
   const spain = team(1, 'Spain');
   const argentina = team(2, 'Argentina');
   const france = team(3, 'France');
@@ -220,30 +222,25 @@ test('entry cards reuse globally reconciled rows instead of re-collapsing per en
   ]);
 
   const leaves = collectOutcomeLeafPaths(tree, true);
-  const universe = new OutcomeGlobalUniverse(leaves);
-  const globalRows = buildOutcomeDisplayRows(leaves, true, universe);
-
-  const nateRows = globalRows.filter((row) =>
-    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  const nateLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
   );
-  const harryRows = globalRows.filter((row) =>
-    row.winners.some((entry) => entry.user_bracket_id === harry.user_bracket_id),
+  const nateRows = buildOutcomeDisplayRows(
+    nateLeaves,
+    true,
+    new OutcomeGlobalUniverse(nateLeaves),
   );
 
   assert.equal(nateRows.length, 1);
-  assert.equal(harryRows.length, 1);
-
-  const ruUniverse = universe.runnerUps(spain.bracket_contestant_id);
+  const ruUniverse = new OutcomeGlobalUniverse(nateLeaves).runnerUps(
+    spain.bracket_contestant_id,
+  );
   assert.equal(
     isExhaustiveCluster(nateRows[0].runnerUpTeams, ruUniverse),
-    false,
-    'Nate entry card must not inherit a per-entry ALL runner-up row',
+    true,
+    'entry card ALL runner-up means every runner-up this entry wins with',
   );
   assert.equal(nateRows[0].runnerUpTeams.length, 2);
-  assert.deepEqual(
-    harryRows[0].runnerUpTeams.map((rowTeam) => rowTeam.bracket_contestant_id),
-    [argentina.bracket_contestant_id],
-  );
 });
 
 test('entry champion branch metric counts only matching leaves, not champion prefix', () => {
@@ -636,6 +633,105 @@ test('buildOutcomeDisplayRows never emits rows with empty placement columns', ()
     assert.ok(row.thirdTeams.length > 0, 'third must not be empty');
     assert.ok(row.fourthTeams.length > 0, 'fourth must not be empty');
   }
+});
+
+test('reconcile placement splits only within the same winner group', () => {
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const argentina = team(2, 'Argentina');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const jake = winner(20, 'Jake');
+
+  const tree = buildTree(spain, [
+    ruBranch(england, [
+      thirdBranch(argentina, portugal, [nate]),
+      thirdBranch(germany, portugal, [nate]),
+      thirdBranch(argentina, germany, [jake]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const nateLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 1);
+  const branchTotal = nateRows.reduce(
+    (total, row) =>
+      total + sumDisplayRowBranchMetric(row, leaves, true, 'outcomes')!,
+    0,
+  );
+  assert.equal(branchTotal, nateLeaves.length);
+  assert.equal(
+    leavesMatchingDisplayRow(nateRows[0], leaves, true).length,
+    nateLeaves.length,
+  );
+});
+
+test('entry card scaled branch metrics match canonical API outcome totals', () => {
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const argentina = team(2, 'Argentina');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const jake = winner(20, 'Jake');
+
+  const tree = buildTree(spain, [
+    ruBranch(england, [
+      thirdBranch(argentina, portugal, [nate]),
+      thirdBranch(germany, portugal, [nate]),
+      thirdBranch(argentina, germany, [jake]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalRows = buildOutcomeDisplayRows(
+    leaves,
+    true,
+    new OutcomeGlobalUniverse(leaves),
+  );
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const nateLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const canonicalOutcomeCount = nateLeaves.length;
+  const totalOutcomes = leaves.length;
+
+  const metrics = buildEntryCardMetrics(
+    nateRows,
+    nateLeaves,
+    true,
+    canonicalOutcomeCount,
+    null,
+  );
+
+  const scaledBranchTotal = nateRows.reduce(
+    (total, _row, index) =>
+      total +
+      (scaledEntryCardBranchRaw(metrics, index, 1, 'outcomes') ?? 0),
+    0,
+  );
+  assert.equal(scaledBranchTotal, canonicalOutcomeCount);
+  assert.equal(metrics.outcomesScale, 1);
+
+  const displayPct = (100 * scaledBranchTotal) / totalOutcomes;
+  const apiPct = Math.round((1000 * canonicalOutcomeCount) / totalOutcomes) / 10;
+  assert.equal(Math.round(displayPct * 10) / 10, apiPct);
 });
 
 test('entry card branch metrics partition an entry winning leaves exactly once', () => {
