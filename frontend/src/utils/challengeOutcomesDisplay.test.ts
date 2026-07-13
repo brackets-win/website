@@ -222,25 +222,179 @@ test('entry cards build rows from only that entry winning leaves', () => {
   ]);
 
   const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalUniverse = new OutcomeGlobalUniverse(leaves);
   const nateLeaves = leaves.filter((leaf) =>
     leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
   );
   const nateRows = buildOutcomeDisplayRows(
     nateLeaves,
     true,
-    new OutcomeGlobalUniverse(nateLeaves),
+    globalUniverse,
   );
 
   assert.equal(nateRows.length, 1);
-  const ruUniverse = new OutcomeGlobalUniverse(nateLeaves).runnerUps(
-    spain.bracket_contestant_id,
-  );
+  const ruUniverse = globalUniverse.runnerUps(spain.bracket_contestant_id);
   assert.equal(
     isExhaustiveCluster(nateRows[0].runnerUpTeams, ruUniverse),
-    true,
-    'entry card ALL runner-up means every runner-up this entry wins with',
+    false,
+    'entry card ALL runner-up requires every global runner-up, not only this entry\'s',
   );
   assert.equal(nateRows[0].runnerUpTeams.length, 2);
+});
+
+test('entry card does not show ALL when another entry wins a global path under the same champion', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const england = team(4, 'England');
+  const germany = team(5, 'Germany');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [thirdBranch(england, france, [harry])]),
+    ruBranch(france, [thirdBranch(germany, england, [nate])]),
+    ruBranch(germany, [thirdBranch(england, france, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const globalUniverse = new OutcomeGlobalUniverse(leaves);
+  const nateLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const harryLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === harry.user_bracket_id),
+  );
+
+  const nateRows = buildOutcomeDisplayRows(nateLeaves, true, globalUniverse);
+  const harryRows = buildOutcomeDisplayRows(harryLeaves, true, globalUniverse);
+
+  assert.equal(nateRows.length, 1);
+  assert.equal(harryRows.length, 1);
+
+  const nateRow = nateRows[0];
+  const harryRow = harryRows[0];
+  const ruUniverse = globalUniverse.runnerUps(spain.bracket_contestant_id);
+
+  assert.equal(
+    isExhaustiveCluster(nateRow.runnerUpTeams, ruUniverse),
+    false,
+    'Nate must not claim ALL runner-up when Harry wins Spain-Argentina-*',
+  );
+  assert.ok(
+    !nateRow.runnerUpTeams.some(
+      (rowTeam) => rowTeam.bracket_contestant_id === argentina.bracket_contestant_id,
+    ),
+  );
+
+  assert.deepEqual(
+    harryRow.runnerUpTeams.map((rowTeam) => rowTeam.bracket_contestant_id),
+    [argentina.bracket_contestant_id],
+  );
+  assert.deepEqual(
+    harryRow.thirdTeams.map((rowTeam) => rowTeam.bracket_contestant_id),
+    [england.bracket_contestant_id],
+  );
+  assert.deepEqual(
+    harryRow.fourthTeams.map((rowTeam) => rowTeam.bracket_contestant_id),
+    [france.bracket_contestant_id],
+  );
+});
+
+test('entry card row percents match leaf counts for mirrored spain and england branches', () => {
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+  const harry = winner(20, 'Harry');
+  const callum = winner(30, 'Callum');
+
+  function leaf(
+    champion: ReturnType<typeof team>,
+    runnerUp: ReturnType<typeof team>,
+    third: ReturnType<typeof team>,
+    fourth: ReturnType<typeof team>,
+    winners: ChallengeOutcomesEntry[],
+  ): OutcomeLeafPath {
+    return { champion, runnerUp, third, fourth, winners };
+  }
+
+  const nateLeaves = [
+    leaf(spain, england, argentina, france, [nate]),
+    leaf(spain, england, france, argentina, [nate]),
+  ];
+  const harryLeaf = leaf(spain, argentina, england, france, [harry]);
+  const callumLeaves = [
+    leaf(england, spain, argentina, france, [callum]),
+    leaf(england, spain, france, argentina, [callum]),
+    leaf(england, france, germany, portugal, [callum]),
+  ];
+  const filler = Array.from({ length: 10 }, (_, index) =>
+    leaf(
+      germany,
+      portugal,
+      argentina,
+      france,
+      [winner(100 + index, `Filler ${index}`)],
+    ),
+  );
+  const allLeaves = [...filler, ...nateLeaves, harryLeaf, ...callumLeaves];
+  assert.equal(allLeaves.length, 16);
+
+  const universe = new OutcomeGlobalUniverse(allLeaves);
+  const globalRows = buildOutcomeDisplayRows(allLeaves, true, universe);
+
+  const nateRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === nate.user_bracket_id),
+  );
+  const callumRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === callum.user_bracket_id),
+  );
+
+  assert.equal(nateRows.length, 1);
+  assert.equal(callumRows.length, 2);
+
+  const nateMetrics = buildEntryCardMetrics(
+    nateRows,
+    nateLeaves,
+    true,
+    nateLeaves.length,
+    null,
+  );
+  const natePct =
+    (100 * (scaledEntryCardBranchRaw(nateMetrics, 0, 1, 'outcomes') ?? 0)) /
+    allLeaves.length;
+  assert.equal(Math.round(natePct * 10) / 10, 12.5);
+  assert.equal(
+    isExhaustiveCluster(
+      nateRows[0].runnerUpTeams,
+      universe.runnerUps(spain.bracket_contestant_id),
+    ),
+    false,
+  );
+
+  const callumMetrics = buildEntryCardMetrics(
+    callumRows,
+    callumLeaves,
+    true,
+    callumLeaves.length,
+    null,
+  );
+  const callumPcts = callumRows.map(
+    (_, index) =>
+      (100 *
+        (scaledEntryCardBranchRaw(callumMetrics, index, 1, 'outcomes') ?? 0)) /
+      allLeaves.length,
+  );
+  assert.deepEqual(
+    callumPcts.map((pct) => Math.round(pct * 10) / 10),
+    [12.5, 6.3],
+  );
 });
 
 test('entry champion branch metric counts only matching leaves, not champion prefix', () => {

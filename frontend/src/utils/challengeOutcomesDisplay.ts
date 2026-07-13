@@ -900,6 +900,50 @@ function reconcileSiblingPlacementSplits(
   return dropUnrenderableDisplayRows(rows, hasThirdPlace);
 }
 
+/** Seed sibling reconciliation with per-runner-up rows so ALL does not swallow distinct branches. */
+function buildInitialGroupItems(
+  champion: ChallengeStatsSimilarityTeam,
+  leaves: OutcomeLeafPath[],
+  hasThirdPlace: boolean,
+  universe: OutcomeGlobalUniverse,
+): RowWithLeaves[] {
+  const clustered = buildMaxClusteredRow(
+    champion,
+    leaves,
+    hasThirdPlace,
+    universe,
+  );
+  const ruUniverse = universe.runnerUps(champion.bracket_contestant_id);
+  if (!isExhaustiveCluster(clustered.runnerUpTeams, ruUniverse)) {
+    return [{ row: clustered, leaves }];
+  }
+
+  const byRunnerUp = new Map<number, OutcomeLeafPath[]>();
+  for (const leaf of leaves) {
+    const runnerUpId = leaf.runnerUp.bracket_contestant_id;
+    const bucket = byRunnerUp.get(runnerUpId) ?? [];
+    bucket.push(leaf);
+    byRunnerUp.set(runnerUpId, bucket);
+  }
+  if (byRunnerUp.size <= 1) {
+    return [{ row: clustered, leaves }];
+  }
+
+  const branchSizes = [...byRunnerUp.values()].map((group) => group.length);
+  const shouldSplit =
+    Math.min(...branchSizes) !== Math.max(...branchSizes) ||
+    (branchSizes.some((size) => size === 1) &&
+      branchSizes.some((size) => size > 1));
+  if (!shouldSplit) {
+    return [{ row: clustered, leaves }];
+  }
+
+  return [...byRunnerUp.values()].map((groupLeaves) => ({
+    row: buildMaxClusteredRow(champion, groupLeaves, hasThirdPlace, universe),
+    leaves: groupLeaves,
+  }));
+}
+
 export function buildOutcomeDisplayRows(
   workingLeaves: OutcomeLeafPath[],
   hasThirdPlace: boolean,
@@ -942,12 +986,12 @@ export function buildOutcomeDisplayRows(
     );
 
     for (const group of winnerGroups) {
-      const groupItems: RowWithLeaves[] = [
-        {
-          row: buildMaxClusteredRow(champion, group, hasThirdPlace, universe),
-          leaves: group,
-        },
-      ];
+      const groupItems = buildInitialGroupItems(
+        champion,
+        group,
+        hasThirdPlace,
+        universe,
+      );
       rows.push(
         ...reconcileSiblingPlacementSplits(groupItems, universe, hasThirdPlace),
       );

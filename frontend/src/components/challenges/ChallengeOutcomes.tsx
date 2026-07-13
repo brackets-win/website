@@ -1206,11 +1206,10 @@ export function ChallengeOutcomes({
             (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
           ),
         );
-        const entryUniverse = new OutcomeGlobalUniverse(entryLeaves);
-        const displayRows = buildOutcomeDisplayRows(
-          entryLeaves,
-          hasThirdPlace,
-          entryUniverse,
+        const displayRows = globalDisplayRows.filter((row) =>
+          row.winners.some(
+            (winner) => winner.user_bracket_id === odds.entry.user_bracket_id,
+          ),
         );
         return {
           odds,
@@ -1271,24 +1270,21 @@ export function ChallengeOutcomes({
     if (universe == null) return [];
     return [...entryCards]
       .sort((a, b) => compareOutcomesSort(a.odds, b.odds, sortKey))
-      .map((card) => {
-        const entryUniverse = new OutcomeGlobalUniverse(card.entryLeaves);
-        return {
-          ...card,
-          rows: flattenTableRows(
-            sortOutcomeDisplayRows(
-              card.displayRows,
-              sortKey,
-              hasThirdPlace,
-              entryUniverse,
-              pathOutcomeCounts,
-              globalOutcomeTotal,
-              teamLikelihood,
-              card.entryLeaves,
-            ),
+      .map((card) => ({
+        ...card,
+        rows: flattenTableRows(
+          sortOutcomeDisplayRows(
+            card.displayRows,
+            sortKey,
+            hasThirdPlace,
+            universe,
+            pathOutcomeCounts,
+            globalOutcomeTotal,
+            teamLikelihood,
+            card.entryLeaves,
           ),
-        };
-      });
+        ),
+      }));
   }, [
     entryCards,
     sortKey,
@@ -1458,7 +1454,6 @@ export function ChallengeOutcomes({
                 odds.likelihood,
                 teamLikelihood,
               );
-              const entryUniverse = new OutcomeGlobalUniverse(entryLeaves);
               return (
               <article
                 key={odds.entry.user_bracket_id}
@@ -1492,7 +1487,7 @@ export function ChallengeOutcomes({
                 <PathsTable
                   rows={rows}
                   hasThirdPlace={hasThirdPlace}
-                  universe={entryUniverse}
+                  universe={universe!}
                   onSelectPlayer={onSelectPlayer}
                   viewerUsername={viewerUsername}
                   teamMetricMode={teamMetricMode}
