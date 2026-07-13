@@ -96,7 +96,7 @@ function flattenTableRows(rows: DisplayRow[]): TableRow[] {
     const sameChampAsPrev =
       rowIndex > 0 &&
       rows[rowIndex - 1].champion.bracket_contestant_id ===
-        row.champion.bracket_contestant_id;
+      row.champion.bracket_contestant_id;
     const prevRuKey = sameChampAsPrev
       ? teamSetKey(rows[rowIndex - 1].runnerUpTeams)
       : null;
@@ -107,7 +107,7 @@ function flattenTableRows(rows: DisplayRow[]): TableRow[] {
       for (let i = rowIndex + 1; i < rows.length; i++) {
         if (
           rows[i].champion.bracket_contestant_id !==
-            row.champion.bracket_contestant_id ||
+          row.champion.bracket_contestant_id ||
           teamSetKey(rows[i].runnerUpTeams) !== ruKey
         ) {
           break;
@@ -129,7 +129,7 @@ function flattenTableRows(rows: DisplayRow[]): TableRow[] {
       for (let i = rowIndex + 1; i < rows.length; i++) {
         if (
           rows[i].champion.bracket_contestant_id !==
-            row.champion.bracket_contestant_id ||
+          row.champion.bracket_contestant_id ||
           teamSetKey(rows[i].runnerUpTeams) !== ruKey ||
           teamSetKey(rows[i].thirdTeams) !== thirdKey
         ) {
@@ -668,20 +668,6 @@ function sumPathMetricValues(
   return found ? total : null;
 }
 
-function formatRoundedTeamMetricPct(
-  rawValue: number,
-  teamMetricMode: TeamMetricMode,
-  globalOutcomeTotal: number,
-): string {
-  const value =
-    teamMetricMode === 'outcomes'
-      ? (100 * rawValue) / globalOutcomeTotal
-      : rawValue;
-  if (value > 0 && value < 1) return '<1%';
-  if (value > 99 && value < 100) return '>99%';
-  return `${Math.round(value)}%`;
-}
-
 function lookupTeamMetricPct(
   context: PathContext,
   role: PlacementRole,
@@ -702,7 +688,7 @@ function lookupTeamMetricPct(
     pathLikelihood,
   );
   if (raw == null) return null;
-  return formatRoundedTeamMetricPct(
+  return formatEntryCardMetricDisplay(
     raw,
     teamMetricMode,
     globalOutcomeTotal,
@@ -736,7 +722,7 @@ function lookupClusterMetricPct(
     found = true;
   }
   if (!found) return null;
-  return formatRoundedTeamMetricPct(
+  return formatEntryCardMetricDisplay(
     total,
     teamMetricMode,
     globalOutcomeTotal,
@@ -1012,35 +998,35 @@ function PathsTable({
             const entryMetricForFourth =
               groupMode === 'entry' && entryCardMetrics
                 ? buildEntryMetric(
-                    rows,
-                    rowIndex,
-                    1,
-                    metricLeaves,
-                    hasThirdPlace,
-                    entryCardMetrics,
-                  )
+                  rows,
+                  rowIndex,
+                  1,
+                  metricLeaves,
+                  hasThirdPlace,
+                  entryCardMetrics,
+                )
                 : undefined;
             const entryMetricForRu =
               groupMode === 'entry' && row.showRuCell && entryCardMetrics
                 ? buildEntryMetric(
-                    rows,
-                    rowIndex,
-                    row.ruRowSpan,
-                    metricLeaves,
-                    hasThirdPlace,
-                    entryCardMetrics,
-                  )
+                  rows,
+                  rowIndex,
+                  row.ruRowSpan,
+                  metricLeaves,
+                  hasThirdPlace,
+                  entryCardMetrics,
+                )
                 : undefined;
             const entryMetricForThird =
               groupMode === 'entry' && row.showThirdCell && entryCardMetrics
                 ? buildEntryMetric(
-                    rows,
-                    rowIndex,
-                    row.thirdRowSpan,
-                    metricLeaves,
-                    hasThirdPlace,
-                    entryCardMetrics,
-                  )
+                  rows,
+                  rowIndex,
+                  row.thirdRowSpan,
+                  metricLeaves,
+                  hasThirdPlace,
+                  entryCardMetrics,
+                )
                 : undefined;
 
             return (
@@ -1063,21 +1049,21 @@ function PathsTable({
                       metricPct={
                         groupMode === 'entry' && entryCardMetrics
                           ? lookupEntryChampionMetricPct(
-                              entryCardMetrics,
-                              rowIndex,
-                              row.champRowSpan,
-                              teamMetricMode,
-                              globalOutcomeTotal,
-                            )
+                            entryCardMetrics,
+                            rowIndex,
+                            row.champRowSpan,
+                            teamMetricMode,
+                            globalOutcomeTotal,
+                          )
                           : lookupTeamMetricPct(
-                              champContext,
-                              'champion',
-                              row.champion.bracket_contestant_id,
-                              teamMetricMode,
-                              pathOutcomeCounts,
-                              globalOutcomeTotal,
-                              pathLikelihood,
-                            )
+                            champContext,
+                            'champion',
+                            row.champion.bracket_contestant_id,
+                            teamMetricMode,
+                            pathOutcomeCounts,
+                            globalOutcomeTotal,
+                            pathLikelihood,
+                          )
                       }
                     />
                   </td>
@@ -1455,52 +1441,52 @@ export function ChallengeOutcomes({
                 teamLikelihood,
               );
               return (
-              <article
-                key={odds.entry.user_bracket_id}
-                className="challenge-stats__sim-card challenge-outcomes__entry-card"
-              >
-                <header className="challenge-outcomes__entry-card-header">
-                  <h3 className="challenge-outcomes__entry-card-title">
-                    {odds.entry.display_name}
-                  </h3>
-                  <p className="challenge-outcomes__entry-card-stats">
-                    <span className="challenge-outcomes__metric-value">
-                      {formatOutcomePct(odds.pct)}
-                    </span>
-                    <span className="challenge-outcomes__metric-label">
-                      of Outcomes
-                    </span>
-                    <span
-                      className="challenge-outcomes__entry-card-stat-sep"
-                      aria-hidden
-                    >
-                      |
-                    </span>
-                    <span className="challenge-outcomes__metric-value">
-                      {formatLikelihood(odds.likelihood)}
-                    </span>
-                    <span className="challenge-outcomes__metric-label">
-                      Likelihood
-                    </span>
-                  </p>
-                </header>
-                <PathsTable
-                  rows={rows}
-                  hasThirdPlace={hasThirdPlace}
-                  universe={universe!}
-                  onSelectPlayer={onSelectPlayer}
-                  viewerUsername={viewerUsername}
-                  teamMetricMode={teamMetricMode}
-                  pathOutcomeCounts={pathOutcomeCounts}
-                  globalOutcomeTotal={globalOutcomeTotal}
-                  pathLikelihood={teamLikelihood}
-                  sortKey={sortKey}
-                  groupMode="entry"
-                  allLeaves={allLeaves}
-                  entryMetricLeaves={entryLeaves}
-                  entryCardMetrics={entryCardMetrics}
-                />
-              </article>
+                <article
+                  key={odds.entry.user_bracket_id}
+                  className="challenge-stats__sim-card challenge-outcomes__entry-card"
+                >
+                  <header className="challenge-outcomes__entry-card-header">
+                    <h3 className="challenge-outcomes__entry-card-title">
+                      {odds.entry.display_name}
+                    </h3>
+                    <p className="challenge-outcomes__entry-card-stats">
+                      <span className="challenge-outcomes__metric-value">
+                        {formatOutcomePct(odds.pct)}
+                      </span>
+                      <span className="challenge-outcomes__metric-label">
+                        of Outcomes
+                      </span>
+                      <span
+                        className="challenge-outcomes__entry-card-stat-sep"
+                        aria-hidden
+                      >
+                        |
+                      </span>
+                      <span className="challenge-outcomes__metric-value">
+                        {formatLikelihood(odds.likelihood)}
+                      </span>
+                      <span className="challenge-outcomes__metric-label">
+                        Likelihood
+                      </span>
+                    </p>
+                  </header>
+                  <PathsTable
+                    rows={rows}
+                    hasThirdPlace={hasThirdPlace}
+                    universe={universe!}
+                    onSelectPlayer={onSelectPlayer}
+                    viewerUsername={viewerUsername}
+                    teamMetricMode={teamMetricMode}
+                    pathOutcomeCounts={pathOutcomeCounts}
+                    globalOutcomeTotal={globalOutcomeTotal}
+                    pathLikelihood={teamLikelihood}
+                    sortKey={sortKey}
+                    groupMode="entry"
+                    allLeaves={allLeaves}
+                    entryMetricLeaves={entryLeaves}
+                    entryCardMetrics={entryCardMetrics}
+                  />
+                </article>
               );
             })}
           </div>
