@@ -22,6 +22,7 @@ import {
   teamSetKey,
 } from '../../utils/challengeOutcomesDisplay';
 import {
+  assertRowSpanContiguity,
   buildPathOutcomeCounts,
   championCardMetricScore,
   sortOutcomeDisplayRows,
@@ -76,7 +77,9 @@ function winnersKey(winners: ChallengeOutcomesEntry[]): string {
     .join(',');
 }
 
-function flattenTableRows(rows: DisplayRow[]): TableRow[] {
+function flattenTableRows(rows: DisplayRow[], hasThirdPlace: boolean): TableRow[] {
+  assertRowSpanContiguity(rows, hasThirdPlace);
+
   return rows.map((row, rowIndex) => {
     const prevChampId =
       rowIndex > 0 ? rows[rowIndex - 1].champion.bracket_contestant_id : null;
@@ -1269,6 +1272,7 @@ export function ChallengeOutcomes({
             teamLikelihood,
             card.entryLeaves,
           ),
+          hasThirdPlace,
         ),
       }));
   }, [
@@ -1328,6 +1332,7 @@ export function ChallengeOutcomes({
           globalOutcomeTotal,
           teamLikelihood,
         ),
+        hasThirdPlace,
       ),
     }));
   }, [

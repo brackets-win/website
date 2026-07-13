@@ -22,6 +22,7 @@ import {
   type OutcomeLeafPath,
 } from './challengeOutcomesDisplay';
 import {
+  assertRowSpanContiguity,
   buildPathOutcomeCounts,
   sortOutcomeDisplayRows,
 } from './challengeOutcomesSort';
@@ -998,6 +999,7 @@ test('metric sort keeps shared runner-up rows adjacent within a champion card', 
     1,
     'France runner-up rows must not be separated by another branch',
   );
+  assertRowSpanContiguity(sorted, true);
 });
 
 test('entry card metric sort orders rows by entry branch mass not global prefix', () => {
@@ -1097,6 +1099,8 @@ test('entry card metric sort orders rows by entry branch mass not global prefix'
     spain.bracket_contestant_id,
     'entry card rows should sort by this entry branch mass',
   );
+  assertRowSpanContiguity(sortedGlobal, true);
+  assertRowSpanContiguity(sortedEntry, true);
 });
 
 test('split runner-up rows under the same champion sort by runner-up column metric', () => {
@@ -1148,4 +1152,321 @@ test('split runner-up rows under the same champion sort by runner-up column metr
     spain.bracket_contestant_id,
     'split rows under the same champion should sort by runner-up column mass',
   );
+  assertRowSpanContiguity(sorted, true);
+});
+
+test('metric sort keeps shared third-place rows adjacent under the same runner-up', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const england = team(4, 'England');
+  const france = team(3, 'France');
+  const germany = team(5, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const nate = winner(10, 'Nate');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [
+      thirdBranch(england, france, [nate]),
+      thirdBranch(germany, portugal, [nate]),
+    ]),
+    ruBranch(france, [thirdBranch(england, portugal, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+
+  const argentinaEngland = {
+    champion: spain,
+    runnerUpTeams: [argentina],
+    thirdTeams: [england],
+    fourthTeams: [france],
+    semiTeams: [],
+    winners: [nate],
+  };
+  const franceRunnerUp = {
+    champion: spain,
+    runnerUpTeams: [france],
+    thirdTeams: [england],
+    fourthTeams: [portugal],
+    semiTeams: [],
+    winners: [nate],
+  };
+  const argentinaGermany = {
+    champion: spain,
+    runnerUpTeams: [argentina],
+    thirdTeams: [germany],
+    fourthTeams: [portugal],
+    semiTeams: [],
+    winners: [nate],
+  };
+
+  const sorted = sortOutcomeDisplayRows(
+    [argentinaEngland, franceRunnerUp, argentinaGermany],
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+  );
+
+  assertRowSpanContiguity(sorted, true);
+  const argentinaIndices = sorted
+    .map((row, index) =>
+      teamSetKey(row.runnerUpTeams) === teamSetKey([argentina]) ? index : -1,
+    )
+    .filter((index) => index >= 0);
+  assert.equal(argentinaIndices.length, 2);
+  assert.equal(Math.abs(argentinaIndices[0] - argentinaIndices[1]), 1);
+});
+
+test('metric sort keeps shared fourth-place rows adjacent under the same third', () => {
+  const spain = team(1, 'Spain');
+  const argentina = team(2, 'Argentina');
+  const england = team(4, 'England');
+  const france = team(3, 'France');
+  const portugal = team(6, 'Portugal');
+  const germany = team(5, 'Germany');
+
+  const nate = winner(10, 'Nate');
+
+  const tree = buildTree(spain, [
+    ruBranch(argentina, [
+      thirdBranch(england, france, [nate]),
+      thirdBranch(england, portugal, [nate]),
+      thirdBranch(germany, france, [nate]),
+    ]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+
+  const englandFrance = {
+    champion: spain,
+    runnerUpTeams: [argentina],
+    thirdTeams: [england],
+    fourthTeams: [france],
+    semiTeams: [],
+    winners: [nate],
+  };
+  const germanyThird = {
+    champion: spain,
+    runnerUpTeams: [argentina],
+    thirdTeams: [germany],
+    fourthTeams: [france],
+    semiTeams: [],
+    winners: [nate],
+  };
+  const englandPortugal = {
+    champion: spain,
+    runnerUpTeams: [argentina],
+    thirdTeams: [england],
+    fourthTeams: [portugal],
+    semiTeams: [],
+    winners: [nate],
+  };
+
+  const sorted = sortOutcomeDisplayRows(
+    [englandFrance, germanyThird, englandPortugal],
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+  );
+
+  assertRowSpanContiguity(sorted, true);
+  const englandIndices = sorted
+    .map((row, index) =>
+      teamSetKey(row.thirdTeams) === teamSetKey([england]) ? index : -1,
+    )
+    .filter((index) => index >= 0);
+  assert.equal(englandIndices.length, 2);
+  assert.equal(Math.abs(englandIndices[0] - englandIndices[1]), 1);
+});
+
+test('entry card metric sort keeps every shared prefix contiguous', () => {
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const katie = winner(20, 'Katie');
+
+  const tree: ChallengeOutcomesChampionBranch[] = [
+    {
+      team: spain,
+      children: [
+        ruBranch(argentina, [
+          thirdBranch(france, germany, [katie]),
+          thirdBranch(england, portugal, [katie]),
+        ]),
+        ruBranch(england, [thirdBranch(france, argentina, [katie])]),
+      ],
+    },
+    {
+      team: argentina,
+      children: [
+        ruBranch(spain, [thirdBranch(france, england, [katie])]),
+      ],
+    },
+  ];
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const globalRows = buildOutcomeDisplayRows(leaves, true, universe);
+  const katieLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+  const katieRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+
+  assert.equal(katieRows.length, 3);
+
+  const spainChampRows = katieRows.filter(
+    (row) => row.champion.bracket_contestant_id === spain.bracket_contestant_id,
+  );
+  const argentinaChampRow = katieRows.find(
+    (row) =>
+      row.champion.bracket_contestant_id === argentina.bracket_contestant_id,
+  )!;
+  assert.equal(spainChampRows.length, 2);
+  assert.ok(argentinaChampRow);
+
+  const spainBranchTotal = spainChampRows.reduce(
+    (total, row) =>
+      total +
+      sumDisplayRowBranchMetric(row, katieLeaves, true, 'outcomes')!,
+    0,
+  );
+  const argentinaBranch = sumDisplayRowBranchMetric(
+    argentinaChampRow,
+    katieLeaves,
+    true,
+    'outcomes',
+  )!;
+  assert.ok(spainBranchTotal > argentinaBranch);
+
+  const shuffled = [
+    spainChampRows[0],
+    argentinaChampRow,
+    spainChampRows[1],
+  ];
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+  const sorted = sortOutcomeDisplayRows(
+    shuffled,
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+    undefined,
+    katieLeaves,
+  );
+
+  assertRowSpanContiguity(sorted, true);
+  assert.equal(
+    sorted[0].champion.bracket_contestant_id,
+    spain.bracket_contestant_id,
+    'Spain champion rows should sort ahead of Argentina by entry branch mass',
+  );
+  assert.equal(
+    sorted[2].champion.bracket_contestant_id,
+    argentina.bracket_contestant_id,
+  );
+});
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index++) {
+    const head = items[index];
+    const tail = [...items.slice(0, index), ...items.slice(index + 1)];
+    for (const rest of permutations(tail)) {
+      result.push([head, ...rest]);
+    }
+  }
+  return result;
+}
+
+test('sort never splits rows that share a prefix at any column depth', () => {
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const jake = winner(10, 'Jake');
+  const katie = winner(20, 'Katie');
+  const nate = winner(30, 'Nate');
+
+  const tree: ChallengeOutcomesChampionBranch[] = [
+    {
+      team: spain,
+      children: [
+        ruBranch(argentina, [
+          thirdBranch(france, germany, [katie]),
+          thirdBranch(england, portugal, [katie]),
+        ]),
+        ruBranch(england, [thirdBranch(france, argentina, [katie])]),
+      ],
+    },
+    {
+      team: argentina,
+      children: [
+        ruBranch(spain, [thirdBranch(france, england, [jake, katie])]),
+        ruBranch(france, [thirdBranch(germany, portugal, [nate])]),
+      ],
+    },
+  ];
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const globalRows = buildOutcomeDisplayRows(leaves, true, universe);
+  const katieLeaves = leaves.filter((leaf) =>
+    leaf.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+  const katieRows = globalRows.filter((row) =>
+    row.winners.some((entry) => entry.user_bracket_id === katie.user_bracket_id),
+  );
+  assert.ok(katieRows.length >= 3);
+
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+  const sortKeys = ['outcomes', 'likelihood', 'name'] as const;
+
+  for (const sortKey of sortKeys) {
+    for (const shuffled of permutations(katieRows)) {
+      const sorted = sortOutcomeDisplayRows(
+        shuffled,
+        sortKey,
+        true,
+        universe,
+        pathOutcomeCounts,
+        leaves.length,
+        undefined,
+        katieLeaves,
+      );
+      assertRowSpanContiguity(sorted, true);
+    }
+  }
+
+  for (const sortKey of sortKeys) {
+    for (const shuffled of permutations(globalRows)) {
+      const sorted = sortOutcomeDisplayRows(
+        shuffled,
+        sortKey,
+        true,
+        universe,
+        pathOutcomeCounts,
+        leaves.length,
+      );
+      assertRowSpanContiguity(sorted, true);
+    }
+  }
 });
