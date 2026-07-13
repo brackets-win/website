@@ -19,6 +19,10 @@ import {
   teamSetKey,
   type OutcomeLeafPath,
 } from './challengeOutcomesDisplay';
+import {
+  buildPathOutcomeCounts,
+  sortOutcomeDisplayRows,
+} from './challengeOutcomesSort';
 
 function team(
   id: number,
@@ -679,4 +683,69 @@ test('entry card branch metrics partition an entry winning leaves exactly once',
     }
   }
   assert.equal(matched.size, nateLeaves.length);
+});
+
+test('metric sort keeps shared runner-up rows adjacent within a champion card', () => {
+
+  const argentina = team(2, 'Argentina');
+  const france = team(3, 'France');
+  const spain = team(1, 'Spain');
+  const england = team(5, 'England');
+  const germany = team(4, 'Germany');
+  const portugal = team(6, 'Portugal');
+
+  const jake = winner(10, 'Jake');
+  const katie = winner(20, 'Katie');
+  const nate = winner(30, 'Nate');
+
+  const tree = buildTree(argentina, [
+    ruBranch(france, [
+      thirdBranch(england, portugal, [jake]),
+      thirdBranch(germany, portugal, [katie]),
+    ]),
+    ruBranch(spain, [thirdBranch(france, england, [nate])]),
+  ]);
+
+  const leaves = collectOutcomeLeafPaths(tree, true);
+  const universe = new OutcomeGlobalUniverse(leaves);
+  const rows = buildOutcomeDisplayRows(leaves, true, universe);
+  assert.equal(rows.length, 3);
+
+  const franceRows = rows.filter(
+    (row) =>
+      row.runnerUpTeams.length === 1 &&
+      row.runnerUpTeams[0].bracket_contestant_id === france.bracket_contestant_id,
+  );
+  const spainRow = rows.find(
+    (row) =>
+      row.runnerUpTeams.length === 1 &&
+      row.runnerUpTeams[0].bracket_contestant_id === spain.bracket_contestant_id,
+  )!;
+  assert.equal(franceRows.length, 2);
+  assert.ok(spainRow);
+
+  const shuffled = [spainRow, franceRows[1], franceRows[0]];
+  const pathOutcomeCounts = buildPathOutcomeCounts(leaves, true);
+  const sorted = sortOutcomeDisplayRows(
+    shuffled,
+    'outcomes',
+    true,
+    universe,
+    pathOutcomeCounts,
+    leaves.length,
+  );
+
+  const franceIndices = sorted
+    .map((row, index) =>
+      teamSetKey(row.runnerUpTeams) === teamSetKey(franceRows[0].runnerUpTeams)
+        ? index
+        : -1,
+    )
+    .filter((index) => index >= 0);
+  assert.equal(franceIndices.length, 2);
+  assert.equal(
+    Math.abs(franceIndices[0] - franceIndices[1]),
+    1,
+    'France runner-up rows must not be separated by another branch',
+  );
 });
