@@ -9,6 +9,7 @@ from brackets.api import serializers
 from brackets.models import (
     StreakChallenge,
     StreakKnockout,
+    StreakKnockoutMatch,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
@@ -19,6 +20,10 @@ from brackets.utils.leaderboard_preview import (
     streak_win_rate,
 )
 from brackets.utils.streak_deadlines import closes_at_key
+from brackets.utils.streak_knockout_rules import (
+    knockout_total_rounds,
+    semi_final_round_index,
+)
 from brackets.utils.streak_scoring import _apply_batch, _is_correct
 
 
@@ -45,6 +50,9 @@ def _award_person(p: StreakParticipant) -> dict:
 def _empty_awards() -> dict:
     return {
         "streak_champion": {"winners": []},
+        "knockout_first": {"winners": []},
+        "knockout_second": {"winners": []},
+        "knockout_third": {"winners": []},
         "best_streak": {"winners": []},
         "consolation_champion": {"winners": []},
         "best_picker": {"winners": []},
@@ -56,6 +64,68 @@ def _empty_awards() -> dict:
         "streak_ending_question": {"winners": []},
         "had_knockout": False,
     }
+
+
+def _match_loser(match: StreakKnockoutMatch) -> StreakParticipant | None:
+    if not match.winner_id:
+        return None
+    if match.player_a_id and match.winner_id == match.player_a_id:
+        return match.player_b
+    if match.player_b_id and match.winner_id == match.player_b_id:
+        return match.player_a
+    return None
+
+
+def _knockout_podium(
+    knockout: StreakKnockout, participants: list[StreakParticipant]
+) -> dict[str, list[StreakParticipant]]:
+    """Resolve 1st / 2nd / 3rd from the knockout bracket."""
+    participant_count = len(participants)
+    total_rounds = knockout_total_rounds(participant_count)
+
+    first = [knockout.champion] if knockout.champion_id else []
+
+    second: list[StreakParticipant] = []
+    if total_rounds >= 1:
+        final = (
+            knockout.matches.filter(round_index=total_rounds, is_third_place=False)
+            .select_related("player_a__user", "player_b__user", "winner__user")
+            .first()
+        )
+        if final is not None and final.finalized:
+            loser = _match_loser(final)
+            if loser is not None:
+                second = [loser]
+
+    third: list[StreakParticipant] = []
+    third_match = (
+        knockout.matches.filter(is_third_place=True)
+        .select_related("player_a__user", "player_b__user", "winner__user")
+        .first()
+    )
+    if third_match is not None:
+        if third_match.finalized and third_match.winner_id:
+            third = [third_match.winner]
+    else:
+        semi_round = semi_final_round_index(total_rounds)
+        if semi_round is not None:
+            semis = list(
+                knockout.matches.filter(
+                    round_index=semi_round,
+                    is_third_place=False,
+                    finalized=True,
+                ).select_related("player_a__user", "player_b__user", "winner__user")
+            )
+            losers: list[StreakParticipant] = []
+            for match in semis:
+                loser = _match_loser(match)
+                if loser is not None:
+                    losers.append(loser)
+            third = sorted(
+                losers, key=lambda p: streak_participant_label(p).casefold()
+            )
+
+    return {"first": first, "second": second, "third": third}
 
 
 def _frozen_win_rate(p: StreakParticipant) -> float:
@@ -72,7 +142,9 @@ def _person_awards(
     had_knockout = knockout is not None
 
     if had_knockout:
-        champions = [knockout.champion] if knockout.champion else []
+        podium = _knockout_podium(knockout, participants)
+        season_champions = [p for p in participants if p.knockout_seed == 1]
+
         best_streak_candidates = [p for p in participants if p.frozen_best_win_streak > 0]
         if best_streak_candidates:
             max_streak = max(p.frozen_best_win_streak for p in best_streak_candidates)
@@ -124,8 +196,24 @@ def _person_awards(
 
         return {
             "had_knockout": True,
+            "knockout_first": {
+                "winners": [{**_award_person(p)} for p in podium["first"] if p],
+            },
+            "knockout_second": {
+                "winners": [{**_award_person(p)} for p in podium["second"] if p],
+            },
+            "knockout_third": {
+                "winners": [{**_award_person(p)} for p in podium["third"] if p],
+            },
             "streak_champion": {
-                "winners": [{**_award_person(p)} for p in champions if p],
+                "winners": [
+                    {
+                        **_award_person(p),
+                        "long_win_display": _long_win_display(p.frozen_best_win_streak),
+                        "best_win_streak": p.frozen_best_win_streak,
+                    }
+                    for p in season_champions
+                ],
             },
             "best_streak": {
                 "winners": [
@@ -211,6 +299,9 @@ def _person_awards(
 
     return {
         "had_knockout": False,
+        "knockout_first": {"winners": []},
+        "knockout_second": {"winners": []},
+        "knockout_third": {"winners": []},
         "streak_champion": {
             "winners": [
                 {

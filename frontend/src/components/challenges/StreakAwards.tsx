@@ -16,7 +16,7 @@ type PersonAwardCard = {
   key: keyof StreakAwardsPayload;
   emoji: string;
   title: string;
-  valueLabel: (winner: StreakAwardWinner) => string;
+  valueLabel: (winner: StreakAwardWinner) => string | null;
 };
 
 const BASE_PERSON_AWARD_CARDS: PersonAwardCard[] = [
@@ -49,6 +49,27 @@ const BASE_PERSON_AWARD_CARDS: PersonAwardCard[] = [
     emoji: '🧊',
     title: 'Losing Streak',
     valueLabel: (w) => String(w.long_loss_display ?? '—'),
+  },
+];
+
+const KNOCKOUT_PODIUM_CARDS: PersonAwardCard[] = [
+  {
+    key: 'knockout_first',
+    emoji: '🥇',
+    title: '1st Place',
+    valueLabel: () => null,
+  },
+  {
+    key: 'knockout_second',
+    emoji: '🥈',
+    title: '2nd Place',
+    valueLabel: () => null,
+  },
+  {
+    key: 'knockout_third',
+    emoji: '🥉',
+    title: '3rd Place',
+    valueLabel: () => null,
   },
 ];
 
@@ -107,14 +128,21 @@ function winnerKey(winner: StreakAwardQuestionWinner): string {
 }
 
 function personAwardCards(awards: StreakAwardsPayload): PersonAwardCard[] {
-  const cards = [...BASE_PERSON_AWARD_CARDS];
-  if (awards.had_knockout) {
-    cards.splice(1, 0, ...KNOCKOUT_EXTRA_CARDS);
-    cards[0] = {
-      ...cards[0],
-      valueLabel: () => 'Champion',
-    };
+  if (!awards.had_knockout) {
+    return [...BASE_PERSON_AWARD_CARDS];
   }
+
+  const cards = [
+    ...KNOCKOUT_PODIUM_CARDS,
+    {
+      ...BASE_PERSON_AWARD_CARDS[0],
+      title: 'Streak Season Champion',
+      valueLabel: (w: StreakAwardWinner) =>
+        String(w.long_win_display ?? '—'),
+    },
+    ...KNOCKOUT_EXTRA_CARDS,
+    ...BASE_PERSON_AWARD_CARDS.slice(1),
+  ];
   return cards;
 }
 
@@ -199,16 +227,19 @@ export function StreakAwards({ awards }: Props) {
                 <p className="streak-awards__empty">No winner yet.</p>
               ) : (
                 <ul className="streak-awards__winners">
-                  {winners.map((winner) => (
-                    <li key={winner.user_id} className="streak-awards__winner">
-                      <span className="streak-awards__name">
-                        {winner.display_name}
-                      </span>
-                      <span className="streak-awards__value">
-                        {card.valueLabel(winner)}
-                      </span>
-                    </li>
-                  ))}
+                  {winners.map((winner) => {
+                    const value = card.valueLabel(winner);
+                    return (
+                      <li key={winner.user_id} className="streak-awards__winner">
+                        <span className="streak-awards__name">
+                          {winner.display_name}
+                        </span>
+                        {value ? (
+                          <span className="streak-awards__value">{value}</span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </li>

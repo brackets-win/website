@@ -9,6 +9,8 @@ from django.utils import timezone
 from brackets.models import (
     StreakChallenge,
     StreakCompetition,
+    StreakKnockout,
+    StreakKnockoutMatch,
     StreakParticipant,
     StreakPick,
     StreakQuestion,
@@ -169,6 +171,185 @@ class StreakAwardsTests(TestCase):
             f"/brackets/api/streak-challenges/{self.challenge.id}"
         )
         self.assertTrue(res.json()["streak_challenge"]["competition_is_over"])
+
+
+class StreakKnockoutAwardsTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.host = User.objects.create_user(username="host", password="x")
+        self.competition = StreakCompetition.objects.create(name="Cup")
+        self.challenge = StreakChallenge.objects.create(
+            name="Pool",
+            streak_competition=self.competition,
+            created_by=self.host,
+            is_public=True,
+            mode=StreakChallenge.Mode.KNOCKOUT,
+        )
+        self.alice = User.objects.create_user(username="alice", password="x")
+        self.bob = User.objects.create_user(username="bob", password="x")
+        self.carol = User.objects.create_user(username="carol", password="x")
+        self.dave = User.objects.create_user(username="dave", password="x")
+        self.participants = {}
+        for user, name, seed in [
+            (self.alice, "Alice", 1),
+            (self.bob, "Bob", 2),
+            (self.carol, "Carol", 3),
+            (self.dave, "Dave", 4),
+        ]:
+            self.participants[name] = StreakParticipant.objects.create(
+                streak_challenge=self.challenge,
+                user=user,
+                display_name=name,
+                wins=5,
+                losses=1,
+                best_win_streak=4,
+                frozen_wins=5,
+                frozen_losses=1,
+                frozen_best_win_streak=4,
+                frozen_streak_signed=1,
+                knockout_seed=seed,
+                in_knockout_bracket=True,
+            )
+        self.knockout = StreakKnockout.objects.create(
+            streak_challenge=self.challenge,
+            status=StreakKnockout.Status.COMPLETE,
+            current_round=2,
+            champion=self.participants["Bob"],
+        )
+
+    def _end_and_fetch(self) -> dict:
+        self.competition.ended_at = timezone.now()
+        self.competition.save(update_fields=["ended_at"])
+        self.client.force_login(self.alice)
+        res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/awards"
+        )
+        self.assertEqual(res.status_code, 200)
+        return res.json()
+
+    def _finalize_match(
+        self,
+        *,
+        round_index: int,
+        position: int,
+        player_a: StreakParticipant,
+        player_b: StreakParticipant,
+        winner: StreakParticipant,
+        is_third_place: bool = False,
+    ) -> StreakKnockoutMatch:
+        return StreakKnockoutMatch.objects.create(
+            knockout=self.knockout,
+            round_index=round_index,
+            position=position,
+            player_a=player_a,
+            player_b=player_b,
+            seed_a=player_a.knockout_seed,
+            seed_b=player_b.knockout_seed,
+            winner=winner,
+            finalized=True,
+            is_third_place=is_third_place,
+        )
+
+    def test_podium_and_season_champion_with_third_place_match(self):
+        alice = self.participants["Alice"]
+        bob = self.participants["Bob"]
+        carol = self.participants["Carol"]
+        dave = self.participants["Dave"]
+        # Semis: Alice beats Carol, Bob beats Dave
+        self._finalize_match(
+            round_index=1,
+            position=1,
+            player_a=alice,
+            player_b=carol,
+            winner=alice,
+        )
+        self._finalize_match(
+            round_index=1,
+            position=2,
+            player_a=bob,
+            player_b=dave,
+            winner=bob,
+        )
+        # Final: Bob beats Alice
+        self._finalize_match(
+            round_index=2,
+            position=1,
+            player_a=alice,
+            player_b=bob,
+            winner=bob,
+        )
+        # Third place: Carol beats Dave
+        self._finalize_match(
+            round_index=2,
+            position=2,
+            player_a=carol,
+            player_b=dave,
+            winner=carol,
+            is_third_place=True,
+        )
+
+        payload = self._end_and_fetch()
+        self.assertTrue(payload["had_knockout"])
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_first"]["winners"]],
+            ["Bob"],
+        )
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_second"]["winners"]],
+            ["Alice"],
+        )
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_third"]["winners"]],
+            ["Carol"],
+        )
+        self.assertEqual(
+            [w["display_name"] for w in payload["streak_champion"]["winners"]],
+            ["Alice"],
+        )
+
+    def test_third_place_uses_both_semi_losers_alphabetically_without_match(self):
+        alice = self.participants["Alice"]
+        bob = self.participants["Bob"]
+        carol = self.participants["Carol"]
+        dave = self.participants["Dave"]
+        self._finalize_match(
+            round_index=1,
+            position=1,
+            player_a=alice,
+            player_b=dave,
+            winner=alice,
+        )
+        self._finalize_match(
+            round_index=1,
+            position=2,
+            player_a=bob,
+            player_b=carol,
+            winner=bob,
+        )
+        self._finalize_match(
+            round_index=2,
+            position=1,
+            player_a=alice,
+            player_b=bob,
+            winner=alice,
+        )
+        self.knockout.champion = alice
+        self.knockout.save(update_fields=["champion"])
+
+        payload = self._end_and_fetch()
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_first"]["winners"]],
+            ["Alice"],
+        )
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_second"]["winners"]],
+            ["Bob"],
+        )
+        # Semi losers Carol + Dave, alphabetical
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_third"]["winners"]],
+            ["Carol", "Dave"],
+        )
 
 
 class StreakQuestionAwardsTests(TestCase):

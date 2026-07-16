@@ -285,6 +285,9 @@ export type StreakAwardQuestionCategory = {
 export type StreakAwardsPayload = {
   had_knockout?: boolean;
   streak_champion: StreakAwardCategory;
+  knockout_first?: StreakAwardCategory;
+  knockout_second?: StreakAwardCategory;
+  knockout_third?: StreakAwardCategory;
   best_streak?: StreakAwardCategory;
   consolation_champion?: StreakAwardCategory;
   best_picker: StreakAwardCategory;
