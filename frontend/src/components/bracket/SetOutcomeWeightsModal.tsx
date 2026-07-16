@@ -327,7 +327,10 @@ export function SetOutcomeWeightsModal({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={busy || remainingTeams.length === 0}
+            disabled={
+              busy ||
+              (remainingTeams.length === 0 && editableMatchups.length === 0)
+            }
             onClick={() => void handleSave()}
           >
             {busy ? 'Saving…' : 'Save'}

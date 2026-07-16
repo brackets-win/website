@@ -91,14 +91,13 @@ export function currentRoundUndecidedMatchups(
   return [];
 }
 
-/** Every main-bracket KO game that is paired and still undecided. */
+/** Every KO game (including third place) that is paired and still undecided. */
 export function allUndecidedPairedMatchups(
   bracket: BracketDetail,
   detail: UserBracketDetail,
 ): MatchupInfo[] {
   const rows: MatchupInfo[] = [];
   for (const stage of knockoutStages(bracket)) {
-    if (isThirdPlaceStage(stage)) continue;
     rows.push(...undecidedPairedMatchups(matchupsForStage(detail, stage.id)));
   }
   return rows;
@@ -194,5 +193,6 @@ export function showOutcomeWeightsControl(
   detail: UserBracketDetail,
 ): boolean {
   const current = currentRoundUndecidedMatchups(bracket, detail);
-  return current.length > 0 && current.length <= 4;
+  if (current.length > 4) return false;
+  return allUndecidedPairedMatchups(bracket, detail).length > 0;
 }
