@@ -998,6 +998,9 @@ export function StreakCompetitionsAdmin() {
           title="End Competition?"
           label={questionsName || 'Competition'}
           intro="This locks picks in every streak challenge using this competition and shows awards. This cannot be undone."
+          confirmWord="end"
+          confirmLabel="End Competition"
+          busyLabel="Ending…"
           busy={endCompetitionBusy}
           onCancel={() => setEndCompetitionOpen(false)}
           onConfirm={() => void handleEndCompetition()}
