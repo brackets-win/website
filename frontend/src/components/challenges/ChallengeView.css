@@ -299,7 +299,17 @@
   color: var(--text-muted, #64748b);
 }
 
+.challenge-view__leaderboard-expand-note {
+  display: none;
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 640px) {
+  .challenge-view__leaderboard-expand-note {
+    display: block;
+  }
+
   .challenge-view__head {
     padding: 1rem 1.15rem;
   }

@@ -539,6 +539,33 @@ function compareRowGroups(
       entryLeaves,
     );
     if (scoreB !== scoreA) return scoreB - scoreA;
+
+    // % of outcomes → likelihood → name
+    if (sortKey === 'outcomes') {
+      const likelihoodA = rowGroupColumnSortScore(
+        groupA,
+        role,
+        'likelihood',
+        hasThirdPlace,
+        universe,
+        pathOutcomeCounts,
+        globalOutcomeTotal,
+        pathLikelihood,
+        entryLeaves,
+      );
+      const likelihoodB = rowGroupColumnSortScore(
+        groupB,
+        role,
+        'likelihood',
+        hasThirdPlace,
+        universe,
+        pathOutcomeCounts,
+        globalOutcomeTotal,
+        pathLikelihood,
+        entryLeaves,
+      );
+      if (likelihoodB !== likelihoodA) return likelihoodB - likelihoodA;
+    }
   }
 
   return rowGroupNameKey(groupA, role).localeCompare(

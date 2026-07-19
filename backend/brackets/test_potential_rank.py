@@ -218,6 +218,36 @@ class PotentialRankTests(TestCase):
         ub.refresh_from_db()
         self.assertEqual(ub.leaderboard_potential_rank, 1)
 
+    def test_completed_master_omits_potential_columns_from_leaderboard(self):
+        from brackets.utils.group_results_mode import (
+            master_bracket_is_fully_resolved,
+            omit_leaderboard_potential_for_bracket,
+        )
+
+        t1, t2, t3, t4 = self.teams
+        self._set_master_partial(
+            sf1_winner=t1, sf2_winner=t3, final_winner=t1
+        )
+        ub = self._submit("done_viewer", sf1=t1, sf2=t3, final_winner=t1)
+        refresh_all_submitted_leaderboard_scores_for_bracket(self.bracket)
+
+        self.assertTrue(master_bracket_is_fully_resolved(self.bracket))
+        self.assertTrue(omit_leaderboard_potential_for_bracket(self.bracket))
+
+        self.client.login(username="done_viewer", password="x")
+        res = self.client.get(
+            f"/brackets/api/challenges/{self.challenge.id}/leaderboard"
+        )
+        self.assertEqual(res.status_code, 200)
+        keys = [c["key"] for c in res.json()["columns"]]
+        self.assertNotIn("potential", keys)
+        self.assertNotIn("potential_rank", keys)
+        entry = next(
+            e for e in res.json()["entries"] if e["user_bracket_id"] == ub.id
+        )
+        self.assertIsNone(entry["potential"])
+        self.assertIsNone(entry["potential_rank"])
+
     def test_rank_not_computed_before_quarterfinals(self):
         """Potential rank stays off while the earliest incomplete stage has > 4 games."""
         from brackets.utils.potential_rank import (

@@ -593,21 +593,29 @@ export function ChallengeView({
             {headerSubtitle ? (
               <p className="challenge-view__meta">{headerSubtitle}</p>
             ) : null}
-            {isBracketChallenge && challenge.submission_deadline ? (
-              <p className="challenge-view__deadline">
-                Submit by{' '}
-                <strong>{formatDeadlineEst(challenge.submission_deadline)}</strong>
-              </p>
-            ) : null}
             {isBracketChallenge && challenge.deadline_passed ? (
               <p className="challenge-view__status challenge-view__status--closed">
-                Submissions closed
+                {challenge.submission_deadline
+                  ? `Submissions closed ${formatDeadlineEst(challenge.submission_deadline)}`
+                  : 'Submissions closed'}
               </p>
-            ) : challenge.is_submitted && isBracketChallenge ? (
-              <p className="challenge-view__status challenge-view__status--ok">
-                Bracket submitted
-              </p>
-            ) : null}
+            ) : (
+              <>
+                {isBracketChallenge && challenge.submission_deadline ? (
+                  <p className="challenge-view__deadline">
+                    Submit by{' '}
+                    <strong>
+                      {formatDeadlineEst(challenge.submission_deadline)}
+                    </strong>
+                  </p>
+                ) : null}
+                {isBracketChallenge && challenge.is_submitted ? (
+                  <p className="challenge-view__status challenge-view__status--ok">
+                    Bracket submitted
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -869,6 +877,9 @@ export function ChallengeView({
               Submit your bracket to view other players&apos; brackets.
             </p>
           ) : null}
+          <p className="challenge-view__muted challenge-view__leaderboard-expand-note">
+            Click on right arrow in a row to expand rows
+          </p>
           <ChallengeLeaderboard
             columns={leaderboardColumns}
             entries={entries}

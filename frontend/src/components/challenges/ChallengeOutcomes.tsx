@@ -787,36 +787,66 @@ function sortTeamsForPathSort(
       pathLikelihood,
     );
     if (scoreB !== scoreA) return scoreB - scoreA;
+    if (sortKey === 'outcomes') {
+      const likelihoodA = teamMetricSortScore(
+        context,
+        role,
+        a.bracket_contestant_id,
+        'likelihood',
+        pathOutcomeCounts,
+        globalOutcomeTotal,
+        pathLikelihood,
+      );
+      const likelihoodB = teamMetricSortScore(
+        context,
+        role,
+        b.bracket_contestant_id,
+        'likelihood',
+        pathOutcomeCounts,
+        globalOutcomeTotal,
+        pathLikelihood,
+      );
+      if (likelihoodB !== likelihoodA) return likelihoodB - likelihoodA;
+    }
     return a.display_name.localeCompare(b.display_name, undefined, {
       sensitivity: 'base',
     });
   });
 }
 
+function compareName(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+function compareLikelihoodDesc(
+  a: number | null | undefined,
+  b: number | null | undefined,
+): number {
+  const la = a ?? -1;
+  const lb = b ?? -1;
+  return lb - la;
+}
+
+/** % of outcomes → likelihood → name (when sortKey is outcomes). */
 function compareOutcomesSort(
   a: ChallengeOutcomesWinnerOdds,
   b: ChallengeOutcomesWinnerOdds,
   sortKey: SortKey,
 ): number {
   if (sortKey === 'name') {
-    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-      sensitivity: 'base',
-    });
+    return compareName(a.entry.display_name, b.entry.display_name);
   }
   if (sortKey === 'likelihood') {
-    const la = a.likelihood ?? -1;
-    const lb = b.likelihood ?? -1;
-    if (lb !== la) return lb - la;
-    return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-      sensitivity: 'base',
-    });
+    const byLikelihood = compareLikelihoodDesc(a.likelihood, b.likelihood);
+    if (byLikelihood !== 0) return byLikelihood;
+    return compareName(a.entry.display_name, b.entry.display_name);
   }
-  if (b.outcome_count !== a.outcome_count) {
-    return b.outcome_count - a.outcome_count;
+  if (b.pct !== a.pct) {
+    return b.pct - a.pct;
   }
-  return a.entry.display_name.localeCompare(b.entry.display_name, undefined, {
-    sensitivity: 'base',
-  });
+  const byLikelihood = compareLikelihoodDesc(a.likelihood, b.likelihood);
+  if (byLikelihood !== 0) return byLikelihood;
+  return compareName(a.entry.display_name, b.entry.display_name);
 }
 
 function sortWinnerOdds(
@@ -1315,6 +1345,22 @@ export function ChallengeOutcomes({
         teamLikelihood,
       );
       if (scoreB !== scoreA) return scoreB - scoreA;
+
+      if (sortKey === 'outcomes') {
+        const likelihoodA = championCardMetricScore(
+          a.champId,
+          'likelihood',
+          pathOutcomeCounts,
+          teamLikelihood,
+        );
+        const likelihoodB = championCardMetricScore(
+          b.champId,
+          'likelihood',
+          pathOutcomeCounts,
+          teamLikelihood,
+        );
+        if (likelihoodB !== likelihoodA) return likelihoodB - likelihoodA;
+      }
 
       return champA.display_name.localeCompare(champB.display_name, undefined, {
         sensitivity: 'base',

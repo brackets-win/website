@@ -45,6 +45,19 @@ def show_live_group_results_note_for_bracket(bracket) -> bool:
     return group_results_mode_from_metadata(bracket.metadata) == "live"
 
 
+def master_bracket_is_fully_resolved(bracket) -> bool:
+    """True when every playable master knockout game has a winner.
+
+    Uses the same branchable-undecided count as potential scoring: ``0`` means
+    the first knockout round is seeded and nothing remains to project.
+    """
+    from brackets.utils.potential_knockout import count_branchable_for_bracket
+
+    return count_branchable_for_bracket(bracket) == 0
+
+
 def omit_leaderboard_potential_for_bracket(bracket) -> bool:
-    """Live group results: leaderboard shows scored points only, not projections."""
-    return show_live_group_results_note_for_bracket(bracket)
+    """Hide potential columns for live group results or a finished master."""
+    if show_live_group_results_note_for_bracket(bracket):
+        return True
+    return master_bracket_is_fully_resolved(bracket)

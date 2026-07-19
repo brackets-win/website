@@ -1014,6 +1014,84 @@ class StreakKnockoutTests(TestCase):
         self.assertNotIn("Dave", consolation_names)
         self.assertNotIn("Carol", consolation_names)
 
+    def test_third_place_player_picks_use_third_place_section_label(self):
+        from brackets.utils.streak_scoring import resolve_question
+
+        semi_start = timezone.now() - timedelta(days=3)
+        final_start = timezone.now() - timedelta(days=1)
+        self.challenge.knockout_third_place_match = True
+        self.challenge.knockout_transition_at = semi_start
+        self.challenge.knockout_round_starts = {"2": final_start.isoformat()}
+        self.challenge.save(
+            update_fields=[
+                "knockout_third_place_match",
+                "knockout_transition_at",
+                "knockout_round_starts",
+            ]
+        )
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        # SETUP -> round 1, then finalize semis into final + 3rd place.
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+
+        final_q = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Final window pick",
+            closes_at=final_start + timedelta(hours=1),
+            order=20,
+        )
+        right = StreakQuestionChoice.objects.create(
+            question=final_q, label="Yes", order=0
+        )
+        StreakQuestionChoice.objects.create(question=final_q, label="No", order=1)
+        for user in (self.alice, self.dave):
+            StreakPick.objects.create(
+                streak_challenge=self.challenge,
+                question=final_q,
+                user=user,
+                choice=right,
+            )
+        resolve_question(final_q, right.id)
+
+        self.client.force_login(self.alice)
+        dave_res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/players/{self.dave.id}/picks"
+        )
+        self.assertEqual(dave_res.status_code, 200)
+        dave_final = next(
+            p
+            for p in dave_res.json()["picks"]
+            if p["question_id"] == final_q.id
+        )
+        self.assertEqual(dave_final["section_label"], "Knockout: 3rd Place Match")
+        self.assertTrue(dave_final["section_key"].endswith(":third"))
+
+        alice_res = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/players/{self.alice.id}/picks"
+        )
+        self.assertEqual(alice_res.status_code, 200)
+        alice_final = next(
+            p
+            for p in alice_res.json()["picks"]
+            if p["question_id"] == final_q.id
+        )
+        self.assertEqual(alice_final["section_label"], "Knockout: Final")
+        self.assertFalse(alice_final["section_key"].endswith(":third"))
+
     def test_consolation_rows_sort_by_record_win_pct_then_season_rank(self):
         from brackets.models import StreakKnockout
         from brackets.utils.streak_knockout import _consolation_rows

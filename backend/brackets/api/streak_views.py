@@ -283,12 +283,26 @@ def _long_streak_display(value: int, *, kind: str) -> str:
     return f"{value}L"
 
 
+def _participant_in_third_place_match(
+    challenge: StreakChallenge, participant: StreakParticipant
+) -> bool:
+    try:
+        knockout = challenge.knockout
+    except StreakKnockout.DoesNotExist:
+        return False
+    match = knockout.matches.filter(is_third_place=True).first()
+    if match is None:
+        return False
+    return participant.id in (match.player_a_id, match.player_b_id)
+
+
 def _participant_pick_section(
     challenge: StreakChallenge,
     participant: StreakParticipant,
     question: StreakQuestion,
     *,
     participant_count: int,
+    in_third_place_match: bool | None = None,
 ) -> tuple[str, str]:
     transition = streak_season_cutoff_at(challenge)
     if transition is None or question.closes_at < transition:
@@ -300,7 +314,20 @@ def _participant_pick_section(
         )
         stage = phase["label"] if phase else "Knockout"
         starts_at = phase["starts_at"] if phase else question.closes_at
-        return (f"knockout:{starts_at.isoformat()}", f"Knockout: {stage}")
+        section_key = f"knockout:{starts_at.isoformat()}"
+        # Final and 3rd place share the last knockout stage window; label by match.
+        if (
+            phase is not None
+            and phase["round_index"] == knockout_total_rounds(participant_count)
+            and (
+                in_third_place_match
+                if in_third_place_match is not None
+                else _participant_in_third_place_match(challenge, participant)
+            )
+        ):
+            stage = "3rd Place Match"
+            section_key = f"{section_key}:third"
+        return (section_key, f"Knockout: {stage}")
 
     return ("consolation", "Consolation")
 
@@ -981,6 +1008,7 @@ def streak_participant_picks(
             "-question__id" if order_desc else "question__id",
         )
     )
+    in_third_place_match = _participant_in_third_place_match(challenge, target)
     rows = []
     for pick in picks:
         q = pick.question
@@ -992,6 +1020,7 @@ def streak_participant_picks(
             target,
             q,
             participant_count=participant_count,
+            in_third_place_match=in_third_place_match,
         )
         rows.append(
             {
