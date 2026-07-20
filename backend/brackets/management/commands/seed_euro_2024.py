@@ -96,8 +96,9 @@ class Command(BaseCommand):
             if existing.show_seeds:
                 existing.show_seeds = False
                 existing.save(update_fields=["show_seeds"])
-            if not existing.has_third_place_match:
-                existing.has_third_place_match = True
+            # Euro has no third-place playoff — keep it off if already seeded.
+            if existing.has_third_place_match:
+                existing.has_third_place_match = False
                 existing.save(update_fields=["has_third_place_match"])
             sync_third_place_structure(existing)
             master_ub = existing.get_master_bracket()
@@ -120,9 +121,9 @@ class Command(BaseCommand):
             ),
             created_by=user,
             show_seeds=False,
-            has_third_place_match=True,
+            has_third_place_match=False,
             points_champion=10,
-            points_third_place_winner=3,
+            points_third_place_winner=0,
             metadata={
                 'third_place_combinations': third_place_combinations,
                 'tournament_type': 'euro_2024',

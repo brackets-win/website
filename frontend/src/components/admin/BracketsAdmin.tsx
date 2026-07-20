@@ -696,10 +696,18 @@ export function BracketsAdmin() {
       fd.append('points_third_place_winner', String(editThird ? (editThirdPlacePts ?? 0) : 0));
       fd.append('metadata', JSON.stringify(metadata));
       if (editImage) fd.append('image', editImage);
-      await adminUpdateBracket(editBracketId, fd);
+      // Bracket update may create/delete the third-place stage; only patch
+      // stages that still exist after that sync.
+      const bracketAfterMeta = await adminUpdateBracket(editBracketId, fd);
+      const liveStageIds = new Set(
+        (bracketAfterMeta.bracket.stages ?? []).map((s) => s.id),
+      );
+      const stagePatches = editStages
+        .filter((s) => liveStageIds.has(s.id))
+        .map(stageToAdminPatch);
       const stageRes = await adminUpdateBracketStages(
         editBracketId,
-        editStages.map(stageToAdminPatch),
+        stagePatches,
       );
       let bracket = stageRes.bracket;
 
