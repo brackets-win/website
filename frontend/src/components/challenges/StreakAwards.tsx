@@ -20,8 +20,7 @@ type PersonAwardCard = {
   key: keyof StreakAwardsPayload;
   emoji: string;
   title: string;
-  /** Screen-reader / tooltip label when title is hidden (emoji-only cards). */
-  ariaLabel?: string;
+  emphasizeName?: boolean;
   valueLabel: (winner: StreakAwardWinner) => string | null;
 };
 
@@ -62,22 +61,22 @@ const KNOCKOUT_PODIUM_CARDS: PersonAwardCard[] = [
   {
     key: 'knockout_first',
     emoji: '🥇',
-    title: '',
-    ariaLabel: '1st Place',
+    title: '1st Place',
+    emphasizeName: true,
     valueLabel: () => null,
   },
   {
     key: 'knockout_second',
     emoji: '🥈',
-    title: '',
-    ariaLabel: '2nd Place',
+    title: '2nd Place',
+    emphasizeName: true,
     valueLabel: () => null,
   },
   {
     key: 'knockout_third',
     emoji: '🥉',
-    title: '',
-    ariaLabel: '3rd Place',
+    title: '3rd Place',
+    emphasizeName: true,
     valueLabel: () => null,
   },
 ];
@@ -241,18 +240,11 @@ export function StreakAwards({
           const winners = categoryWinners(awards, card.key);
           return (
             <li key={String(card.key)} className="streak-awards__card">
-              <h2
-                className={
-                  card.title
-                    ? 'streak-awards__title'
-                    : 'streak-awards__title streak-awards__title--emoji-only'
-                }
-                aria-label={card.ariaLabel ?? card.title}
-              >
+              <h2 className="streak-awards__title">
                 <span className="streak-awards__emoji" aria-hidden>
                   {card.emoji}
                 </span>
-                {card.title || null}
+                {card.title}
               </h2>
               {winners.length === 0 ? (
                 <p className="streak-awards__empty">No winner yet.</p>
@@ -262,7 +254,13 @@ export function StreakAwards({
                     const value = card.valueLabel(winner);
                     return (
                       <li key={winner.user_id} className="streak-awards__winner">
-                        <span className="streak-awards__name">
+                        <span
+                          className={
+                            card.emphasizeName
+                              ? 'streak-awards__name streak-awards__name--podium'
+                              : 'streak-awards__name'
+                          }
+                        >
                           {winner.display_name}
                         </span>
                         {value ? (
