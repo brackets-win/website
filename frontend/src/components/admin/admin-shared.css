@@ -443,6 +443,18 @@
   border-color: var(--app-accent);
 }
 
+.btn-icon--user {
+  color: var(--app-accent);
+  border-color: rgba(var(--app-accent-rgb), 0.45);
+  background: rgba(var(--app-accent-rgb), 0.12);
+}
+
+.btn-icon--user:hover:not(:disabled) {
+  color: #fff;
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+}
+
 .delete-dialog-backdrop {
   position: fixed;
   inset: 0;

@@ -366,6 +366,8 @@ def _normalize_display_name(raw: str) -> str:
 def _user_can_view_challenge_bracket(viewer, ub: UserBracket) -> bool:
     if ub.is_master:
         return _user_can_view_master_bracket(viewer, ub)
+    if getattr(viewer, "is_staff", False):
+        return True
     if ub.user_id == viewer.id:
         return True
     if ub.challenge_id is None:
@@ -383,11 +385,17 @@ def _user_can_view_challenge_bracket(viewer, ub: UserBracket) -> bool:
     return user_has_submitted_challenge(viewer, challenge)
 
 
+def _staff_may_edit_user_bracket(user, ub: UserBracket) -> bool:
+    """Staff can fill/submit participant brackets (including past deadline)."""
+    return bool(getattr(user, "is_staff", False)) and not ub.is_master
+
+
 def _enroll_user_in_challenge(
     user,
     challenge: BracketChallenge,
     *,
     display_name: str | None = None,
+    bypass_deadline: bool = False,
 ) -> UserBracket | None:
     """Add participant; create a user bracket when the activity type needs one."""
     from brackets.utils.challenge_entries import (
@@ -397,7 +405,7 @@ def _enroll_user_in_challenge(
     )
     from brackets.utils.challenge_types import creates_user_bracket
 
-    assert_can_join(challenge)
+    assert_can_join(challenge, bypass_deadline=bypass_deadline)
     ChallengeParticipant.objects.get_or_create(challenge=challenge, user=user)
     if not creates_user_bracket(challenge.instance_type):
         return None
@@ -903,12 +911,19 @@ def user_bracket_detail(request: HttpRequest, user_bracket_id: int) -> JsonRespo
             return _json_error("Forbidden", 403)
     elif not _user_can_view_challenge_bracket(user, ub):
         return _json_error("Forbidden", 403)
-    elif request.method == "PATCH" and ub.user_id != user.id:
+    elif (
+        request.method == "PATCH"
+        and ub.user_id != user.id
+        and not _staff_may_edit_user_bracket(user, ub)
+    ):
         return _json_error("Forbidden", 403)
 
     if request.method == "PATCH":
         try:
-            assert_can_edit_picks(ub)
+            assert_can_edit_picks(
+                ub,
+                bypass_deadline=_staff_may_edit_user_bracket(user, ub),
+            )
         except ValueError as e:
             return _json_error(str(e), 403)
         try:
@@ -958,11 +973,16 @@ def user_bracket_submit(request: HttpRequest, user_bracket_id: int) -> JsonRespo
         return _json_error("Authentication required", 401)
 
     ub = get_object_or_404(UserBracket, pk=user_bracket_id)
-    if ub.is_master or ub.user_id != user.id:
+    if ub.is_master:
+        return _json_error("Forbidden", 403)
+    if ub.user_id != user.id and not _staff_may_edit_user_bracket(user, ub):
         return _json_error("Forbidden", 403)
 
     try:
-        assert_can_edit_picks(ub)
+        assert_can_edit_picks(
+            ub,
+            bypass_deadline=_staff_may_edit_user_bracket(user, ub),
+        )
     except ValueError as e:
         return _json_error(str(e), 403)
 
@@ -1264,13 +1284,13 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
     )
 
     if request.method == "DELETE":
-        if challenge.created_by_id != user.id:
+        if challenge.created_by_id != user.id and not user.is_staff:
             return _json_error("Forbidden", 403)
         challenge.delete()
         return JsonResponse({"ok": True})
 
     if request.method == "PATCH":
-        if challenge.created_by_id != user.id:
+        if challenge.created_by_id != user.id and not user.is_staff:
             return _json_error("Forbidden", 403)
         from brackets.utils.challenge_entries import (
             max_entries_in_use,
@@ -1701,11 +1721,14 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
     if ub.is_master:
         if not _user_can_edit_master_bracket(user, ub):
             return _json_error("Forbidden", 403)
-    elif ub.user_id != user.id:
+    elif ub.user_id != user.id and not _staff_may_edit_user_bracket(user, ub):
         return _json_error("Forbidden", 403)
     else:
         try:
-            assert_can_edit_picks(ub)
+            assert_can_edit_picks(
+                ub,
+                bypass_deadline=_staff_may_edit_user_bracket(user, ub),
+            )
         except ValueError as e:
             return _json_error(str(e), 403)
 
@@ -2060,6 +2083,7 @@ def admin_delete_impact(
 
     from brackets.utils.delete_impact import (
         bracket_delete_impact,
+        challenge_delete_impact,
         contestant_delete_impact,
         streak_competition_delete_impact,
         streak_question_delete_impact,
@@ -2068,6 +2092,7 @@ def admin_delete_impact(
 
     handlers: dict[str, tuple[type, Any]] = {
         "bracket": (Bracket, bracket_delete_impact),
+        "challenge": (BracketChallenge, challenge_delete_impact),
         "streak-competition": (StreakCompetition, streak_competition_delete_impact),
         "contestant": (Contestant, contestant_delete_impact),
         "streak-question": (StreakQuestion, streak_question_delete_impact),
@@ -2510,4 +2535,407 @@ def admin_bracket_stages_update(
     )
     return JsonResponse(
         {"bracket": serializers.bracket_detail(b, request=request)}
+    )
+
+
+def _admin_challenge_row(
+    challenge: BracketChallenge,
+    *,
+    request: HttpRequest | None = None,
+    participant_count: int | None = None,
+    entry_count: int | None = None,
+) -> dict[str, Any]:
+    from brackets.utils.challenge_entries import max_entries_in_use
+    from brackets.utils.challenge_types import CHALLENGE
+
+    if participant_count is None:
+        participant_count = ChallengeParticipant.objects.filter(
+            challenge=challenge
+        ).count()
+    if entry_count is None:
+        entry_count = UserBracket.objects.filter(
+            challenge=challenge, is_master=False
+        ).count()
+    row = serializers.admin_challenge_summary(
+        challenge,
+        request=request,
+        participant_count=participant_count,
+        entry_count=entry_count,
+    )
+    if challenge.instance_type == CHALLENGE:
+        row["max_entries_minimum"] = max_entries_in_use(challenge)
+    return row
+
+
+@require_http_methods(["GET", "POST"])
+def admin_challenges_list_create(request: HttpRequest) -> JsonResponse:
+    user, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    if request.method == "GET":
+        challenges = list(
+            BracketChallenge.objects.defer("metadata")
+            .select_related("bracket", "created_by")
+            .order_by("-created_at")
+        )
+        challenge_ids = [c.id for c in challenges]
+        participant_counts = {
+            row["challenge_id"]: row["c"]
+            for row in ChallengeParticipant.objects.filter(
+                challenge_id__in=challenge_ids
+            )
+            .values("challenge_id")
+            .annotate(c=Count("id"))
+        }
+        entry_counts = {
+            row["challenge_id"]: row["c"]
+            for row in UserBracket.objects.filter(
+                challenge_id__in=challenge_ids, is_master=False
+            )
+            .values("challenge_id")
+            .annotate(c=Count("id"))
+        }
+        return JsonResponse(
+            {
+                "challenges": [
+                    _admin_challenge_row(
+                        c,
+                        request=request,
+                        participant_count=participant_counts.get(c.id, 0),
+                        entry_count=entry_counts.get(c.id, 0),
+                    )
+                    for c in challenges
+                ]
+            }
+        )
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    from brackets.utils.challenge_entries import normalize_max_entries
+    from brackets.utils.challenge_types import CHALLENGE
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        return _json_error("name is required", 400)
+
+    bracket_id = body.get("bracket_id")
+    if not bracket_id:
+        return _json_error("bracket_id is required", 400)
+    bracket = get_object_or_404(Bracket, pk=int(bracket_id))
+    if not bracket.is_reusable:
+        return _json_error(
+            "That bracket is not available for bracket challenges.", 400
+        )
+    bracket.ensure_master_bracket()
+
+    submission_deadline = None
+    deadline_raw = body.get("submission_deadline")
+    if deadline_raw is not None and str(deadline_raw).strip():
+        try:
+            submission_deadline = parse_deadline_est(str(deadline_raw))
+        except ValueError:
+            return _json_error("Invalid submission_deadline", 400)
+
+    is_private = bool(body.get("is_private"))
+    try:
+        max_entries = normalize_max_entries(
+            body.get("max_entries", 1), instance_type=CHALLENGE
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    join_code = _generate_join_code() if is_private else None
+    try:
+        challenge = BracketChallenge.objects.create(
+            name=name,
+            bracket=bracket,
+            instance_type=CHALLENGE,
+            created_by=user,
+            is_public=not is_private,
+            submission_deadline=submission_deadline,
+            join_code=join_code,
+            max_entries=max_entries,
+        )
+    except IntegrityError:
+        return _json_error("Could not create challenge", 409)
+
+    return JsonResponse(
+        {"challenge": _admin_challenge_row(challenge, request=request)},
+        status=201,
+    )
+
+
+@require_http_methods(["GET", "PATCH", "DELETE"])
+def admin_challenge_detail(
+    request: HttpRequest, challenge_id: int
+) -> JsonResponse:
+    user, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.defer("metadata").select_related(
+            "bracket", "created_by"
+        ),
+        pk=challenge_id,
+    )
+
+    if request.method == "DELETE":
+        challenge.delete()
+        return JsonResponse({"ok": True})
+
+    if request.method == "PATCH":
+        from brackets.utils.challenge_entries import (
+            max_entries_in_use,
+            normalize_max_entries,
+        )
+        from brackets.utils.challenge_types import CHALLENGE
+
+        if challenge.instance_type != CHALLENGE:
+            return _json_error(
+                "Only bracket challenges support admin editing", 400
+            )
+        try:
+            body = _parse_json(request)
+        except json.JSONDecodeError:
+            return _json_error("Invalid JSON body", 400)
+
+        update_fields: list[str] = []
+
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                return _json_error("name is required", 400)
+            if name != challenge.name:
+                challenge.name = name
+                update_fields.append("name")
+
+        if "submission_deadline" in body:
+            deadline_raw = body.get("submission_deadline")
+            if deadline_raw is None or not str(deadline_raw).strip():
+                if challenge.submission_deadline is not None:
+                    challenge.submission_deadline = None
+                    update_fields.append("submission_deadline")
+            else:
+                try:
+                    submission_deadline = parse_deadline_est(str(deadline_raw))
+                except ValueError:
+                    return _json_error("Invalid submission_deadline", 400)
+                if challenge.submission_deadline != submission_deadline:
+                    challenge.submission_deadline = submission_deadline
+                    update_fields.append("submission_deadline")
+
+        if "max_entries" in body:
+            try:
+                max_entries = normalize_max_entries(
+                    body.get("max_entries"), instance_type=CHALLENGE
+                )
+            except ValueError as e:
+                return _json_error(str(e), 400)
+            floor = max_entries_in_use(challenge)
+            if max_entries < floor:
+                label = "entry" if floor == 1 else "entries"
+                return _json_error(
+                    f"At least one player already has {floor} {label}. "
+                    f"Set the limit to {floor} or higher.",
+                    400,
+                )
+            if max_entries != challenge.max_entries:
+                challenge.max_entries = max_entries
+                update_fields.append("max_entries")
+
+        if "is_private" in body:
+            is_private = bool(body.get("is_private"))
+            is_public = not is_private
+            if is_public != challenge.is_public:
+                challenge.is_public = is_public
+                update_fields.append("is_public")
+                if is_private and not challenge.join_code:
+                    challenge.join_code = _generate_join_code()
+                    update_fields.append("join_code")
+                elif not is_private and challenge.join_code:
+                    challenge.join_code = None
+                    update_fields.append("join_code")
+
+        if update_fields:
+            challenge.save(update_fields=list(dict.fromkeys(update_fields)))
+
+        return JsonResponse(
+            {"challenge": _admin_challenge_row(challenge, request=request)}
+        )
+
+    return JsonResponse(
+        {"challenge": _admin_challenge_row(challenge, request=request)}
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def admin_challenge_entries(
+    request: HttpRequest, challenge_id: int
+) -> JsonResponse:
+    staff, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    from brackets.utils.challenge_types import creates_user_bracket
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if not creates_user_bracket(challenge.instance_type):
+        return _json_error(
+            "This activity does not support bracket entries", 400
+        )
+
+    if request.method == "GET":
+        entries = list(
+            UserBracket.objects.filter(challenge=challenge, is_master=False)
+            .select_related("user")
+            .order_by("display_name", "user__username", "id")
+        )
+        return JsonResponse(
+            {
+                "entries": [
+                    {
+                        "user_bracket_id": ub.id,
+                        "user_id": ub.user_id,
+                        "username": ub.user.username,
+                        "display_name": (ub.display_name or "").strip(),
+                        "is_submitted": ub.submitted_at is not None,
+                        "submitted_at": (
+                            ub.submitted_at.isoformat()
+                            if ub.submitted_at
+                            else None
+                        ),
+                        "is_complete": user_bracket_is_complete(ub)[0],
+                    }
+                    for ub in entries
+                ]
+            }
+        )
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    user_id = body.get("user_id")
+    if user_id is None:
+        return _json_error("user_id is required", 400)
+    target = get_object_or_404(User, pk=int(user_id))
+
+    raw_name = body.get("display_name")
+    if raw_name is None or not str(raw_name).strip():
+        display_name = (target.username or "Player")[:80]
+    else:
+        try:
+            display_name = _normalize_display_name(str(raw_name))
+        except ValueError as e:
+            return _json_error(str(e), 400)
+
+    try:
+        ub = _enroll_user_in_challenge(
+            target,
+            challenge,
+            display_name=display_name,
+            bypass_deadline=True,
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    if ub is None:
+        return _json_error("Could not create bracket entry", 400)
+
+    if ub.submitted_at is not None and challenge.max_entries == 1:
+        return _json_error(
+            "That user already has a submitted entry for this challenge.",
+            409,
+        )
+
+    return JsonResponse(
+        {
+            "entry": {
+                "user_bracket_id": ub.id,
+                "user_id": ub.user_id,
+                "username": ub.user.username,
+                "display_name": (ub.display_name or "").strip(),
+                "is_submitted": ub.submitted_at is not None,
+                "submitted_at": (
+                    ub.submitted_at.isoformat() if ub.submitted_at else None
+                ),
+                "is_complete": user_bracket_is_complete(ub)[0],
+            }
+        },
+        status=201,
+    )
+
+
+@require_http_methods(["PATCH"])
+def admin_challenge_entry_detail(
+    request: HttpRequest, challenge_id: int, user_bracket_id: int
+) -> JsonResponse:
+    staff, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    from brackets.utils.challenge_entries import assert_display_name_available
+    from brackets.utils.challenge_types import creates_user_bracket
+
+    challenge = get_object_or_404(BracketChallenge, pk=challenge_id)
+    if not creates_user_bracket(challenge.instance_type):
+        return _json_error(
+            "This activity does not support bracket entries", 400
+        )
+
+    ub = get_object_or_404(
+        UserBracket.objects.select_related("user"),
+        pk=user_bracket_id,
+        challenge=challenge,
+        is_master=False,
+    )
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    if "display_name" not in body:
+        return _json_error("display_name is required", 400)
+    try:
+        display_name = _normalize_display_name(str(body.get("display_name") or ""))
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    try:
+        assert_display_name_available(
+            challenge,
+            ub.user,
+            display_name,
+            exclude_user_bracket_id=ub.id,
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    if display_name != (ub.display_name or "").strip():
+        ub.display_name = display_name
+        ub.save(update_fields=["display_name"])
+
+    return JsonResponse(
+        {
+            "entry": {
+                "user_bracket_id": ub.id,
+                "user_id": ub.user_id,
+                "username": ub.user.username,
+                "display_name": (ub.display_name or "").strip(),
+                "is_submitted": ub.submitted_at is not None,
+                "submitted_at": (
+                    ub.submitted_at.isoformat() if ub.submitted_at else None
+                ),
+                "is_complete": user_bracket_is_complete(ub)[0],
+            }
+        }
     )

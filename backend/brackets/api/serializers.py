@@ -193,9 +193,10 @@ def bracket_detail(
     return out
 
 
-def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
+def user_bracket_summary(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
     complete, _ = user_bracket_is_complete(ub)
     # Master bracket is staff-only via API; editable regardless of challenge deadline.
+    # Staff can fill participant entries past the deadline (historical import).
     if ub.is_master:
         can_edit = True
     else:
@@ -203,7 +204,7 @@ def user_bracket_summary(ub: UserBracket) -> dict[str, Any]:
         if can_edit and ub.challenge_id:
             ch = ub.challenge
             if ch and deadline_passed(ch):
-                can_edit = False
+                can_edit = bool(viewer is not None and getattr(viewer, "is_staff", False))
     return {
         "id": ub.id,
         "bracket_id": ub.bracket_id,
@@ -263,7 +264,7 @@ def user_bracket_detail(ub: UserBracket, *, viewer=None) -> dict[str, Any]:
         {"stage_id": sid, "matchups": by_stage.get(sid, [])} for sid in stages_order
     ]
 
-    out = user_bracket_summary(ub)
+    out = user_bracket_summary(ub, viewer=viewer)
     out["bracket"] = bracket_summary(ub.bracket)
     out["matchups_by_stage"] = matchups_by_stage
     can_show_scoring = _show_scoring_to_viewer(
@@ -501,6 +502,48 @@ def challenge_summary(
                 else False
             )
         ),
+    }
+
+
+def admin_challenge_summary(
+    c: BracketChallenge,
+    *,
+    request=None,
+    participant_count: int = 0,
+    entry_count: int = 0,
+) -> dict[str, Any]:
+    """Catalog row for the admin Challenges tab."""
+    passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
+    instance_labels = {
+        CHALLENGE: "Bracket Challenge",
+        TOURNAMENT: "Tournament",
+        POLL: "Poll",
+    }
+    return {
+        "id": c.id,
+        "name": c.name,
+        "created_by_username": _created_by_username(c),
+        "bracket_id": c.bracket_id,
+        "bracket_name": c.bracket.name,
+        "bracket_image_url": bracket_image_url(c.bracket, request),
+        "instance_type": c.instance_type,
+        "instance_type_label": instance_labels.get(
+            c.instance_type, c.instance_type
+        ),
+        "needs_user_bracket": creates_user_bracket(c.instance_type),
+        "is_public": c.is_public,
+        "is_private": not c.is_public,
+        "join_code": c.join_code if not c.is_public else None,
+        "submission_deadline": (
+            c.submission_deadline.isoformat()
+            if c.instance_type == CHALLENGE and c.submission_deadline
+            else None
+        ),
+        "deadline_passed": passed if c.instance_type == CHALLENGE else False,
+        "max_entries": c.max_entries,
+        "participant_count": participant_count,
+        "entry_count": entry_count,
+        "max_entries_minimum": None,
     }
 
 

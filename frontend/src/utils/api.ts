@@ -1409,6 +1409,7 @@ export type DeleteImpactRecord = {
 
 export type DeleteImpactResource =
   | 'bracket'
+  | 'challenge'
   | 'streak-competition'
   | 'contestant'
   | 'streak-question'
@@ -1555,4 +1556,100 @@ export async function adminResetUserPassword(
   userId: number,
 ): Promise<{ user: AdminUserRow; temp_password: string }> {
   return apiFetch('POST', `admin/users/${userId}/reset-password`);
+}
+
+export type AdminChallengeRow = {
+  id: number;
+  name: string;
+  created_by_username: string;
+  bracket_id: number;
+  bracket_name: string;
+  bracket_image_url?: string | null;
+  instance_type: string;
+  instance_type_label?: string;
+  needs_user_bracket?: boolean;
+  is_public: boolean;
+  is_private: boolean;
+  join_code: string | null;
+  submission_deadline: string | null;
+  deadline_passed: boolean;
+  max_entries: number;
+  participant_count: number;
+  entry_count: number;
+  max_entries_minimum?: number | null;
+};
+
+export async function adminListChallenges(): Promise<{
+  challenges: AdminChallengeRow[];
+}> {
+  return apiFetch('GET', 'admin/challenges');
+}
+
+export async function adminCreateChallenge(body: {
+  name: string;
+  bracket_id: number;
+  submission_deadline?: string | null;
+  max_entries?: number;
+  is_private?: boolean;
+}): Promise<{ challenge: AdminChallengeRow }> {
+  return apiFetch('POST', 'admin/challenges', body);
+}
+
+export async function adminGetChallenge(
+  challengeId: number,
+): Promise<{ challenge: AdminChallengeRow }> {
+  return apiFetch('GET', `admin/challenges/${challengeId}`);
+}
+
+export async function adminUpdateChallenge(
+  challengeId: number,
+  body: {
+    name?: string;
+    submission_deadline?: string | null;
+    max_entries?: number;
+    is_private?: boolean;
+  },
+): Promise<{ challenge: AdminChallengeRow }> {
+  return apiFetch('PATCH', `admin/challenges/${challengeId}`, body);
+}
+
+export async function adminDeleteChallenge(
+  challengeId: number,
+): Promise<{ ok: true }> {
+  return apiFetch('DELETE', `admin/challenges/${challengeId}`);
+}
+
+export async function adminCreateChallengeEntry(
+  challengeId: number,
+  body: { user_id: number; display_name?: string },
+): Promise<{ entry: AdminChallengeEntry }> {
+  return apiFetch('POST', `admin/challenges/${challengeId}/entries`, body);
+}
+
+export type AdminChallengeEntry = {
+  user_bracket_id: number;
+  user_id: number;
+  username: string;
+  display_name: string;
+  is_submitted: boolean;
+  submitted_at: string | null;
+  is_complete: boolean;
+};
+
+export async function adminListChallengeEntries(
+  challengeId: number,
+): Promise<{ entries: AdminChallengeEntry[] }> {
+  return apiFetch('GET', `admin/challenges/${challengeId}/entries`);
+}
+
+export async function adminUpdateChallengeEntry(
+  challengeId: number,
+  userBracketId: number,
+  body: { display_name: string },
+): Promise<{ entry: AdminChallengeEntry }> {
+  return apiFetch(
+    'PATCH',
+    `admin/challenges/${challengeId}/entries/${userBracketId}`,
+    body,
+  );
 }

@@ -99,6 +99,23 @@ def streak_question_delete_impact(question: StreakQuestion) -> list[dict[str, An
     )
 
 
+def challenge_delete_impact(challenge: BracketChallenge) -> list[dict[str, Any]]:
+    return _items(
+        [
+            (
+                "participants",
+                ChallengeParticipant.objects.filter(challenge=challenge).count(),
+            ),
+            (
+                "user brackets",
+                UserBracket.objects.filter(
+                    challenge=challenge, is_master=False
+                ).count(),
+            ),
+        ]
+    )
+
+
 def user_delete_impact(user: User) -> list[dict[str, Any]]:
     return _items(
         [

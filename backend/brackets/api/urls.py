@@ -144,4 +144,17 @@ urlpatterns = [
         "admin/users/<int:user_id>/reset-password",
         views.admin_user_reset_password,
     ),
+    path("admin/challenges", views.admin_challenges_list_create),
+    path(
+        "admin/challenges/<int:challenge_id>",
+        views.admin_challenge_detail,
+    ),
+    path(
+        "admin/challenges/<int:challenge_id>/entries",
+        views.admin_challenge_entries,
+    ),
+    path(
+        "admin/challenges/<int:challenge_id>/entries/<int:user_bracket_id>",
+        views.admin_challenge_entry_detail,
+    ),
 ]

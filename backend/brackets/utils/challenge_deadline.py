@@ -51,14 +51,22 @@ def deadline_passed(challenge: BracketChallenge, *, now: datetime | None = None)
     return ref >= deadline
 
 
-def assert_can_join(challenge: BracketChallenge) -> None:
+def assert_can_join(
+    challenge: BracketChallenge, *, bypass_deadline: bool = False
+) -> None:
     if challenge.instance_type not in (CHALLENGE, TOURNAMENT, POLL):
         raise ValueError("This activity is not open for joining")
-    if challenge.instance_type == CHALLENGE and deadline_passed(challenge):
+    if (
+        challenge.instance_type == CHALLENGE
+        and deadline_passed(challenge)
+        and not bypass_deadline
+    ):
         raise ValueError("The submission deadline has passed")
 
 
-def assert_can_edit_picks(ub: UserBracket) -> None:
+def assert_can_edit_picks(
+    ub: UserBracket, *, bypass_deadline: bool = False
+) -> None:
     if ub.is_master:
         return
     if ub.challenge_id is None:
@@ -69,7 +77,7 @@ def assert_can_edit_picks(ub: UserBracket) -> None:
     if uses_bracket_submission(challenge.instance_type):
         if ub.submitted_at is not None:
             raise ValueError("Bracket already submitted")
-        if deadline_passed(challenge):
+        if deadline_passed(challenge) and not bypass_deadline:
             raise ValueError("The submission deadline has passed")
         return
     if challenge.instance_type == POLL:
