@@ -15,6 +15,10 @@ from brackets.models import (
     UserBracket,
 )
 from brackets.utils.bracket_similarity import build_bracket_similarity_tree
+from brackets.utils.group_stage_config import (
+    get_group_stage,
+    is_qualifying_only_picking,
+)
 from brackets.utils.sync_group_knockout import (
     contestants_credited_for_knockout_score,
     contestants_in_stage_for_scoring,
@@ -332,6 +336,57 @@ def get_challenge_stats(challenge: BracketChallenge) -> dict[str, Any]:
         f"stats:{challenge.pk}:{entries_revision}:{master_revision}",
         _compute,
     )
+
+
+def _stats_display_place_qualifying_only(
+    team_id: int,
+    *,
+    group_team_ids: list[int],
+    row: dict | None,
+    third_place_advancers: set[int],
+    qualifying: int,
+    group_size: int,
+) -> float | None:
+    """
+    Implied finish place for stats avg-place only (not scoring).
+
+    Under qualifying-only picks: explicit 1..q stay as picked; third-place rail
+    picks count as 3; other leftovers in that same group get the remaining
+    ranks (4..n, or a single 4 in a 4-team group); leftovers in a group with
+    no rail pick get the midpoint of unpicked ranks (3.5 when n=4, q=2).
+    """
+    if group_size <= 0 or team_id not in group_team_ids:
+        return None
+
+    placed: dict[int, int] = {}
+    if isinstance(row, dict):
+        for key, cid in row.items():
+            if cid is None:
+                continue
+            try:
+                placed[int(cid)] = int(key)
+            except (TypeError, ValueError):
+                continue
+
+    if team_id in placed:
+        return float(placed[team_id])
+
+    if not placed and team_id not in third_place_advancers:
+        return None
+
+    if team_id in third_place_advancers:
+        return 3.0
+
+    if any(t in third_place_advancers for t in group_team_ids if t != team_id):
+        remaining = list(range(4, group_size + 1))
+        if not remaining:
+            return float(group_size)
+        return sum(remaining) / len(remaining)
+
+    if group_size <= qualifying:
+        return None
+    unpicked = list(range(qualifying + 1, group_size + 1))
+    return sum(unpicked) / len(unpicked)
 
 
 def _team_position_in_row(row: dict, team_id: int) -> int | None:
@@ -857,19 +912,47 @@ def _compute_stats_parts(
 
     group_points = _compute_group_points(bracket, groups_preview, user_brackets)
 
+    gs = get_group_stage(bracket)
+    qualifying_only = bool(gs and is_qualifying_only_picking(gs))
+    qualifying_per_group = (
+        int(gs.contestants_qualifying_per_group) if gs is not None else 0
+    )
+
     group_teams: list[dict[str, Any]] = []
     for group in groups_preview:
         code = group["code"]
+        group_team_ids = [int(t["id"]) for t in group["teams"]]
+        group_size = len(group_team_ids)
         teams_out: list[dict[str, Any]] = []
         for team in group["teams"]:
             team_id = int(team["id"])
-            positions: list[int] = []
+            positions: list[float] = []
             for ub in user_brackets:
-                gp = (ub.metadata or {}).get("group_positions") or {}
+                meta = ub.metadata if isinstance(ub.metadata, dict) else {}
+                gp = meta.get("group_positions") or {}
                 row = gp.get(code)
-                pos = _team_position_in_row(row, team_id) if isinstance(row, dict) else None
+                if qualifying_only:
+                    tp_raw = meta.get("third_place_advancers") or []
+                    try:
+                        tp_set = {int(x) for x in tp_raw}
+                    except (TypeError, ValueError):
+                        tp_set = set()
+                    pos = _stats_display_place_qualifying_only(
+                        team_id,
+                        group_team_ids=group_team_ids,
+                        row=row if isinstance(row, dict) else None,
+                        third_place_advancers=tp_set,
+                        qualifying=qualifying_per_group,
+                        group_size=group_size,
+                    )
+                else:
+                    pos = (
+                        _team_position_in_row(row, team_id)
+                        if isinstance(row, dict)
+                        else None
+                    )
                 if pos is not None:
-                    positions.append(pos)
+                    positions.append(float(pos))
             avg = (
                 round(sum(positions) / len(positions), 2)
                 if positions

@@ -31,13 +31,16 @@ class ChallengeStatsTests(TestCase):
             created_by=self.host,
         )
 
-    def _submit_with_groups(self, user, gp: dict):
+    def _submit_with_groups(self, user, gp: dict, third_place_advancers=None):
+        meta = {"group_positions": gp}
+        if third_place_advancers is not None:
+            meta["third_place_advancers"] = third_place_advancers
         ub = UserBracket.objects.create(
             bracket=self.bracket,
             user=user,
             challenge=self.challenge,
             is_master=False,
-            metadata={"group_positions": gp},
+            metadata=meta,
         )
         from django.utils import timezone
 
@@ -83,6 +86,42 @@ class ChallengeStatsTests(TestCase):
             if r["bracket_contestant_id"] == self.teams[1].id
         )
         self.assertEqual(row1["percentages"]["group_winner"], 0.0)
+
+    def test_qualifying_only_avg_place_implied_ranks(self):
+        from brackets.models import GroupStage
+
+        group_stage = GroupStage.objects.get(
+            pk=self.bracket.stages.filter(stage_type="GROUP").first().pk
+        )
+        group_stage.group_position_picking = "qualifying_only"
+        group_stage.contestants_advancing = 5
+        group_stage.save(
+            update_fields=["group_position_picking", "contestants_advancing"]
+        )
+
+        # A: T1/T2 qualify; T3 on third-place rail → T4 is 4th.
+        # B: T5/T6 qualify; no rail pick from B → T7/T8 are 3.5 each.
+        self._submit_with_groups(
+            self.u1,
+            {
+                "A": {"1": self.teams[0].id, "2": self.teams[1].id},
+                "B": {"1": self.teams[4].id, "2": self.teams[5].id},
+            },
+            third_place_advancers=[self.teams[2].id],
+        )
+
+        stats = compute_challenge_stats(self.challenge)
+        group_a = next(g for g in stats["group_stage"] if g["code"] == "A")
+        group_b = next(g for g in stats["group_stage"] if g["code"] == "B")
+        by_id_a = {t["bracket_contestant_id"]: t for t in group_a["teams"]}
+        by_id_b = {t["bracket_contestant_id"]: t for t in group_b["teams"]}
+
+        self.assertEqual(by_id_a[self.teams[0].id]["average_position"], 1.0)
+        self.assertEqual(by_id_a[self.teams[1].id]["average_position"], 2.0)
+        self.assertEqual(by_id_a[self.teams[2].id]["average_position"], 3.0)
+        self.assertEqual(by_id_a[self.teams[3].id]["average_position"], 4.0)
+        self.assertEqual(by_id_b[self.teams[6].id]["average_position"], 3.5)
+        self.assertEqual(by_id_b[self.teams[7].id]["average_position"], 3.5)
 
     def test_bracket_slot_distribution(self):
         ub1 = self._submit_with_groups(
