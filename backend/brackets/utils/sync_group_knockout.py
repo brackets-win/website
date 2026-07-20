@@ -8,7 +8,12 @@ from django.db import transaction
 
 from brackets.api.serializers import bracket_groups_preview
 from brackets.models import BracketContestant, BracketStage, Matchup, UserBracket
-from brackets.utils.fwc26_regulations import teams_to_bit_vector
+from brackets.utils.fwc26_regulations import (
+    teams_to_bit_vector as wc_teams_to_bit_vector,
+)
+from brackets.utils.euro24_regulations import (
+    teams_to_bit_vector as euro_teams_to_bit_vector,
+)
 from brackets.utils.group_knockout_fill import (
     ensure_knockout_fill_method_persisted,
     load_knockout_mapping,
@@ -16,6 +21,27 @@ from brackets.utils.group_knockout_fill import (
 )
 from brackets.utils.knockout_rebuild import rebuild_knockout_from_first_round
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
+
+
+def _teams_to_bit_vector(bracket, third_place_codes: list[str]) -> int:
+    """Bit-vector key for the bracket's third-place combination table."""
+    tournament_type = (bracket.metadata or {}).get("tournament_type")
+    if tournament_type == "euro_2024":
+        return euro_teams_to_bit_vector(third_place_codes)
+    return wc_teams_to_bit_vector(third_place_codes)
+
+
+def _expected_third_place_count(combinations: dict) -> int:
+    """How many third-place advancers a combination row expects (8 WC / 4 Euro)."""
+    if not combinations:
+        return 0
+    sample = next(iter(combinations.values()), None)
+    if not isinstance(sample, dict):
+        return 0
+    teams = sample.get("teams")
+    if isinstance(teams, list) and teams:
+        return len(teams)
+    return 0
 
 
 def parse_position_code(code: str) -> tuple[str, int] | None:
@@ -111,13 +137,15 @@ def _wc_third_place_pairings(
     third_place_codes: list[str],
 ) -> dict[str, str] | None:
     """
-  Map first-place slots (``1A``) to third-place group codes (``3C``) per FIFA table.
+    Map first-place slots (``1B``, ``1E``, …) to third-place group codes (``3C``)
+    via the bracket's third-place combination table (FIFA WC or UEFA Euro).
     """
     meta = bracket.metadata or {}
     combinations = meta.get("third_place_combinations")
-    if not combinations or len(third_place_codes) < 8:
+    expected = _expected_third_place_count(combinations)
+    if not combinations or expected <= 0 or len(third_place_codes) < expected:
         return None
-    bit_vector = teams_to_bit_vector(third_place_codes)
+    bit_vector = _teams_to_bit_vector(bracket, third_place_codes)
     combo = combinations.get(str(bit_vector))
     if not combo:
         return None
@@ -138,9 +166,10 @@ def _resolve_position_code(
     """
     Resolve a mapping code to a ``BracketContestant`` id.
 
-    For World Cup, 1st/2nd (``A1``, ``A2``, …) fill as soon as the user sets group
-    order. Third-place knockout slots (``3X`` in the R32 template) stay empty until
-    all 8 third-place advancers are chosen; then FIFA combination lookup assigns them.
+    For World Cup / Euro, 1st/2nd (``A1``, ``A2``, …) fill as soon as the user sets
+    group order. Third-place knockout slots (``3X`` in the first-KO template) stay
+    empty until all third-place advancers are chosen; then the combination lookup
+    assigns them.
     """
     parsed = parse_position_code(code)
     if parsed is None:

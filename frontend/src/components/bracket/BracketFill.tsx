@@ -501,8 +501,10 @@ export function BracketFill({
   const isWorldCup =
     bracketDef?.metadata != null &&
     typeof bracketDef.metadata === 'object' &&
-    (bracketDef.metadata as { tournament_type?: string }).tournament_type ===
-      'world_cup_2026';
+    ['world_cup_2026', 'euro_2024'].includes(
+      (bracketDef.metadata as { tournament_type?: string }).tournament_type ??
+        '',
+    );
 
   const firstGroupStage = groupStages[0];
 

@@ -1035,7 +1035,7 @@ export function BracketsAdmin() {
                 value={bMetadata}
                 onChange={(e) => setBMetadata(e.target.value)}
                 disabled={createBusy}
-                placeholder={'{\n  "tournament_type": "world_cup_2026"\n}'}
+                placeholder={'{\n  "tournament_type": "euro_2024"\n}'}
                 spellCheck={false}
               />
             </div>

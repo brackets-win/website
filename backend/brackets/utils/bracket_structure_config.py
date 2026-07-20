@@ -116,6 +116,16 @@ def resolved_group_stage_options(
     else:
         remaining = None
 
+    direct = num_groups * qualifying
+    if "contestants_advancing" in gs:
+        advancing = _positive_int(gs["contestants_advancing"], "contestants_advancing")
+        if advancing < direct:
+            raise ValueError(
+                "contestants_advancing must be at least groups × qualifying"
+            )
+    else:
+        advancing = direct
+
     return {
         "number_of_groups": num_groups,
         "matches_per_contestant": (
@@ -124,7 +134,7 @@ def resolved_group_stage_options(
             else 3
         ),
         "contestants_qualifying_per_group": qualifying,
-        "contestants_advancing": num_groups * qualifying,
+        "contestants_advancing": advancing,
         "remaining_spots_strategy": remaining,
         "points_per_win": (
             _non_negative_int(gs["points_per_win"], "points_per_win")

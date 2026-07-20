@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from brackets.data.euro24.r16_tree_slots import build_r16_group_knockout_mapping
 from brackets.data.fwc26.r32_tree_slots import build_r32_group_knockout_mapping
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.group_knockout_mapping import (
@@ -17,13 +18,17 @@ MAPPING = "mapping"
 
 KNOCKOUT_FILL_METHODS = (STANDARD, SEEDING, MAPPING)
 
+# Tournaments whose first KO round uses explicit mapping (+ optional third-place table).
+MAPPING_TOURNAMENT_TYPES = frozenset({"world_cup_2026", "euro_2024"})
+
 
 def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
     """
     Resolve how group finishes map into the first knockout round.
 
     Explicit ``knockout_fill_method`` wins. Otherwise infer ``mapping`` when the
-    stage already has ``group_knockout_mapping`` or the bracket is WC 2026.
+    stage already has ``group_knockout_mapping`` or the bracket is a known
+    mapped tournament (WC 2026 / Euro 2024).
     """
     meta = knockout_stage.metadata or {}
     explicit = meta.get("knockout_fill_method")
@@ -40,7 +45,7 @@ def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
             bracket = None
     if bracket is not None and (bracket.metadata or {}).get(
         "tournament_type"
-    ) == "world_cup_2026":
+    ) in MAPPING_TOURNAMENT_TYPES:
         return MAPPING
     return STANDARD
 
@@ -59,7 +64,7 @@ def ensure_knockout_fill_method_persisted(
 
 
 def uses_wc_third_place_table(bracket, knockout_stage) -> bool:
-    """Mapping fill + FIFA third-place combinations on the bracket."""
+    """Mapping fill + third-place combination table on the bracket (WC / Euro)."""
     if get_knockout_fill_method(knockout_stage, bracket) != MAPPING:
         return False
     meta = bracket.metadata or {}
@@ -91,8 +96,11 @@ def load_knockout_mapping(
                     (int(pos_str), teams["team_a"], teams["team_b"])
                 )
             return sorted(out, key=lambda x: x[0])
-        if (bracket.metadata or {}).get("tournament_type") == "world_cup_2026":
+        tournament_type = (bracket.metadata or {}).get("tournament_type")
+        if tournament_type == "world_cup_2026":
             return build_r32_group_knockout_mapping()
+        if tournament_type == "euro_2024":
+            return build_r16_group_knockout_mapping()
         return []
 
     if num_groups is None:
