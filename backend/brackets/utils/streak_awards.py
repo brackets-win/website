@@ -373,8 +373,33 @@ def _choice_counts(
     return counts
 
 
+def _pickers_by_q_choice(
+    challenge: StreakChallenge,
+    question_ids: list[int],
+    participants: list[StreakParticipant],
+) -> dict[tuple[int, int], list[dict]]:
+    labels = {p.user_id: streak_participant_label(p) for p in participants}
+    pickers: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    for row in StreakPick.objects.filter(
+        streak_challenge=challenge,
+        question_id__in=question_ids,
+    ).values("question_id", "choice_id", "user_id"):
+        label = labels.get(row["user_id"])
+        if label is None:
+            continue
+        pickers[(row["question_id"], row["choice_id"])].append(
+            {"user_id": row["user_id"], "display_name": label}
+        )
+    for key in pickers:
+        pickers[key].sort(key=lambda p: str(p["display_name"]).casefold())
+    return pickers
+
+
 def _question_payload(
-    q: StreakQuestion, counts: dict[tuple[int, int], int]
+    q: StreakQuestion,
+    counts: dict[tuple[int, int], int],
+    *,
+    pickers_by_q_choice: dict[tuple[int, int], list[dict]] | None = None,
 ) -> dict:
     choices = list(q.choices.all())
     total = sum(counts.get((q.id, c.id), 0) for c in choices)
@@ -387,6 +412,7 @@ def _question_payload(
                 "label": c.label,
                 "pick_count": count,
                 "pick_pct": round(count * 100 / total) if total else 0,
+                "pickers": (pickers_by_q_choice or {}).get((q.id, c.id), []),
             }
         )
     return {
@@ -457,7 +483,14 @@ def _question_awards(
 
     question_ids = [q.id for q in questions]
     counts = _choice_counts(challenge, question_ids)
+    pickers = _pickers_by_q_choice(challenge, question_ids, participants)
     q_by_id = {q.id: q for q in questions}
+
+    def question_row(qid: int, **extra: object) -> dict:
+        return {
+            **_question_payload(q_by_id[qid], counts, pickers_by_q_choice=pickers),
+            **extra,
+        }
 
     correct_count: dict[int, int] = {}
     incorrect_count: dict[int, int] = {}
@@ -474,7 +507,7 @@ def _question_awards(
     if answered_correct:
         max_correct = max(answered_correct.values())
         nicest = [
-            {**_question_payload(q_by_id[qid], counts), "correct_count": n}
+            question_row(qid, correct_count=n)
             for qid, n in answered_correct.items()
             if n == max_correct
         ]
@@ -484,7 +517,7 @@ def _question_awards(
     if answered_incorrect:
         max_incorrect = max(answered_incorrect.values())
         meanest = [
-            {**_question_payload(q_by_id[qid], counts), "incorrect_count": n}
+            question_row(qid, incorrect_count=n)
             for qid, n in answered_incorrect.items()
             if n == max_incorrect
         ]
@@ -500,7 +533,7 @@ def _question_awards(
                 continue
             streak_ending.append(
                 {
-                    **_question_payload(q_by_id[question_id], counts),
+                    **question_row(question_id),
                     "player": person_by_user.get(user_id),
                     "broken_win_streak": broken,
                     "long_win_display": _long_win_display(broken),
@@ -522,6 +555,11 @@ def compute_streak_awards(
 ) -> dict:
     if not participants:
         return _empty_awards()
+
+    if challenge.streak_competition.ended_at is not None:
+        from brackets.utils.streak_knockout import complete_knockout_on_competition_end
+
+        complete_knockout_on_competition_end(challenge)
 
     knockout = None
     try:

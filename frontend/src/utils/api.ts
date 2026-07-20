@@ -116,6 +116,7 @@ export type StreakQuestionChoiceInfo = {
   pick_pct?: number;
   /** Number of entrants who picked this choice; present on resolved questions only. */
   pick_count?: number;
+  pickers?: StreakStatsPicker[];
 };
 
 export type StreakCompetitionQuestionAdmin = {

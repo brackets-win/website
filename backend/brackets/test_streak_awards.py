@@ -423,6 +423,7 @@ class StreakQuestionAwardsTests(TestCase):
         self.assertEqual(len(nicest), 1)
         self.assertEqual(nicest[0]["question_id"], nice.id)
         self.assertEqual(nicest[0]["correct_count"], 2)
+        self.assertEqual(len(nicest[0]["choices"][0]["pickers"]), 2)
 
         meanest = payload["meanest_question"]["winners"]
         self.assertEqual(len(meanest), 1)

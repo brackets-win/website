@@ -15,7 +15,7 @@
   border: 1px solid var(--app-border);
   border-radius: 12px;
   padding: 1rem;
-  background: var(--app-bg, #f8fafc);
+  background: #f8fafc;
 }
 
 .streak-awards__title {
@@ -28,9 +28,17 @@
   gap: 0.4rem;
 }
 
+.streak-awards__title--emoji-only {
+  margin-bottom: 0.5rem;
+}
+
 .streak-awards__emoji {
   font-size: 1.15rem;
   line-height: 1;
+}
+
+.streak-awards__title--emoji-only .streak-awards__emoji {
+  font-size: 1.5rem;
 }
 
 .streak-awards__empty {
@@ -70,7 +78,7 @@
   margin: 1rem 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
   gap: 1rem;
 }
 
@@ -110,4 +118,73 @@
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--app-accent);
+}
+
+/* Match results-tab expandable choice layout. */
+.streak-awards .streak-question__actions--stats {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.streak-awards .streak-choice-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.streak-awards .streak-choice-wrap .streak-choice {
+  width: 100%;
+  max-width: none;
+}
+
+.streak-awards .streak-choice--expandable {
+  cursor: pointer;
+}
+
+.streak-awards .streak-choice__expand {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.streak-awards .streak-choice__expand-empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--app-muted);
+}
+
+.streak-awards .streak-choice__expand-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.streak-awards .streak-choice__expand-item {
+  margin: 0;
+}
+
+.streak-awards .streak-choice__picker {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.15rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--app-text);
+  cursor: pointer;
+}
+
+.streak-awards .streak-choice__picker:hover,
+.streak-awards .streak-choice__picker:focus-visible {
+  color: var(--app-link, #2563eb);
+}
+
+.streak-awards .streak-choice__picker--viewer {
+  font-weight: 700;
 }

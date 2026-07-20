@@ -1418,7 +1418,11 @@ export function StreakChallengeView({
       </nav>
 
       {tab === 'awards' && competitionIsOver && awards ? (
-        <StreakAwards awards={awards} />
+        <StreakAwards
+          awards={awards}
+          viewerUserId={currentUser.id}
+          onSelectPlayer={onSelectLeaderboardPlayer}
+        />
       ) : null}
 
       {tab === 'leaderboard' ? (

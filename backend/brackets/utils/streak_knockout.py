@@ -613,6 +613,41 @@ def advance_knockout_round(
     return {"warnings": warnings, "completed": False}
 
 
+def complete_knockout_on_competition_end(challenge: StreakChallenge) -> None:
+    """Force-finish an in-progress knockout when the parent competition has ended."""
+    if challenge.streak_competition.ended_at is None:
+        return
+    try:
+        knockout = challenge.knockout
+    except StreakKnockout.DoesNotExist:
+        return
+    if knockout.status == StreakKnockout.Status.COMPLETE:
+        return
+
+    participant_count = challenge.participants.count()
+    total_rounds = knockout_total_rounds(participant_count)
+    max_steps = max(total_rounds * 3, 8)
+
+    for _ in range(max_steps):
+        knockout.refresh_from_db()
+        if knockout.status == StreakKnockout.Status.COMPLETE:
+            return
+        if knockout.status == StreakKnockout.Status.SETUP:
+            headstart = headstart_for_round(challenge, 1)
+        else:
+            headstart = headstart_for_round(challenge, knockout.current_round + 1)
+        try:
+            advance_knockout_round(knockout, headstart_enabled=headstart)
+        except ValueError:
+            return
+
+
+def complete_knockouts_for_competition(competition) -> None:
+    """Complete knockouts for every challenge pool in an ended competition."""
+    for challenge in StreakChallenge.objects.filter(streak_competition=competition):
+        complete_knockout_on_competition_end(challenge)
+
+
 def _round_window_end(
     challenge: StreakChallenge, round_index: int, now: datetime
 ) -> datetime:

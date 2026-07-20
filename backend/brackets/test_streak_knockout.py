@@ -1,5 +1,6 @@
 """H2H knockout mode for streak challenges."""
 
+import json
 from datetime import timedelta
 
 from django.test import Client, TestCase
@@ -1180,3 +1181,124 @@ class StreakKnockoutTests(TestCase):
         }
         self.assertIn("Dave", consolation_names)
         self.assertIn("Carol", consolation_names)
+
+
+class StreakKnockoutCompetitionEndTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.host = User.objects.create_user(username="host", password="x")
+        self.competition = StreakCompetition.objects.create(name="Cup")
+        self.challenge = StreakChallenge.objects.create(
+            name="Pool",
+            streak_competition=self.competition,
+            created_by=self.host,
+            is_public=True,
+        )
+        self.alice = User.objects.create_user(username="alice", password="x")
+        self.bob = User.objects.create_user(username="bob", password="x")
+        self.carol = User.objects.create_user(username="carol", password="x")
+        self.dave = User.objects.create_user(username="dave", password="x")
+        for user, name, wins, losses, best in [
+            (self.alice, "Alice", 5, 1, 4),
+            (self.bob, "Bob", 4, 2, 3),
+            (self.carol, "Carol", 3, 3, 2),
+            (self.dave, "Dave", 2, 4, 2),
+        ]:
+            StreakParticipant.objects.create(
+                streak_challenge=self.challenge,
+                user=user,
+                display_name=name,
+                wins=wins,
+                losses=losses,
+                best_win_streak=best,
+                streak_signed=1,
+            )
+
+    def test_end_competition_completes_knockout_before_final_schedule(self):
+        from brackets.utils.streak_scoring import resolve_question
+
+        semi_start = timezone.now() - timedelta(days=3)
+        final_start = timezone.now() + timedelta(days=3)
+        self.challenge.knockout_transition_at = semi_start
+        self.challenge.knockout_round_starts = {"2": final_start.isoformat()}
+        self.challenge.save(
+            update_fields=["knockout_transition_at", "knockout_round_starts"]
+        )
+
+        self.client.force_login(self.host)
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/start",
+            data='{"confirm": "knockout"}',
+            content_type="application/json",
+        )
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+        self.client.post(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/knockout/advance",
+            data='{"headstart_enabled": true}',
+            content_type="application/json",
+        )
+
+        knockout = StreakKnockout.objects.get(streak_challenge=self.challenge)
+        self.assertEqual(knockout.status, StreakKnockout.Status.IN_PROGRESS)
+        self.assertEqual(knockout.current_round, 2)
+        self.assertIsNone(knockout.champion_id)
+
+        final_q = StreakQuestion.objects.create(
+            streak_competition=self.competition,
+            text="Final window pick",
+            closes_at=timezone.now() - timedelta(hours=1),
+            order=20,
+        )
+        right = StreakQuestionChoice.objects.create(
+            question=final_q, label="Yes", order=0
+        )
+        wrong = StreakQuestionChoice.objects.create(question=final_q, label="No", order=1)
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=final_q,
+            user=self.alice,
+            choice=right,
+        )
+        StreakPick.objects.create(
+            streak_challenge=self.challenge,
+            question=final_q,
+            user=self.bob,
+            choice=wrong,
+        )
+        resolve_question(final_q, right.id)
+
+        self.host.is_staff = True
+        self.host.save(update_fields=["is_staff"])
+        self.client.force_login(self.host)
+        res = self.client.patch(
+            f"/brackets/api/streak-competitions/{self.competition.id}",
+            data=json.dumps({"end_competition": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        knockout.refresh_from_db()
+        self.assertEqual(knockout.status, StreakKnockout.Status.COMPLETE)
+        self.assertEqual(knockout.champion.user_id, self.alice.id)
+
+        self.competition.refresh_from_db()
+        self.assertIsNotNone(self.competition.ended_at)
+
+        self.client.force_login(self.alice)
+        awards = self.client.get(
+            f"/brackets/api/streak-challenges/{self.challenge.id}/awards"
+        )
+        self.assertEqual(awards.status_code, 200)
+        payload = awards.json()
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_first"]["winners"]],
+            ["Alice"],
+        )
+        self.assertEqual(
+            [w["display_name"] for w in payload["knockout_second"]["winners"]],
+            ["Bob"],
+        )

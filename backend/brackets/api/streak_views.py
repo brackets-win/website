@@ -659,6 +659,10 @@ def streak_competition_detail(
         if not update_fields:
             return _json_error("No changes requested", 400)
         competition.save(update_fields=update_fields)
+        if "ended_at" in update_fields:
+            from brackets.utils.streak_knockout import complete_knockouts_for_competition
+
+            complete_knockouts_for_competition(competition)
         return JsonResponse(
             {"streak_competition": _competition_public(competition)}
         )
