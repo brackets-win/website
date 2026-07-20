@@ -19,6 +19,7 @@ import {
   type UserBracketDetail,
   getBracket,
   getUserBracket,
+  adminGetUserBracket,
   materializeBracketScores,
   patchMatchupWinner,
   setBracketNextMatch,
@@ -359,6 +360,8 @@ type Props = {
   showOutcomeWeightsControl?: boolean;
   showSubmit?: boolean;
   showScoringHighlights?: boolean;
+  /** Load via staff admin endpoint (bypasses peer-privacy on public GET). */
+  adminAccess?: boolean;
   onSubmitted?: () => void;
 };
 
@@ -373,6 +376,7 @@ export function BracketFill({
   showOutcomeWeightsControl = false,
   showSubmit = false,
   showScoringHighlights = false,
+  adminAccess = false,
   onSubmitted,
 }: Props) {
   const [detail, setDetail] = useState<UserBracketDetail | null>(null);
@@ -410,7 +414,9 @@ export function BracketFill({
       setError(null);
       const refetchBracket = options?.refetchBracket !== false;
       try {
-        const { user_bracket: ub } = await getUserBracket(userBracketId);
+        const { user_bracket: ub } = await (adminAccess
+          ? adminGetUserBracket(userBracketId)
+          : getUserBracket(userBracketId));
         setDetail(ub);
         if (refetchBracket) {
           const seed = initialBracketDefRef.current;
@@ -433,7 +439,7 @@ export function BracketFill({
         return null;
       }
     },
-    [userBracketId],
+    [userBracketId, adminAccess],
   );
 
   // Parent may finish loading the shared bracket def after first mount.

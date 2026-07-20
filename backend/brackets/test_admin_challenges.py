@@ -136,7 +136,7 @@ class AdminChallengesApiTests(TestCase):
         self.assertEqual(renamed.status_code, 200)
         self.assertEqual(renamed.json()["entry"]["display_name"], "Renamed Player")
 
-        detail = self.client.get(f"/brackets/api/user-brackets/{ub_id}")
+        detail = self.client.get(f"/brackets/api/admin/user-brackets/{ub_id}")
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["user_bracket"]["can_edit"])
 

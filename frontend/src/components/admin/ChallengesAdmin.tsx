@@ -735,6 +735,7 @@ export function ChallengesAdmin() {
             <BracketFill
               userBracketId={fillUbId}
               showSubmit={!fillSubmitted}
+              adminAccess
               onSubmitted={() => {
                 void reloadEntries(entriesChallenge.id);
                 void reloadList();

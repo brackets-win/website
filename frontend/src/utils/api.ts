@@ -1653,3 +1653,9 @@ export async function adminUpdateChallengeEntry(
     body,
   );
 }
+
+export async function adminGetUserBracket(
+  userBracketId: number,
+): Promise<{ user_bracket: UserBracketDetail }> {
+  return apiFetch('GET', `admin/user-brackets/${userBracketId}`);
+}

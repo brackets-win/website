@@ -157,4 +157,8 @@ urlpatterns = [
         "admin/challenges/<int:challenge_id>/entries/<int:user_bracket_id>",
         views.admin_challenge_entry_detail,
     ),
+    path(
+        "admin/user-brackets/<int:user_bracket_id>",
+        views.admin_user_bracket_detail,
+    ),
 ]

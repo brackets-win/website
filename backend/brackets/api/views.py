@@ -366,8 +366,6 @@ def _normalize_display_name(raw: str) -> str:
 def _user_can_view_challenge_bracket(viewer, ub: UserBracket) -> bool:
     if ub.is_master:
         return _user_can_view_master_bracket(viewer, ub)
-    if getattr(viewer, "is_staff", False):
-        return True
     if ub.user_id == viewer.id:
         return True
     if ub.challenge_id is None:
@@ -2938,4 +2936,26 @@ def admin_challenge_entry_detail(
                 "is_complete": user_bracket_is_complete(ub)[0],
             }
         }
+    )
+
+
+@require_http_methods(["GET"])
+def admin_user_bracket_detail(
+    request: HttpRequest, user_bracket_id: int
+) -> JsonResponse:
+    """Staff-only load of a participant bracket (admin import/fill).
+
+    Does not bypass peer-privacy on the public user-brackets endpoint — staff
+    who are also participants still cannot peek via that path before submit.
+    """
+    staff, err = _staff_user_or_error(request)
+    if err is not None:
+        return err
+
+    ub = get_object_or_404(UserBracket, pk=user_bracket_id)
+    if ub.is_master:
+        return _json_error("Forbidden", 403)
+
+    return JsonResponse(
+        {"user_bracket": serializers.user_bracket_detail(ub, viewer=staff)}
     )
