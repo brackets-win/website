@@ -40,7 +40,7 @@ type Props = {
 };
 
 function choicePickers(choice: ChoiceRow): StreakStatsPicker[] {
-  return 'pickers' in choice ? choice.pickers : [];
+  return 'pickers' in choice ? (choice.pickers ?? []) : [];
 }
 
 export function StreakQuestionChoices({
