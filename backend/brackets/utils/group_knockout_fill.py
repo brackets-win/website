@@ -22,31 +22,58 @@ KNOCKOUT_FILL_METHODS = (STANDARD, SEEDING, MAPPING)
 MAPPING_TOURNAMENT_TYPES = frozenset({"world_cup_2026", "euro_2024"})
 
 
+def _bracket_meta(bracket) -> dict[str, Any]:
+    if bracket is None:
+        return {}
+    meta = getattr(bracket, "metadata", None)
+    return meta if isinstance(meta, dict) else {}
+
+
+def _mapping_dict_from_meta(meta: dict[str, Any] | None) -> dict | None:
+    if not meta:
+        return None
+    raw = meta.get("group_knockout_mapping")
+    return raw if isinstance(raw, dict) and raw else None
+
+
+def _parse_mapping_dict(
+    mapping_data: dict,
+) -> list[tuple[int, str, str]]:
+    out: list[tuple[int, str, str]] = []
+    for pos_str, teams in mapping_data.items():
+        out.append((int(pos_str), teams["team_a"], teams["team_b"]))
+    return sorted(out, key=lambda x: x[0])
+
+
 def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
     """
     Resolve how group finishes map into the first knockout round.
 
-    Explicit ``knockout_fill_method`` wins. Otherwise infer ``mapping`` when the
-    stage already has ``group_knockout_mapping`` or the bracket is a known
-    mapped tournament (WC 2026 / Euro 2024).
+    Prefer mapping when stage/bracket already carries a custom map, third-place
+    combination table, or known tournament_type. Explicit stage
+    ``knockout_fill_method`` only wins when none of those are present (so a
+    leftover stage ``standard`` does not disable Euro/WC third-place lookup).
     """
     meta = knockout_stage.metadata or {}
-    explicit = meta.get("knockout_fill_method")
-    if explicit is not None and str(explicit).strip():
-        method = str(explicit).strip().lower()
-        if method in KNOCKOUT_FILL_METHODS:
-            return method
-    if meta.get("group_knockout_mapping"):
-        return MAPPING
     if bracket is None:
         try:
             bracket = knockout_stage.bracket
         except AttributeError:
             bracket = None
-    if bracket is not None and (bracket.metadata or {}).get(
-        "tournament_type"
-    ) in MAPPING_TOURNAMENT_TYPES:
+    bmeta = _bracket_meta(bracket)
+
+    if _mapping_dict_from_meta(meta) or _mapping_dict_from_meta(bmeta):
         return MAPPING
+    if bmeta.get("third_place_combinations"):
+        return MAPPING
+    if bmeta.get("tournament_type") in MAPPING_TOURNAMENT_TYPES:
+        return MAPPING
+
+    explicit = meta.get("knockout_fill_method")
+    if explicit is not None and str(explicit).strip():
+        method = str(explicit).strip().lower()
+        if method in KNOCKOUT_FILL_METHODS:
+            return method
     return STANDARD
 
 
@@ -64,11 +91,8 @@ def ensure_knockout_fill_method_persisted(
 
 
 def uses_wc_third_place_table(bracket, knockout_stage) -> bool:
-    """Mapping fill + third-place combination table on the bracket (WC / Euro)."""
-    if get_knockout_fill_method(knockout_stage, bracket) != MAPPING:
-        return False
-    meta = bracket.metadata or {}
-    return bool(meta.get("third_place_combinations"))
+    """True when the bracket has a third-place combination lookup table."""
+    return bool(_bracket_meta(bracket).get("third_place_combinations"))
 
 
 def load_knockout_mapping(
@@ -82,27 +106,35 @@ def load_knockout_mapping(
 
     - standard: walk groups (A1 vs B2, C1 vs D2, …, B1 vs A2, …)
     - seeding: rank-ordered slots in a normal bracket (1v32, 16v17, …)
-    - mapping: explicit ``group_knockout_mapping`` in stage metadata
+    - mapping: explicit ``group_knockout_mapping`` on stage or bracket metadata
     """
     method = get_knockout_fill_method(knockout_stage, bracket)
-    meta = knockout_stage.metadata or {}
+    stage_meta = knockout_stage.metadata or {}
+    bmeta = _bracket_meta(bracket)
 
     if method == MAPPING:
-        mapping_data = meta.get("group_knockout_mapping")
+        mapping_data = _mapping_dict_from_meta(stage_meta) or _mapping_dict_from_meta(
+            bmeta
+        )
         if mapping_data:
-            out: list[tuple[int, str, str]] = []
-            for pos_str, teams in mapping_data.items():
-                out.append(
-                    (int(pos_str), teams["team_a"], teams["team_b"])
-                )
-            return sorted(out, key=lambda x: x[0])
-        tournament_type = (bracket.metadata or {}).get("tournament_type")
+            return _parse_mapping_dict(mapping_data)
+        tournament_type = bmeta.get("tournament_type")
         if tournament_type == "world_cup_2026":
             return build_r32_group_knockout_mapping()
         if tournament_type == "euro_2024":
             return build_r16_group_knockout_mapping()
+        # Euro-shaped combination table (1B/1C/1E/1F) without tournament_type.
+        combos = bmeta.get("third_place_combinations")
+        if isinstance(combos, dict) and combos:
+            sample = next(iter(combos.values()), None)
+            matchups = (
+                sample.get("matchups") if isinstance(sample, dict) else None
+            )
+            if isinstance(matchups, dict) and "1F" in matchups:
+                return build_r16_group_knockout_mapping()
+            if isinstance(matchups, dict) and "1L" in matchups:
+                return build_r32_group_knockout_mapping()
         return []
-
     if num_groups is None:
         from brackets.models import GroupStage
 

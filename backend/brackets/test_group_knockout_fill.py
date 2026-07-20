@@ -60,6 +60,34 @@ class KnockoutFillMethodTests(TestCase):
         bracket = _Bracket(metadata={"tournament_type": "world_cup_2026"})
         self.assertEqual(get_knockout_fill_method(stage, bracket), MAPPING)
 
+    def test_combinations_override_stage_standard(self):
+        """Leftover stage ``standard`` must not disable third-place lookup."""
+        stage = _Stage(metadata={"knockout_fill_method": STANDARD})
+        bracket = _Bracket(
+            metadata={
+                "tournament_type": "euro_2024",
+                "third_place_combinations": {"15": {"matchups": {"1B": "3A"}}},
+            }
+        )
+        self.assertEqual(get_knockout_fill_method(stage, bracket), MAPPING)
+
+    def test_bracket_level_mapping_is_used(self):
+        stage = _Stage(metadata={"knockout_fill_method": STANDARD})
+        bracket = _Bracket(
+            metadata={
+                "group_knockout_mapping": {
+                    "1": {"team_a": "A1", "team_b": "C2"},
+                    "2": {"team_a": "B1", "team_b": "3B"},
+                },
+                "third_place_combinations": {"15": {"matchups": {"1B": "3A"}}},
+            }
+        )
+        self.assertEqual(get_knockout_fill_method(stage, bracket), MAPPING)
+        self.assertEqual(
+            load_knockout_mapping(bracket, stage),
+            [(1, "A1", "C2"), (2, "B1", "3B")],
+        )
+
     def test_invalid_method_falls_back(self):
         self.assertEqual(
             get_knockout_fill_method(

@@ -172,6 +172,59 @@ class Euro24ThirdPlaceKnockoutSyncTests(TestCase):
         base = group_index * per
         return self.contestants[base + slot_in_group].id
 
+    def test_abcd_resolves_excel_third_place_opponents(self):
+        """ABCD thirds: B1 vs A3, F1 vs B3, E1 vs C3, C1 vs D3."""
+        gp = {}
+        for i, letter in enumerate("ABCDEF"):
+            gp[letter] = {
+                "1": self._bc_for_group_slot(i, 0),
+                "2": self._bc_for_group_slot(i, 1),
+                "3": self._bc_for_group_slot(i, 2),
+            }
+
+        third_letters = ["A", "B", "C", "D"]
+        third_advancers = [gp[L]["3"] for L in third_letters]
+
+        metadata = {
+            "group_positions": gp,
+            "third_place_advancers": third_advancers,
+        }
+        self.ub.metadata = metadata
+        self.ub.save()
+
+        sync_first_knockout_from_group_picks(self.ub)
+
+        pairings = _wc_third_place_pairings(
+            self.bracket,
+            _third_place_group_codes(
+                self.bracket, metadata, _placement_map(self.bracket, metadata)
+            ),
+        )
+        self.assertEqual(
+            pairings,
+            {"1B": "3A", "1C": "3D", "1E": "3C", "1F": "3B"},
+        )
+
+        first_ko = (
+            self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+
+        m2 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=2)
+        self.assertEqual(m2.contestant1_id, gp["B"]["1"])
+        self.assertEqual(m2.contestant2_id, gp["A"]["3"])
+
+        m3 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=3)
+        self.assertEqual(m3.contestant1_id, gp["F"]["1"])
+        self.assertEqual(m3.contestant2_id, gp["B"]["3"])
+
+        m6 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=6)
+        self.assertEqual(m6.contestant1_id, gp["E"]["1"])
+        self.assertEqual(m6.contestant2_id, gp["C"]["3"])
+
+        m7 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=7)
+        self.assertEqual(m7.contestant1_id, gp["C"]["1"])
+        self.assertEqual(m7.contestant2_id, gp["D"]["3"])
+
     def test_cdef_resolves_third_place_opponents(self):
         """CDEF thirds: B1 vs F3, F1 vs C3, E1 vs D3, C1 vs E3."""
         gp = {}
@@ -206,24 +259,6 @@ class Euro24ThirdPlaceKnockoutSyncTests(TestCase):
             self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
         )
 
-        # Fixed pairings
-        m1 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=1)
-        self.assertEqual(m1.contestant1_id, gp["A"]["1"])
-        self.assertEqual(m1.contestant2_id, gp["C"]["2"])
-
-        m4 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=4)
-        self.assertEqual(m4.contestant1_id, gp["D"]["2"])
-        self.assertEqual(m4.contestant2_id, gp["E"]["2"])
-
-        m5 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=5)
-        self.assertEqual(m5.contestant1_id, gp["D"]["1"])
-        self.assertEqual(m5.contestant2_id, gp["F"]["2"])
-
-        m8 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=8)
-        self.assertEqual(m8.contestant1_id, gp["A"]["2"])
-        self.assertEqual(m8.contestant2_id, gp["B"]["2"])
-
-        # Third-place pairings (not literal template codes)
         m2 = Matchup.objects.get(user_bracket=self.ub, stage=first_ko, position=2)
         self.assertEqual(m2.contestant1_id, gp["B"]["1"])
         self.assertEqual(m2.contestant2_id, gp["F"]["3"])

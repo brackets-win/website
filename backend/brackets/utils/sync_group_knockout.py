@@ -25,9 +25,19 @@ from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 
 def _teams_to_bit_vector(bracket, third_place_codes: list[str]) -> int:
     """Bit-vector key for the bracket's third-place combination table."""
-    tournament_type = (bracket.metadata or {}).get("tournament_type")
+    meta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    tournament_type = meta.get("tournament_type")
     if tournament_type == "euro_2024":
         return euro_teams_to_bit_vector(third_place_codes)
+    if tournament_type == "world_cup_2026":
+        return wc_teams_to_bit_vector(third_place_codes)
+    # Infer from combination row shape when tournament_type was omitted in admin.
+    combos = meta.get("third_place_combinations")
+    if isinstance(combos, dict) and combos:
+        sample = next(iter(combos.values()), None)
+        matchups = sample.get("matchups") if isinstance(sample, dict) else None
+        if isinstance(matchups, dict) and "1F" in matchups and "1L" not in matchups:
+            return euro_teams_to_bit_vector(third_place_codes)
     return wc_teams_to_bit_vector(third_place_codes)
 
 
