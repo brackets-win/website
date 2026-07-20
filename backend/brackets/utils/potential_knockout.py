@@ -88,7 +88,10 @@ def first_knockout_fully_seeded(master: UserBracket, first_ko) -> bool:
         projected = projected_first_knockout_contestant_ids(master)
         if not projected:
             return False
-    for m in master.matchup_set.filter(stage=first_ko).order_by("position"):
+    matchups = list(master.matchup_set.filter(stage=first_ko).order_by("position"))
+    if not matchups:
+        return False
+    for m in matchups:
         if m.contestant1_id is None or m.contestant2_id is None:
             return False
     return True

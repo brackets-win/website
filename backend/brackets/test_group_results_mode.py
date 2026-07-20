@@ -10,6 +10,8 @@ from brackets.models import Bracket, BracketChallenge, BracketContestant, User, 
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.group_results_mode import (
     group_results_mode_from_metadata,
+    master_has_group_results,
+    omit_leaderboard_potential_for_bracket,
     set_group_results_mode_on_metadata,
 )
 from brackets.utils.leaderboard_scoring import refresh_user_bracket_leaderboard_cache
@@ -91,3 +93,98 @@ class GroupResultsModeApiTests(TestCase):
         keys = [c["key"] for c in res.json()["columns"]]
         self.assertNotIn("potential", keys)
         self.assertIsNone(res.json()["entries"][0]["potential"])
+
+    def test_empty_master_omits_potential_even_when_mode_is_confirmed(self):
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "empty-potential",
+            "Empty Potential",
+            8,
+            self.staff,
+        )
+        for i in range(8):
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
+        self.assertEqual(
+            group_results_mode_from_metadata(bracket.metadata), "confirmed"
+        )
+        self.assertFalse(master_has_group_results(bracket))
+        self.assertTrue(omit_leaderboard_potential_for_bracket(bracket))
+
+        challenge = BracketChallenge.objects.create(
+            name="Pool",
+            bracket=bracket,
+            created_by=self.staff,
+            join_code="EMPTYPOT",
+        )
+        UserBracket.objects.create(
+            user=self.player,
+            bracket=bracket,
+            challenge=challenge,
+            submitted_at=timezone.now(),
+            leaderboard_potential=48,
+        )
+
+        self.client.login(username="player", password="pw")
+        res = self.client.get(f"/brackets/api/challenges/{challenge.id}/leaderboard")
+        self.assertEqual(res.status_code, 200)
+        keys = [c["key"] for c in res.json()["columns"]]
+        self.assertNotIn("potential", keys)
+        self.assertNotIn("potential_rank", keys)
+        self.assertIsNone(res.json()["entries"][0]["potential"])
+
+    def test_confirmed_with_group_results_shows_potential(self):
+        from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
+        from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
+
+        bracket = create_bracket_with_structure(
+            "GROUP_KNOCKOUT",
+            "confirmed-potential",
+            "Confirmed Potential",
+            8,
+            self.staff,
+        )
+        teams = [
+            BracketContestant.objects.create(
+                bracket=bracket, name_override=f"T{i + 1}", seed=i + 1
+            )
+            for i in range(8)
+        ]
+        master = bracket.get_master_bracket()
+        ensure_knockout_structure_for_user_bracket(master)
+        master.metadata = {
+            "group_positions": {
+                "A": {str(i + 1): teams[i].id for i in range(4)},
+                "B": {str(i + 1): teams[i + 4].id for i in range(4)},
+            }
+        }
+        master.save(update_fields=["metadata"])
+        sync_first_knockout_from_group_picks(master)
+        bracket.metadata = set_group_results_mode_on_metadata(
+            bracket.metadata, "confirmed"
+        )
+        bracket.save(update_fields=["metadata"])
+
+        self.assertTrue(master_has_group_results(bracket))
+        self.assertFalse(omit_leaderboard_potential_for_bracket(bracket))
+
+        challenge = BracketChallenge.objects.create(
+            name="Pool",
+            bracket=bracket,
+            created_by=self.staff,
+            join_code="CONFPOT1",
+        )
+        UserBracket.objects.create(
+            user=self.player,
+            bracket=bracket,
+            challenge=challenge,
+            submitted_at=timezone.now(),
+            leaderboard_potential=48,
+        )
+
+        self.client.login(username="player", password="pw")
+        res = self.client.get(f"/brackets/api/challenges/{challenge.id}/leaderboard")
+        self.assertEqual(res.status_code, 200)
+        keys = [c["key"] for c in res.json()["columns"]]
+        self.assertIn("potential", keys)

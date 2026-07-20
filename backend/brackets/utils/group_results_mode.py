@@ -45,19 +45,54 @@ def show_live_group_results_note_for_bracket(bracket) -> bool:
     return group_results_mode_from_metadata(bracket.metadata) == "live"
 
 
+def master_has_group_results(bracket) -> bool:
+    """True when the master bracket has at least one filled group-position slot."""
+    master = bracket.get_master_bracket()
+    if master is None:
+        return False
+    gp = (master.metadata or {}).get("group_positions") or {}
+    if not isinstance(gp, dict) or not gp:
+        return False
+    for row in gp.values():
+        if not isinstance(row, dict):
+            continue
+        for value in row.values():
+            if value is not None and value != "":
+                return True
+    return False
+
+
 def master_bracket_is_fully_resolved(bracket) -> bool:
     """True when every playable master knockout game has a winner.
 
     Uses the same branchable-undecided count as potential scoring: ``0`` means
     the first knockout round is seeded and nothing remains to project.
+    ``None`` means the bracket is not scoreable yet (e.g. R32 unseeded).
     """
     from brackets.utils.potential_knockout import count_branchable_for_bracket
 
-    return count_branchable_for_bracket(bracket) == 0
+    count = count_branchable_for_bracket(bracket)
+    return count is not None and count == 0
 
 
 def omit_leaderboard_potential_for_bracket(bracket) -> bool:
-    """Hide potential columns for live group results or a finished master."""
-    if show_live_group_results_note_for_bracket(bracket):
+    """Hide potential until group results are confirmed, or when the master is finished.
+
+    For group→knockout brackets, skip calc and leaderboard columns until the admin
+    marks group results as confirmed *and* the master has group positions filled.
+    Knockout-only brackets keep potential (unless the master is fully resolved).
+    """
+    from brackets.models import BracketStage
+
+    if master_bracket_is_fully_resolved(bracket):
         return True
-    return master_bracket_is_fully_resolved(bracket)
+
+    has_group_stage = bracket.stages.filter(
+        stage_type=BracketStage.StageType.GROUP
+    ).exists()
+    if not has_group_stage:
+        return False
+
+    if group_results_mode_from_metadata(bracket.metadata) != "confirmed":
+        return True
+    return not master_has_group_results(bracket)
