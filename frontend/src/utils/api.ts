@@ -518,6 +518,7 @@ export type BracketStageInfo = {
     matches_per_contestant: number;
     contestants_qualifying_per_group: number;
     remaining_spots_strategy: string | null;
+    group_position_picking?: 'all' | 'qualifying_only';
     points_per_win: number;
     points_per_tie: number;
     points_per_loss: number;
@@ -538,6 +539,7 @@ export type AdminStagePatch = {
   matches_per_contestant?: number;
   contestants_qualifying_per_group?: number;
   remaining_spots_strategy?: string | null;
+  group_position_picking?: 'all' | 'qualifying_only';
   points_per_win?: number;
   points_per_tie?: number;
   points_per_loss?: number;

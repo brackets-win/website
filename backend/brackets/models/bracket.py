@@ -288,23 +288,23 @@ class UserBracket(models.Model):
         if gs.points_per_exact_position > 0 and isinstance(user_gp, dict) and isinstance(
             master_gp, dict
         ):
+            from brackets.utils.group_stage_config import group_stage_scorable_ranks
+
+            max_pos = group_stage_scorable_ranks(gs)
             for code, user_row in user_gp.items():
                 if not isinstance(user_row, dict):
                     continue
                 master_row = master_gp.get(code)
                 if not isinstance(master_row, dict):
                     continue
-                for pos, user_cid in user_row.items():
+                for pos in range(1, max_pos + 1):
+                    user_cid = self._position_contestant_id(user_row, pos)
                     if user_cid is None:
-                        continue
-                    try:
-                        user_id = int(user_cid)
-                    except (TypeError, ValueError):
                         continue
                     master_cid = self._position_contestant_id(master_row, pos)
                     if master_cid is None:
                         continue
-                    if user_id == master_cid:
+                    if user_cid == master_cid:
                         total += gs.points_per_exact_position
 
         if gs.points_per_advancer > 0 and isinstance(user_gp, dict) and isinstance(

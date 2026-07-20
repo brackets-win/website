@@ -7,6 +7,14 @@ export function contestantsQualifyingPerGroup(
   return stage.group?.contestants_qualifying_per_group ?? 0;
 }
 
+export function groupPositionPicking(
+  stage: BracketStageInfo,
+): 'all' | 'qualifying_only' {
+  return stage.group?.group_position_picking === 'qualifying_only'
+    ? 'qualifying_only'
+    : 'all';
+}
+
 /**
  * Extra knockout spots filled from group also-rans (e.g. 8 best third-place teams).
  * Derived from ``contestants_advancing`` minus direct qualifiers.
@@ -27,8 +35,18 @@ export function thirdPlaceAdvanceCount(
   return Math.max(0, stage.contestants_advancing - direct);
 }
 
-/** Finish ranks that must be filled per group before submit (includes 3rd when needed). */
-export function placementRanksRequired(stage: BracketStageInfo): number {
+/**
+ * Finish ranks that must be filled per group before submit.
+ * Under ``qualifying_only``, only the direct qualifiers (top q) — third-place
+ * advancers are picked separately from remaining teams.
+ */
+export function placementRanksRequired(
+  stage: BracketStageInfo,
+  opts?: { firstKnockoutContestants?: number },
+): number {
   const q = contestantsQualifyingPerGroup(stage);
-  return q + (thirdPlaceAdvanceCount(stage) > 0 ? 1 : 0);
+  if (groupPositionPicking(stage) === 'qualifying_only') {
+    return q;
+  }
+  return q + (thirdPlaceAdvanceCount(stage, opts) > 0 ? 1 : 0);
 }

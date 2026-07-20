@@ -48,6 +48,33 @@ class GroupStagePickRequirementsTests(TestCase):
         self.assertEqual(ranks, 3)
         self.assertEqual(third, 8)
 
+    def test_qualifying_only_skips_third_slot_requirement(self):
+        user = User.objects.create_user(username="u-qo", password="x")
+        bracket = Bracket.objects.create(
+            identifier="euro-qo",
+            name="Euro QO",
+            created_by=user,
+        )
+        gs = GroupStage.objects.create(
+            bracket=bracket,
+            name="Groups",
+            order=1,
+            stage_type="GROUP",
+            number_of_contestants=24,
+            contestants_advancing=16,
+            number_of_groups=6,
+            matches_per_contestant=3,
+            contestants_qualifying_per_group=2,
+            remaining_spots_strategy="HighestPlaceWithinGroup",
+            group_position_picking="qualifying_only",
+        )
+        from brackets.utils.group_stage_config import group_stage_scorable_ranks
+
+        ranks, third = group_stage_pick_requirements(gs)
+        self.assertEqual(ranks, 2)
+        self.assertEqual(third, 4)
+        self.assertEqual(group_stage_scorable_ranks(gs), 2)
+
     def test_completeness_uses_qualifying_not_hardcoded(self):
         user = User.objects.create_user(username="u3", password="x")
         bracket = create_bracket_with_structure(

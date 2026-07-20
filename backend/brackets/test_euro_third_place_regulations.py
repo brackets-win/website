@@ -194,7 +194,7 @@ class Euro24ThirdPlaceKnockoutSyncTests(TestCase):
         sync_first_knockout_from_group_picks(self.ub)
 
         placements = _placement_map(self.bracket, metadata)
-        third_codes = _third_place_group_codes(metadata, placements)
+        third_codes = _third_place_group_codes(self.bracket, metadata, placements)
         pairings = _wc_third_place_pairings(self.bracket, third_codes)
         self.assertEqual(
             pairings,

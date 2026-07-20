@@ -47,6 +47,16 @@ class GroupStage(BracketStage):
         null=True,
         blank=True
     )
+    class GroupPositionPicking(models.TextChoices):
+        ALL = 'all', 'All'
+        QUALIFYING_ONLY = 'qualifying_only', 'Qualifying Only'
+
+    # Which group ranks users must pick (and which earn exact-placement points).
+    group_position_picking = models.CharField(
+        max_length=32,
+        choices=GroupPositionPicking.choices,
+        default=GroupPositionPicking.ALL,
+    )
     points_per_win = models.PositiveIntegerField(default=3)
     points_per_tie = models.PositiveIntegerField(default=1)
     points_per_loss = models.PositiveIntegerField(default=0)

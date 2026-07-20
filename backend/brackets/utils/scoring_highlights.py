@@ -28,6 +28,9 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
             continue
 
         if gs.points_per_exact_position > 0:
+            from brackets.utils.group_stage_config import group_stage_scorable_ranks
+
+            max_pos = group_stage_scorable_ranks(gs)
             for code, user_row in user_gp.items():
                 if not isinstance(user_row, dict):
                     continue
@@ -35,15 +38,12 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
                 if not isinstance(master_row, dict):
                     continue
                 row_h: dict[str, bool] = {}
-                for pos, user_cid in user_row.items():
+                for pos in range(1, max_pos + 1):
+                    user_cid = UserBracket._position_contestant_id(user_row, pos)
                     if user_cid is None:
                         continue
-                    try:
-                        user_id = int(user_cid)
-                    except (TypeError, ValueError):
-                        continue
                     master_cid = UserBracket._position_contestant_id(master_row, pos)
-                    if master_cid is not None and user_id == master_cid:
+                    if master_cid is not None and user_cid == master_cid:
                         row_h[str(pos)] = True
                 if row_h:
                     group_positions[code] = row_h

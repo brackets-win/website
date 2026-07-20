@@ -79,6 +79,7 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
             "matches_per_contestant": gs.matches_per_contestant,
             "contestants_qualifying_per_group": gs.contestants_qualifying_per_group,
             "remaining_spots_strategy": gs.remaining_spots_strategy,
+            "group_position_picking": gs.group_position_picking,
             "points_per_win": gs.points_per_win,
             "points_per_tie": gs.points_per_tie,
             "points_per_loss": gs.points_per_loss,

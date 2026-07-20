@@ -14,16 +14,21 @@ import {
 import { ContestantAvatar } from './ContestantAvatar';
 
 const GROUP_SAVE_DEBOUNCE_MS = 0;
-import { thirdPlaceAdvanceCount } from '../../utils/groupStageConfig';
+import {
+  contestantsQualifyingPerGroup,
+  groupPositionPicking,
+  placementRanksRequired,
+  thirdPlaceAdvanceCount,
+} from '../../utils/groupStageConfig';
 
 type Meta = {
   group_positions: Record<string, Record<string, number | null | undefined>>;
   third_place_advancers: number[];
 };
 
-/** Rank slot keys for a group — one per team in that group (from the API). */
-function positionKeysForGroup(g: BracketGroupPreview): string[] {
-  return Array.from({ length: g.teams.length }, (_, i) => String(i + 1));
+/** Rank slot keys for a group (1…ranksRequired). */
+function positionKeysForRanks(ranksRequired: number): string[] {
+  return Array.from({ length: ranksRequired }, (_, i) => String(i + 1));
 }
 
 type DragPayload = {
@@ -141,7 +146,7 @@ function placeInGroupSlot(
   return reorderTeamInGroup(keys, row, contestantId, targetKey);
 }
 
-function thirdIdsFromGp(gp: Meta['group_positions']): Set<number> {
+function thirdIdsFromSlotThree(gp: Meta['group_positions']): Set<number> {
   const ids = new Set<number>();
   for (const row of Object.values(gp)) {
     const t = row?.['3'];
@@ -150,12 +155,44 @@ function thirdIdsFromGp(gp: Meta['group_positions']): Set<number> {
   return ids;
 }
 
-function sanitizeThirdAdvancers(
+function idsInQualifyingSlots(
   gp: Meta['group_positions'],
+  qualifying: number,
+): Set<number> {
+  const ids = new Set<number>();
+  for (const row of Object.values(gp)) {
+    if (!row) continue;
+    for (let pos = 1; pos <= qualifying; pos++) {
+      const t = row[String(pos)];
+      if (t != null) ids.add(t);
+    }
+  }
+  return ids;
+}
+
+function thirdPlaceCandidateIdsForMode(
+  gp: Meta['group_positions'],
+  groups: BracketGroupPreview[],
+  opts: { qualifyingOnly: boolean; qualifying: number },
+): Set<number> {
+  if (!opts.qualifyingOnly) {
+    return thirdIdsFromSlotThree(gp);
+  }
+  const placed = idsInQualifyingSlots(gp, opts.qualifying);
+  const ids = new Set<number>();
+  for (const g of groups) {
+    for (const t of g.teams) {
+      if (!placed.has(t.id)) ids.add(t.id);
+    }
+  }
+  return ids;
+}
+
+function sanitizeThirdAdvancers(
   tp: number[],
   maxCount: number,
+  allowed: Set<number>,
 ): number[] {
-  const allowed = thirdIdsFromGp(gp);
   return tp.filter((id) => allowed.has(id)).slice(0, maxCount);
 }
 
@@ -186,8 +223,9 @@ function firstEmptySlot(
 function autoFillGroup(
   g: BracketGroupPreview,
   gp: Meta['group_positions'],
+  ranksRequired: number,
 ): Meta['group_positions'] {
-  const keys = positionKeysForGroup(g);
+  const keys = positionKeysForRanks(ranksRequired);
   const positions = { ...(gp[g.code] ?? {}) };
   const placed = new Set<number>();
   for (const k of keys) {
@@ -208,21 +246,21 @@ function autoFillGroup(
 function autoFillAllGroups(
   groups: BracketGroupPreview[],
   gp: Meta['group_positions'],
+  ranksRequired: number,
 ): Meta['group_positions'] {
   let next = gp;
   for (const g of groups) {
-    next = autoFillGroup(g, next);
+    next = autoFillGroup(g, next, ranksRequired);
   }
   return next;
 }
 
-/** World Cup (and similar): one third-place advancer slot left, one candidate left. */
+/** One third-place advancer slot left, one candidate left. */
 function autoFillThirdAdvancers(
-  gp: Meta['group_positions'],
+  candidates: number[],
   tp: number[],
   advanceCount: number,
 ): number[] {
-  const candidates = [...thirdIdsFromGp(gp)];
   const notSelected = candidates.filter((id) => !tp.includes(id));
   if (
     tp.length === advanceCount - 1 &&
@@ -413,6 +451,15 @@ export function GroupStagePanel({
     firstKnockoutContestants,
   });
   const hasThirdPlaceRail = thirdAdvanceCount > 0;
+  const qualifyingOnly = groupPositionPicking(groupStage) === 'qualifying_only';
+  const qualifyingPerGroup = contestantsQualifyingPerGroup(groupStage);
+  const ranksRequired = placementRanksRequired(groupStage, {
+    firstKnockoutContestants,
+  });
+  const positionKeys = useMemo(
+    () => positionKeysForRanks(ranksRequired),
+    [ranksRequired],
+  );
 
   const [gp, setGp] = useState<Meta['group_positions']>({});
   const [tp, setTp] = useState<number[]>([]);
@@ -454,16 +501,29 @@ export function GroupStagePanel({
     // Do not block hydration while read-only (submitted view passes busy || locked).
     if (busy && !readOnly) return;
     const nextGp = initialMetadata.group_positions ?? {};
+    const allowed = thirdPlaceCandidateIdsForMode(nextGp, groups, {
+      qualifyingOnly,
+      qualifying: qualifyingPerGroup,
+    });
     const nextTp = sanitizeThirdAdvancers(
-      nextGp,
       initialMetadata.third_place_advancers ?? [],
       thirdAdvanceCount,
+      allowed,
     );
     setGp(nextGp);
     setTp(nextTp);
     gpRef.current = nextGp;
     tpRef.current = nextTp;
-  }, [initialMetadata, userBracketId, busy, readOnly, thirdAdvanceCount]);
+  }, [
+    initialMetadata,
+    userBracketId,
+    busy,
+    readOnly,
+    thirdAdvanceCount,
+    groups,
+    qualifyingOnly,
+    qualifyingPerGroup,
+  ]);
 
   const byId = useMemo(() => {
     const m = new Map<number, BracketContestantInfo>();
@@ -488,17 +548,37 @@ export function GroupStagePanel({
   );
 
   const thirdPlaceCandidateIds = useMemo(
-    () => thirdIdsFromGp(gp),
-    [gp],
+    () =>
+      thirdPlaceCandidateIdsForMode(gp, groups, {
+        qualifyingOnly,
+        qualifying: qualifyingPerGroup,
+      }),
+    [gp, groups, qualifyingOnly, qualifyingPerGroup],
   );
 
   const thirdPlaceCandidates = useMemo(() => {
     const selected = new Set(tp);
+    const selectedGroups = new Set<string>();
+    if (qualifyingOnly) {
+      for (const id of tp) {
+        for (const g of groups) {
+          if (g.teams.some((t) => t.id === id)) {
+            selectedGroups.add(g.code);
+            break;
+          }
+        }
+      }
+    }
     return [...thirdPlaceCandidateIds]
-      .filter((id) => !selected.has(id))
+      .filter((id) => {
+        if (selected.has(id)) return false;
+        if (!qualifyingOnly) return true;
+        const g = groups.find((gr) => gr.teams.some((t) => t.id === id));
+        return g == null || !selectedGroups.has(g.code);
+      })
       .map((id) => byId.get(id))
       .filter((c): c is BracketContestantInfo => c != null);
-  }, [thirdPlaceCandidateIds, byId, tp]);
+  }, [thirdPlaceCandidateIds, byId, tp, groups, qualifyingOnly]);
 
   const finalizePicks = useCallback(
     (
@@ -508,14 +588,27 @@ export function GroupStagePanel({
     ) => {
       let gpOut = options?.skipAutoFill
         ? nextGp
-        : autoFillAllGroups(groups, nextGp);
+        : autoFillAllGroups(groups, nextGp, ranksRequired);
       let tpOut = nextTp;
       if (hasThirdPlaceRail) {
-        tpOut = autoFillThirdAdvancers(gpOut, tpOut, thirdAdvanceCount);
+        const candidates = [
+          ...thirdPlaceCandidateIdsForMode(gpOut, groups, {
+            qualifyingOnly,
+            qualifying: qualifyingPerGroup,
+          }),
+        ];
+        tpOut = autoFillThirdAdvancers(candidates, tpOut, thirdAdvanceCount);
       }
       return { gp: gpOut, tp: tpOut };
     },
-    [groups, hasThirdPlaceRail, thirdAdvanceCount],
+    [
+      groups,
+      hasThirdPlaceRail,
+      thirdAdvanceCount,
+      ranksRequired,
+      qualifyingOnly,
+      qualifyingPerGroup,
+    ],
   );
 
   useEffect(
@@ -577,7 +670,14 @@ export function GroupStagePanel({
         options,
       );
       const safeTp = hasThirdPlaceRail
-        ? sanitizeThirdAdvancers(filledGp, filledTp, thirdAdvanceCount)
+        ? sanitizeThirdAdvancers(
+            filledTp,
+            thirdAdvanceCount,
+            thirdPlaceCandidateIdsForMode(filledGp, groups, {
+              qualifyingOnly,
+              qualifying: qualifyingPerGroup,
+            }),
+          )
         : filledTp;
 
       gpRef.current = filledGp;
@@ -596,7 +696,7 @@ export function GroupStagePanel({
 
       return saveQueueRef.current;
     },
-    [hasThirdPlaceRail, thirdAdvanceCount, readOnly, finalizePicks, flushSave, saveDebounceMs],
+    [hasThirdPlaceRail, thirdAdvanceCount, readOnly, finalizePicks, flushSave, saveDebounceMs, groups, qualifyingOnly, qualifyingPerGroup],
   );
 
   const clearDrag = useCallback(() => {
@@ -658,7 +758,7 @@ export function GroupStagePanel({
       clearDrag();
       const g = groupByCode.get(groupCode);
       if (!g || !teamInGroup(groupCode, contestantId)) return;
-      const keys = positionKeysForGroup(g);
+      const keys = positionKeys;
       const curGp = gpRef.current;
       const curTp = tpRef.current;
       const { gp: g1, tp: t1 } = stripContestant(curGp, contestantId, curTp, {
@@ -672,7 +772,7 @@ export function GroupStagePanel({
       );
       void persist({ ...g1, [groupCode]: nextRow }, t1);
     },
-    [persist, teamInGroup, groupByCode, clearDrag],
+    [persist, teamInGroup, groupByCode, clearDrag, positionKeys],
   );
 
   const clearSlot = useCallback(
@@ -695,13 +795,13 @@ export function GroupStagePanel({
       const g = groupByCode.get(groupCode);
       if (!g) return;
       const slot = firstEmptySlot(
-        positionKeysForGroup(g),
+        positionKeys,
         gpRef.current[groupCode] ?? {},
       );
       if (!slot) return;
       placeInSlot(groupCode, slot, contestantId);
     },
-    [placeInSlot, groupByCode, clearDrag],
+    [placeInSlot, groupByCode, clearDrag, positionKeys],
   );
 
   const onDropSlot = useCallback(
@@ -727,7 +827,11 @@ export function GroupStagePanel({
 
   const addThirdAdvancer = useCallback(
     (contestantId: number, index?: number) => {
-      if (!thirdIdsFromGp(gpRef.current).has(contestantId)) return;
+      const allowed = thirdPlaceCandidateIdsForMode(gpRef.current, groups, {
+        qualifyingOnly,
+        qualifying: qualifyingPerGroup,
+      });
+      if (!allowed.has(contestantId)) return;
       let next = [...tpRef.current];
       const prevIdx = next.indexOf(contestantId);
       if (prevIdx >= 0) next.splice(prevIdx, 1);
@@ -737,7 +841,7 @@ export function GroupStagePanel({
       next.splice(idx, 0, contestantId);
       void persist(gpRef.current, next.slice(0, thirdAdvanceCount));
     },
-    [persist, thirdAdvanceCount],
+    [persist, thirdAdvanceCount, groups, qualifyingOnly, qualifyingPerGroup],
   );
 
   const onDropThirdAdvSlot = useCallback(
@@ -746,7 +850,6 @@ export function GroupStagePanel({
       if (!hasThirdPlaceRail) return;
       const p = parseDrag(e);
       if (!p) return;
-      if (!thirdIdsFromGp(gpRef.current).has(p.contestantId)) return;
       addThirdAdvancer(p.contestantId, index);
     },
     [addThirdAdvancer, hasThirdPlaceRail],
@@ -865,7 +968,6 @@ export function GroupStagePanel({
       placeInSlot(group, slot, payload.contestantId);
     } else if (thirdEl && hasThirdPlaceRail) {
       const index = Number(thirdEl.dataset.dropThirdIndex);
-      if (!thirdIdsFromGp(gpRef.current).has(payload.contestantId)) return;
       addThirdAdvancer(payload.contestantId, index);
     }
   };
@@ -941,7 +1043,7 @@ export function GroupStagePanel({
   };
 
   const renderGroupCard = (g: BracketGroupPreview) => {
-    const keys = positionKeysForGroup(g);
+    const keys = positionKeys;
     const basePositions = gp[g.code] ?? {};
     const previewActive =
       activeDragId != null &&

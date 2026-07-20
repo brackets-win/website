@@ -21,7 +21,9 @@ from brackets.utils.potential_knockout import (
 
 
 def _slots_per_group(gs: GroupStage) -> int:
-    return gs.number_of_contestants // gs.number_of_groups
+    from brackets.utils.group_stage_config import group_stage_scorable_ranks
+
+    return group_stage_scorable_ranks(gs)
 
 
 def master_knockout_has_results(master: UserBracket) -> bool:

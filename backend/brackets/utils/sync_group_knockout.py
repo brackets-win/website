@@ -114,22 +114,52 @@ def _placement_map(
     return out
 
 
+def _third_place_advancer_by_group(
+    bracket,
+    metadata: dict[str, Any],
+    placements: dict[str, dict[int, int]],
+) -> dict[str, int]:
+    """
+    Map group code → third-place advancer contestant id.
+
+    Prefers an explicit 3rd-place slot in ``group_positions``. Under
+    qualifying-only picking (no slot 3), uses roster group membership of
+    ``third_place_advancers``.
+    """
+    advancers = metadata.get("third_place_advancers") or []
+    if not advancers:
+        return {}
+
+    adv_set = {int(x) for x in advancers}
+    by_group: dict[str, int] = {}
+    for group_code, row in placements.items():
+        third_id = row.get(3)
+        if third_id is not None and third_id in adv_set:
+            by_group[group_code] = third_id
+
+    if len(by_group) >= len(adv_set):
+        return by_group
+
+    preview = bracket_groups_preview(bracket)
+    id_to_group = {
+        int(t["id"]): g["code"] for g in preview for t in g["teams"]
+    }
+    for cid in adv_set:
+        gcode = id_to_group.get(cid)
+        if gcode is None or gcode in by_group:
+            continue
+        by_group[gcode] = cid
+    return by_group
+
+
 def _third_place_group_codes(
+    bracket,
     metadata: dict[str, Any],
     placements: dict[str, dict[int, int]],
 ) -> list[str]:
     """Which groups contribute a third-place advancer (``3A`` … ``3L``)."""
-    advancers = metadata.get("third_place_advancers") or []
-    if not advancers:
-        return []
-
-    codes: list[str] = []
-    adv_set = {int(x) for x in advancers}
-    for group_code, row in placements.items():
-        third_id = row.get(3)
-        if third_id is not None and third_id in adv_set:
-            codes.append(f"3{group_code}")
-    return codes
+    by_group = _third_place_advancer_by_group(bracket, metadata, placements)
+    return [f"3{code}" for code in sorted(by_group.keys())]
 
 
 def _wc_third_place_pairings(
@@ -162,6 +192,7 @@ def _resolve_position_code(
     wc_pairings: dict[str, str] | None,
     partner_code: str | None,
     is_wc: bool = False,
+    third_by_group: dict[str, int] | None = None,
 ) -> int | None:
     """
     Resolve a mapping code to a ``BracketContestant`` id.
@@ -189,9 +220,13 @@ def _resolve_position_code(
         group, pos = actual_parsed
 
     row = placements.get(group)
-    if not row:
-        return None
-    return row.get(pos)
+    if row and pos in row:
+        return row.get(pos)
+
+    # Qualifying-only: no group slot 3 — use selected third-place advancer.
+    if pos == 3 and third_by_group:
+        return third_by_group.get(group)
+    return None
 
 
 def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[int]:
@@ -218,8 +253,12 @@ def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[in
 
     is_wc = uses_wc_third_place_table(bracket, first_ko)
     wc_pairings: dict[str, str] | None = None
+    third_by_group: dict[str, int] | None = None
     if is_wc:
-        third_codes = _third_place_group_codes(metadata, placements)
+        third_by_group = _third_place_advancer_by_group(
+            bracket, metadata, placements
+        )
+        third_codes = _third_place_group_codes(bracket, metadata, placements)
         wc_pairings = _wc_third_place_pairings(bracket, third_codes)
 
     ids: set[int] = set()
@@ -230,6 +269,7 @@ def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[in
             wc_pairings=wc_pairings,
             partner_code=team_b_code,
             is_wc=is_wc,
+            third_by_group=third_by_group,
         )
         bc_b_id = _resolve_position_code(
             team_b_code,
@@ -237,6 +277,7 @@ def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[in
             wc_pairings=wc_pairings,
             partner_code=team_a_code,
             is_wc=is_wc,
+            third_by_group=third_by_group,
         )
         if bc_a_id is not None:
             ids.add(bc_a_id)
@@ -308,8 +349,12 @@ def sync_first_knockout_from_group_picks(
 
     is_wc = uses_wc_third_place_table(bracket, first_ko)
     wc_pairings: dict[str, str] | None = None
+    third_by_group: dict[str, int] | None = None
     if is_wc and placements:
-        third_codes = _third_place_group_codes(metadata, placements)
+        third_by_group = _third_place_advancer_by_group(
+            bracket, metadata, placements
+        )
+        third_codes = _third_place_group_codes(bracket, metadata, placements)
         wc_pairings = _wc_third_place_pairings(bracket, third_codes)
 
     updated = 0
@@ -330,6 +375,7 @@ def sync_first_knockout_from_group_picks(
                 wc_pairings=wc_pairings,
                 partner_code=team_b_code,
                 is_wc=is_wc,
+                third_by_group=third_by_group,
             )
             if placements
             else None
@@ -341,6 +387,7 @@ def sync_first_knockout_from_group_picks(
                 wc_pairings=wc_pairings,
                 partner_code=team_a_code,
                 is_wc=is_wc,
+                third_by_group=third_by_group,
             )
             if placements
             else None

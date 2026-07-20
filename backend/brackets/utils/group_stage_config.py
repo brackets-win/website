@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from brackets.models import Bracket, BracketStage, GroupStage, KnockoutStage
 
+PICKING_ALL = GroupStage.GroupPositionPicking.ALL
+PICKING_QUALIFYING_ONLY = GroupStage.GroupPositionPicking.QUALIFYING_ONLY
+
 
 def get_group_stage(bracket: Bracket) -> GroupStage | None:
     stage = (
@@ -16,6 +19,13 @@ def get_group_stage(bracket: Bracket) -> GroupStage | None:
     return GroupStage.objects.get(pk=stage.pk)
 
 
+def is_qualifying_only_picking(gs: GroupStage) -> bool:
+    return (
+        getattr(gs, "group_position_picking", PICKING_ALL)
+        == PICKING_QUALIFYING_ONLY
+    )
+
+
 def group_stage_pick_requirements(
     gs: GroupStage,
 ) -> tuple[int, int]:
@@ -25,6 +35,10 @@ def group_stage_pick_requirements(
     * ``placement_ranks_required`` — each group must have ranks ``1`` … ``N`` filled.
     * ``third_place_advancer_count`` — how many third-place teams the user picks
       when ``contestants_advancing`` exceeds ``groups × qualifying_per_group``.
+
+    Under ``qualifying_only``, users only fill the direct qualifying ranks (``q``);
+    third-place advancers are chosen from the remaining unplaced teams, so ``N``
+    stays ``q`` even when a third-place pool exists.
     """
     q = gs.contestants_qualifying_per_group
     n_groups = gs.number_of_groups
@@ -34,8 +48,24 @@ def group_stage_pick_requirements(
     if extra <= 0:
         return q, 0
 
-    # e.g. WC: 2 qualify per group + one 3rd-place finisher per group → pick 8 of 12
+    if is_qualifying_only_picking(gs):
+        return q, extra
+
+    # e.g. WC "all": 2 qualify per group + place a 3rd, then pick 8 of those 12
     return q + 1, extra
+
+
+def group_stage_scorable_ranks(gs: GroupStage) -> int:
+    """
+    How many finish positions per group earn ``points_per_exact_position``
+    (and count toward perfect-score / potential denominators).
+    """
+    if is_qualifying_only_picking(gs):
+        ranks, _ = group_stage_pick_requirements(gs)
+        return ranks
+    if gs.number_of_groups <= 0:
+        return 0
+    return gs.number_of_contestants // gs.number_of_groups
 
 
 def resolve_group_contestants_advancing(

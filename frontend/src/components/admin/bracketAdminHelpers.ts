@@ -196,6 +196,7 @@ export function stageToAdminPatch(s: BracketStageInfo): AdminStagePatch {
     patch.matches_per_contestant = s.group.matches_per_contestant;
     patch.contestants_qualifying_per_group = s.group.contestants_qualifying_per_group;
     patch.remaining_spots_strategy = s.group.remaining_spots_strategy;
+    patch.group_position_picking = s.group.group_position_picking ?? 'all';
     patch.points_per_win = s.group.points_per_win;
     patch.points_per_tie = s.group.points_per_tie;
     patch.points_per_loss = s.group.points_per_loss;

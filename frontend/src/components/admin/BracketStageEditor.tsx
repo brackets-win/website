@@ -184,6 +184,29 @@ export function BracketStageEditor({
               </select>
             </div>
             <div className="field">
+              <label>Group position picking</label>
+              <select
+                className="select"
+                value={stage.group.group_position_picking ?? 'all'}
+                onChange={(e) =>
+                  onChange({
+                    ...stage,
+                    group: {
+                      ...stage.group!,
+                      group_position_picking:
+                        e.target.value === 'qualifying_only'
+                          ? 'qualifying_only'
+                          : 'all',
+                    },
+                  })
+                }
+                disabled={disabled}
+              >
+                <option value="all">All</option>
+                <option value="qualifying_only">Qualifying Only</option>
+              </select>
+            </div>
+            <div className="field">
               <label>Points per exact position</label>
               <AdminNumberInput
                 value={stage.group.points_per_exact_position ?? 0}

@@ -169,6 +169,6 @@ class WcThirdPlaceKnockoutSyncTests(TestCase):
             "third_place_advancers": third_advancers,
         }
         placements = _placement_map(self.bracket, metadata)
-        codes = _third_place_group_codes(metadata, placements)
+        codes = _third_place_group_codes(self.bracket, metadata, placements)
         self.assertEqual(len(codes), 8)
         self.assertEqual(set(codes), {f"3{L}" for L in third_letters})

@@ -373,6 +373,8 @@ def _group_exact_placement_points(
     user_row: Any,
     master_row: Any,
     points_per_exact_position: int,
+    *,
+    max_position: int | None = None,
 ) -> int:
     """Points an entry earns for exact group placements vs the master."""
     if (
@@ -382,6 +384,17 @@ def _group_exact_placement_points(
     ):
         return 0
     total = 0
+    if max_position is not None:
+        positions = range(1, max_position + 1)
+        for pos in positions:
+            user_id = _row_contestant_at(user_row, pos)
+            if user_id is None:
+                continue
+            master_id = _row_contestant_at(master_row, pos)
+            if master_id is not None and master_id == user_id:
+                total += points_per_exact_position
+        return total
+
     for pos, user_cid in user_row.items():
         if user_cid is None:
             continue
@@ -473,6 +486,7 @@ class _GroupPointsContext:
         self,
         *,
         points_per_exact_position: int,
+        scorable_ranks: int,
         first_ko_stage: BracketStage | None,
         first_ko_points: int,
         master_gp: dict[str, Any],
@@ -480,6 +494,7 @@ class _GroupPointsContext:
         entry_first_ko_ids: dict[int, set[int]],
     ) -> None:
         self.points_per_exact_position = points_per_exact_position
+        self.scorable_ranks = scorable_ranks
         self.first_ko_stage = first_ko_stage
         self.first_ko_points = first_ko_points
         self.master_gp = master_gp
@@ -491,11 +506,16 @@ def _build_group_points_context(
     bracket: Bracket,
     user_brackets: list[UserBracket],
 ) -> _GroupPointsContext:
+    from brackets.utils.group_stage_config import group_stage_scorable_ranks
+
     group_cfg = (
         GroupStage.objects.filter(bracket=bracket).order_by("order").first()
     )
     points_per_exact_position = (
         group_cfg.points_per_exact_position if group_cfg is not None else 0
+    )
+    scorable_ranks = (
+        group_stage_scorable_ranks(group_cfg) if group_cfg is not None else 0
     )
 
     first_ko_stage = (
@@ -527,6 +547,7 @@ def _build_group_points_context(
 
     return _GroupPointsContext(
         points_per_exact_position=points_per_exact_position,
+        scorable_ranks=scorable_ranks,
         first_ko_stage=first_ko_stage,
         first_ko_points=first_ko_points,
         master_gp=master_gp if isinstance(master_gp, dict) else {},
@@ -624,7 +645,7 @@ def _group_points_breakdown(
 
     advancers_in_group = ctx.master_first_ko_ids & group_team_ids
     max_points = (
-        len(group_team_ids) * ctx.points_per_exact_position
+        ctx.scorable_ranks * ctx.points_per_exact_position
         + len(advancers_in_group) * ctx.first_ko_points
     )
 
@@ -636,7 +657,10 @@ def _group_points_breakdown(
         master_row = ctx.master_gp.get(code)
 
         points = _group_exact_placement_points(
-            user_row, master_row, ctx.points_per_exact_position
+            user_row,
+            master_row,
+            ctx.points_per_exact_position,
+            max_position=ctx.scorable_ranks or None,
         )
 
         if ctx.first_ko_points > 0 and ctx.first_ko_stage is not None:

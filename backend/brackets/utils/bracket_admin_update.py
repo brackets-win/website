@@ -125,6 +125,18 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
             )
             gs_fields.append("remaining_spots_strategy")
 
+        if "group_position_picking" in patch:
+            raw = str(patch["group_position_picking"] or "").strip()
+            valid = {
+                c.value for c in GroupStage.GroupPositionPicking
+            }
+            if raw not in valid:
+                raise ValueError(
+                    "group_position_picking must be 'all' or 'qualifying_only'"
+                )
+            gs.group_position_picking = raw
+            gs_fields.append("group_position_picking")
+
         if gs_fields:
             if (
                 "contestants_qualifying_per_group" in gs_fields
