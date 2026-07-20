@@ -1,7 +1,14 @@
-"""UEFA Euro 2024 third-place combination table (group → R16 third-place slots).
+"""Euro 2024 third-place combination table (group → R16 third-place slots).
 
-Source: UEFA regulations combination table (also documented on Wikipedia /
-BBC Sport). R16 tree slot pairings live in ``brackets/data/euro24/r16_tree_slots.py``.
+Source: historical challenge Excel logic (not the public UEFA table). Column
+order is still 1B / 1C / 1E / 1F (B1, C1, E1, F1 opponents). Pool formulas:
+
+- A/B/C3 (→ 1F): first of B3, C3, A3 among advancers
+- D/E/F3 (→ 1C): first of E3, F3, D3 among advancers
+- A/B/C/D3 (→ 1E): first of C3, B3, A3, D3 excluding A/B/C3
+- A/D/E/F3 (→ 1B): first of F3, E3, D3 excluding D/E/F3, else A3 if unused
+
+R16 tree slot pairings live in ``brackets/data/euro24/r16_tree_slots.py``.
 """
 
 from __future__ import annotations
@@ -13,8 +20,7 @@ _DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "euro24"
 
 THIRD_PLACE_COMBINATIONS_PATH = _DATA_DIR / "third_place_combinations.txt"
 
-# Order matches the regulation table: third-place column order for group winners
-# who face a third-place qualifier (1B, 1C, 1E, 1F).
+# Column order for group winners who face a third-place qualifier (1B, 1C, 1E, 1F).
 FIRST_PLACE_SLOTS_FOR_THIRD_LOOKUP = (
     "1B",
     "1C",

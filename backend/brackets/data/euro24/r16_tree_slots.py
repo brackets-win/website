@@ -11,12 +11,12 @@ from __future__ import annotations
 # Order matches UEFA R16 geometry mapped onto seed pairs 1v16, 8v9, 4v13, …
 R16_TREE_SLOTS: tuple[tuple[int, str, str], ...] = (
     (1, "A1", "C2"),   # 1 vs 16
-    (2, "B1", "3B"),   # 8 vs 9  — third-place slot resolved via UEFA table
-    (3, "F1", "3F"),   # 4 vs 13
+    (2, "B1", "3B"),   # 8 vs 9  — third-place slot via Excel combination table
+    (3, "F1", "3F"),   # 4 vs 13 — A/B/C3
     (4, "D2", "E2"),   # 5 vs 12
     (5, "D1", "F2"),   # 2 vs 15
-    (6, "E1", "3E"),   # 7 vs 10
-    (7, "C1", "3C"),   # 3 vs 14
+    (6, "E1", "3E"),   # 7 vs 10 — A/B/C/D3
+    (7, "C1", "3C"),   # 3 vs 14 — D/E/F3
     (8, "A2", "B2"),   # 6 vs 11
 )
 

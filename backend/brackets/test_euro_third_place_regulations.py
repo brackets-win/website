@@ -48,14 +48,15 @@ class Euro24ThirdPlaceRegulationLookupTests(TestCase):
             {"1B": "3F", "1C": "3E", "1E": "3D", "1F": "3C"},
         )
 
-    def test_abcd_matches_uefa_table(self):
+    def test_abcd_matches_excel_challenge(self):
+        """Historical Excel: ABCD → F1 gets B3, E1 gets C3 (UEFA swaps those)."""
         teams = ["3A", "3B", "3C", "3D"]
         lookup = _regulation_lookup()
         row = lookup[str(teams_to_bit_vector(teams))]
         self.assertEqual(row["option"], "ABCD")
         self.assertEqual(
             row["matchups"],
-            {"1B": "3A", "1C": "3D", "1E": "3B", "1F": "3C"},
+            {"1B": "3A", "1C": "3D", "1E": "3C", "1F": "3B"},
         )
 
     def test_same_four_groups_always_same_bit_vector_key(self):
