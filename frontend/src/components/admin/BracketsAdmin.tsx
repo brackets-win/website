@@ -26,6 +26,7 @@ import { AdminBackBar } from './AdminBackBar';
 import { AdminNumberInput } from './AdminNumberInput';
 import { BracketSeeder } from './BracketSeeder';
 import { BracketStageEditor } from './BracketStageEditor';
+import { GroupRosterAssigner } from './GroupRosterAssigner';
 import {
   buildStructureConfig,
   knockoutRounds,
@@ -423,14 +424,56 @@ export function BracketsAdmin() {
     [editHasGroupStage, editStages],
   );
 
+  const editGroupStage = useMemo(
+    () => editStages.find((s) => s.stage_type === 'GROUP'),
+    [editStages],
+  );
+
+  const editNumGroups = editGroupStage?.group?.number_of_groups ?? 0;
+
   const editFieldSize = useMemo(() => {
+    if (editHasGroupStage) {
+      if (editGroupStage?.number_of_contestants) {
+        return editGroupStage.number_of_contestants;
+      }
+      if (editNumGroups > 0 && editContestants.length > 0) {
+        return editContestants.length;
+      }
+    }
     const ko = editStages
       .filter((s) => s.stage_type === 'KNOCKOUT' && !s.knockout?.is_third_place)
       .sort((a, b) => a.order - b.order);
     return ko[0]?.number_of_contestants ?? editContestants.length;
-  }, [editStages, editContestants]);
+  }, [
+    editHasGroupStage,
+    editGroupStage,
+    editNumGroups,
+    editStages,
+    editContestants,
+  ]);
 
-  const editCanReseed = editIsKnockoutOnly && editChallengeCount === 0;
+  const editTeamsPerGroup =
+    editNumGroups > 0 ? Math.floor(editFieldSize / editNumGroups) : 0;
+
+  const editCanReseed =
+    editChallengeCount === 0 &&
+    (editIsKnockoutOnly ||
+      (editHasGroupStage && editNumGroups > 0 && editTeamsPerGroup > 0));
+
+  const createNumGroups = useMemo(() => {
+    if (structureKind !== 'GROUP_KNOCKOUT' || bN == null || bN < 2) return 0;
+    const raw = bNumGroups.trim();
+    if (raw !== '') {
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    return Math.floor(bN / 4);
+  }, [structureKind, bN, bNumGroups]);
+
+  const createTeamsPerGroup =
+    createNumGroups > 0 && bN != null
+      ? Math.floor(bN / createNumGroups)
+      : 0;
 
   const filteredBrackets = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -656,7 +699,11 @@ export function BracketsAdmin() {
             s.stage_type === 'KNOCKOUT' && !s.knockout?.is_third_place,
         )
         .sort((a, c) => a.order - c.order)[0];
-      const fieldSize = firstKo?.number_of_contestants ?? contestants.length;
+      const groupStage = bracket.stages.find((s) => s.stage_type === 'GROUP');
+      const fieldSize =
+        groupStage?.number_of_contestants ??
+        firstKo?.number_of_contestants ??
+        contestants.length;
       const rows = buildEditAssignRows(fieldSize, contestants);
       setEditAssignRows(rows);
       setEditSeedingInitial(JSON.stringify(rows));
@@ -741,7 +788,9 @@ export function BracketsAdmin() {
         if (assignments.length !== editFieldSize) {
           setPageMsg({
             type: 'err',
-            text: `Fill all ${editFieldSize} bracket slots before saving the seeding.`,
+            text: editHasGroupStage
+              ? `Fill all ${editFieldSize} group slots before saving.`
+              : `Fill all ${editFieldSize} bracket slots before saving the seeding.`,
           });
           setEditBusy(false);
           return;
@@ -1236,7 +1285,11 @@ export function BracketsAdmin() {
 
             <div className="assign-section">
               <div className="assign-section__head">
-                <h3 className="assign-section__title">Contestants</h3>
+                <h3 className="assign-section__title">
+                  {structureKind === 'GROUP_KNOCKOUT'
+                    ? 'Group Rosters'
+                    : 'Contestants'}
+                </h3>
                 {isSingleElim ? (
                   <button
                     type="button"
@@ -1247,89 +1300,114 @@ export function BracketsAdmin() {
                     Seed Visually
                   </button>
                 ) : null}
-                <input
-                  type="search"
-                  className="input assign-section__search"
-                  placeholder="Filter catalog…"
-                  value={assignSearch}
-                  onChange={(e) => setAssignSearch(e.target.value)}
-                  aria-label="Filter contestants"
-                  disabled={createBusy}
-                />
+                {structureKind !== 'GROUP_KNOCKOUT' ? (
+                  <input
+                    type="search"
+                    className="input assign-section__search"
+                    placeholder="Filter catalog…"
+                    value={assignSearch}
+                    onChange={(e) => setAssignSearch(e.target.value)}
+                    aria-label="Filter contestants"
+                    disabled={createBusy}
+                  />
+                ) : null}
               </div>
-              {contestantTags.length > 0 ? (
-                <div className="assign-section__tags">
-                  {contestantTags.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={`assign-tag${
-                        assignTagIds.includes(t.id) ? ' assign-tag--on' : ''
-                      }`}
-                      onClick={() => toggleAssignTag(t.id)}
-                      disabled={createBusy}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {contestants.length === 0 ? (
-                <p className="field__hint">
-                  Add contestants in the Contestants tab first.
-                </p>
+              {structureKind === 'GROUP_KNOCKOUT' ? (
+                contestants.length === 0 ? (
+                  <p className="field__hint">
+                    Add contestants in the Contestants tab first.
+                  </p>
+                ) : (
+                  <GroupRosterAssigner
+                    numGroups={createNumGroups}
+                    teamsPerGroup={createTeamsPerGroup}
+                    contestants={contestants}
+                    tags={contestantTags}
+                    assignmentBySeed={assignmentBySeed}
+                    onAssign={assignSeed}
+                    disabled={createBusy}
+                  />
+                )
               ) : (
-                <div className="assign-list assign-list--compact">
-                  {assignRows.map((row, i) => (
-                    <div key={i} className="assign-list__row">
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        aria-label={`Seed ${i + 1}`}
-                        placeholder="Seed"
-                        value={row.seed}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setAssignRows((rows) =>
-                            rows.map((r, j) => (j === i ? { ...r, seed: v } : r)),
-                          );
-                        }}
-                        disabled={createBusy}
-                      />
-                      <select
-                        className="select"
-                        aria-label={`Contestant ${i + 1}`}
-                        value={row.contestant_id}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setAssignRows((rows) =>
-                            rows.map((r, j) =>
-                              j === i ? { ...r, contestant_id: v } : r,
-                            ),
-                          );
-                        }}
-                        disabled={createBusy}
-                      >
-                        <option value="">Select…</option>
-                        {row.contestant_id &&
-                        !contestantOptions.some(
-                          (c) => String(c.id) === row.contestant_id,
-                        ) ? (
-                          <option value={row.contestant_id}>
-                            {contestantById.get(parseInt(row.contestant_id, 10))
-                              ?.name ?? 'Selected'}
-                          </option>
-                        ) : null}
-                        {contestantOptions.map((c) => (
-                          <option key={c.id} value={String(c.id)}>
-                            {c.name} ({c.identifier})
-                          </option>
-                        ))}
-                      </select>
+                <>
+                  {contestantTags.length > 0 ? (
+                    <div className="assign-section__tags">
+                      {contestantTags.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className={`assign-tag${
+                            assignTagIds.includes(t.id) ? ' assign-tag--on' : ''
+                          }`}
+                          onClick={() => toggleAssignTag(t.id)}
+                          disabled={createBusy}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  ) : null}
+                  {contestants.length === 0 ? (
+                    <p className="field__hint">
+                      Add contestants in the Contestants tab first.
+                    </p>
+                  ) : (
+                    <div className="assign-list assign-list--compact">
+                      {assignRows.map((row, i) => (
+                        <div key={i} className="assign-list__row">
+                          <input
+                            className="input"
+                            type="number"
+                            min={1}
+                            aria-label={`Seed ${i + 1}`}
+                            placeholder="Seed"
+                            value={row.seed}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAssignRows((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, seed: v } : r,
+                                ),
+                              );
+                            }}
+                            disabled={createBusy}
+                          />
+                          <select
+                            className="select"
+                            aria-label={`Contestant ${i + 1}`}
+                            value={row.contestant_id}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAssignRows((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, contestant_id: v } : r,
+                                ),
+                              );
+                            }}
+                            disabled={createBusy}
+                          >
+                            <option value="">Select…</option>
+                            {row.contestant_id &&
+                            !contestantOptions.some(
+                              (c) => String(c.id) === row.contestant_id,
+                            ) ? (
+                              <option value={row.contestant_id}>
+                                {contestantById.get(
+                                  parseInt(row.contestant_id, 10),
+                                )?.name ?? 'Selected'}
+                              </option>
+                            ) : null}
+                            {contestantOptions.map((c) => (
+                              <option key={c.id} value={String(c.id)}>
+                                {c.name} ({c.identifier})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -1534,9 +1612,11 @@ export function BracketsAdmin() {
               <div className="assign-section">
                 <div className="assign-section__head">
                   <h3 className="assign-section__title">
-                    Contestants &amp; Seeding
+                    {editHasGroupStage
+                      ? 'Group Rosters'
+                      : 'Contestants & Seeding'}
                   </h3>
-                  {editCanReseed ? (
+                  {editCanReseed && editIsKnockoutOnly ? (
                     <button
                       type="button"
                       className="btn btn--outline"
@@ -1550,20 +1630,25 @@ export function BracketsAdmin() {
                   ) : null}
                 </div>
 
-                {!editIsKnockoutOnly ? (
-                  <p className="field__hint">
-                    Seeding edits are available for single-elimination
-                    brackets. Current contestants are shown below.
-                  </p>
-                ) : editChallengeCount > 0 ? (
+                {editChallengeCount > 0 ? (
                   <p className="field__hint">
                     This bracket is used by {editChallengeCount} challenge
-                    {editChallengeCount === 1 ? '' : 's'}, so seeding is locked
-                    to protect submitted entries.
+                    {editChallengeCount === 1 ? '' : 's'}, so roster edits are
+                    locked to protect submitted entries.
                   </p>
                 ) : null}
 
-                {editCanReseed ? (
+                {editCanReseed && editHasGroupStage ? (
+                  <GroupRosterAssigner
+                    numGroups={editNumGroups}
+                    teamsPerGroup={editTeamsPerGroup}
+                    contestants={contestants}
+                    tags={contestantTags}
+                    assignmentBySeed={editAssignmentBySeed}
+                    onAssign={editAssignSeed}
+                    disabled={editBusy || editLoadBusy}
+                  />
+                ) : editCanReseed && editIsKnockoutOnly ? (
                   <>
                     {contestantTags.length > 0 ? (
                       <div className="assign-section__tags">
@@ -1627,6 +1712,18 @@ export function BracketsAdmin() {
                   </>
                 ) : editContestants.length === 0 ? (
                   <p className="field__hint">No contestants assigned yet.</p>
+                ) : editHasGroupStage &&
+                  editNumGroups > 0 &&
+                  editTeamsPerGroup > 0 ? (
+                  <GroupRosterAssigner
+                    numGroups={editNumGroups}
+                    teamsPerGroup={editTeamsPerGroup}
+                    contestants={contestants}
+                    tags={[]}
+                    assignmentBySeed={editAssignmentBySeed}
+                    onAssign={() => undefined}
+                    readOnly
+                  />
                 ) : (
                   <ul className="seeding-readonly">
                     {[...editContestants]

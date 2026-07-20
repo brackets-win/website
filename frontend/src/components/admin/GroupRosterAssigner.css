@@ -1,0 +1,40 @@
+.group-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.group-roster__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+
+.group-roster__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.12));
+  border-radius: 0.625rem;
+  background: var(--app-surface, #fff);
+}
+
+.group-roster__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.group-roster__slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.group-roster__slots .seeder-slot {
+  min-height: 2.5rem;
+}
