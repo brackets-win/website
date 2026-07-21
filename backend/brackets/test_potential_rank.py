@@ -326,8 +326,8 @@ class PotentialRankTests(TestCase):
         self.assertIsNotNone(res.json()["entries"][0]["potential_rank"])
 
     def test_potential_rank_column_hidden_until_gate_lifts(self):
-        # Group -> knockout master with no group results yet: the first knockout
-        # round is not seeded, so rank is not computable and the column is hidden.
+        # Group -> knockout master with no group results yet: potential (and
+        # potential rank) stay hidden until group results are confirmed/filled.
         bracket = create_bracket_with_structure(
             "GROUP_KNOCKOUT", "gk-gate", "GK Gate", 8, self.host
         )
@@ -355,9 +355,9 @@ class PotentialRankTests(TestCase):
         self.assertEqual(res.status_code, 200)
         cols = {c["key"]: c["name"] for c in res.json()["columns"]}
         self.assertNotIn("potential_rank", cols)
-        # Without the rank column, the points column keeps its plain label.
-        self.assertEqual(cols["potential"], "Potential")
+        self.assertNotIn("potential", cols)
         self.assertIsNone(res.json()["entries"][0]["potential_rank"])
+        self.assertIsNone(res.json()["entries"][0]["potential"])
 
     def test_apply_materializes_potential_rank_after_deferred_master_change(self):
         """Apply (materialize) must persist rank when the QF+ gate is open."""
