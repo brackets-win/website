@@ -171,6 +171,12 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
             ks.is_final = _bool_val(patch["is_final"])
             ks_fields.append("is_final")
 
+        if "combine_points_with_group_stage" in patch:
+            ks.combine_points_with_group_stage = _bool_val(
+                patch["combine_points_with_group_stage"]
+            )
+            ks_fields.append("combine_points_with_group_stage")
+
         if ks_fields:
             ks.save(update_fields=ks_fields)
 

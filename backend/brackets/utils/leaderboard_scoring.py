@@ -515,10 +515,99 @@ def refresh_all_submitted_leaderboard_scores_for_bracket(bracket: Bracket) -> in
     return len(ubs)
 
 
+@dataclass(frozen=True)
+class LeaderboardStageColumnPlan:
+    """Which stage columns to show and which scores to fold into others."""
+
+    hidden_stage_ids: frozenset[int]
+    # source stage id -> destination stage id (fold source points into dest)
+    merge_into: dict[int, int]
+
+
+def leaderboard_stage_column_plan(
+    ctx: LeaderboardScoringContext,
+) -> LeaderboardStageColumnPlan:
+    """Decide hidden / merged stage columns for the prediction leaderboard.
+
+    - Knockout-only: hide the seeded first KO column (no picks, always full).
+    - Group → knockout: when the first KO has ``combine_points_with_group_stage``,
+      hide that KO column and fold its points into the preceding group column.
+    """
+    stages = list(ctx.stages)
+    has_group_stage = any(
+        s.stage_type == BracketStage.StageType.GROUP for s in stages
+    )
+    first_ko = next(
+        (s for s in stages if s.stage_type == BracketStage.StageType.KNOCKOUT),
+        None,
+    )
+    hidden: set[int] = set()
+    merge_into: dict[int, int] = {}
+
+    if first_ko is None:
+        return LeaderboardStageColumnPlan(
+            hidden_stage_ids=frozenset(),
+            merge_into={},
+        )
+
+    if not has_group_stage:
+        hidden.add(first_ko.id)
+        return LeaderboardStageColumnPlan(
+            hidden_stage_ids=frozenset(hidden),
+            merge_into={},
+        )
+
+    ks = ctx.knockout_by_id.get(first_ko.pk)
+    if ks is not None and ks.combine_points_with_group_stage:
+        group_stage = next(
+            (
+                s
+                for s in stages
+                if s.stage_type == BracketStage.StageType.GROUP
+                and s.order < first_ko.order
+            ),
+            None,
+        )
+        if group_stage is not None:
+            hidden.add(first_ko.id)
+            merge_into[first_ko.id] = group_stage.id
+
+    return LeaderboardStageColumnPlan(
+        hidden_stage_ids=frozenset(hidden),
+        merge_into=merge_into,
+    )
+
+
+def fold_merged_stage_scores(
+    stage_scores: dict[str, int | None],
+    merge_into: dict[int, int],
+) -> dict[str, int | None]:
+    """Return a copy of ``stage_scores`` with merged stage keys folded in."""
+    if not merge_into:
+        return stage_scores
+    out = dict(stage_scores)
+    for source_id, dest_id in merge_into.items():
+        source_key = f"stage:{source_id}"
+        dest_key = f"stage:{dest_id}"
+        source_val = out.pop(source_key, None)
+        dest_val = out.get(dest_key)
+        if source_val is None and dest_val is None:
+            out[dest_key] = None
+        elif source_val is None:
+            out[dest_key] = dest_val
+        elif dest_val is None:
+            out[dest_key] = source_val
+        else:
+            out[dest_key] = dest_val + source_val
+    return out
+
+
 def compute_leaderboard_denominators(
     ctx: LeaderboardScoringContext,
     *,
     hidden_stage_id: int | None = None,
+    hidden_stage_ids: frozenset[int] | set[int] | None = None,
+    merge_into: dict[int, int] | None = None,
 ) -> dict[str, object]:
     """Per-column denominators for the leaderboard PTS/% toggle.
 
@@ -530,6 +619,12 @@ def compute_leaderboard_denominators(
     bracket — a structural constant from the scoring rules, independent of
     current results — matching the structural upper bound used for potential
     points (group achievables plus full knockout tree).
+
+    When ``hidden_stage_ids`` / ``merge_into`` are omitted, uses
+    ``leaderboard_stage_column_plan`` (combine first KO into group when set;
+    hide seeded first KO on knockout-only brackets). Pass an empty frozenset
+    / dict to disable that plan (legacy callers that already pass
+    ``hidden_stage_id`` keep working).
     """
     columns: dict[str, int] = {}
     result: dict[str, object] = {"total": 0, "potential": 0, "columns": columns}
@@ -542,6 +637,16 @@ def compute_leaderboard_denominators(
     from brackets.utils.sync_group_knockout import (
         contestants_credited_for_knockout_score,
     )
+
+    if hidden_stage_ids is None and merge_into is None and hidden_stage_id is None:
+        plan = leaderboard_stage_column_plan(ctx)
+        hidden = set(plan.hidden_stage_ids)
+        merges = dict(plan.merge_into)
+    else:
+        hidden = set(hidden_stage_ids or ())
+        if hidden_stage_id is not None:
+            hidden.add(hidden_stage_id)
+        merges = dict(merge_into or {})
 
     bracket = master.bracket
     current_total = 0
@@ -587,9 +692,14 @@ def compute_leaderboard_denominators(
         # Perfect-complete total spans every scored stage (including a seeded
         # first round) to match the potential numerator's stage set.
         perfect_total += perfect
-        if stage.id == hidden_stage_id:
+        if stage.id in hidden:
+            dest_id = merges.get(stage.id)
+            if dest_id is not None:
+                dest_key = f"stage:{dest_id}"
+                columns[dest_key] = columns.get(dest_key, 0) + current
+                current_total += current
             continue
-        columns[key] = current
+        columns[key] = columns.get(key, 0) + current
         current_total += current
 
     champion_current = (

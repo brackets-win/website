@@ -209,6 +209,8 @@ export function stageToAdminPatch(s: BracketStageInfo): AdminStagePatch {
     patch.has_extra_time = s.knockout.has_extra_time;
     patch.has_penalty_shootout = s.knockout.has_penalty_shootout;
     patch.is_final = s.knockout.is_final;
+    patch.combine_points_with_group_stage =
+      s.knockout.combine_points_with_group_stage !== false;
   }
   return patch;
 }

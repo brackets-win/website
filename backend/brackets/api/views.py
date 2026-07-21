@@ -1415,7 +1415,9 @@ def challenge_leaderboard(
     from brackets.utils.challenge_entries import user_has_submitted_challenge
     from brackets.utils.leaderboard_scoring import (
         compute_leaderboard_denominators,
+        fold_merged_stage_scores,
         get_master_scoring_revision,
+        leaderboard_stage_column_plan,
         load_leaderboard_scoring_context,
         read_stored_leaderboard_scores,
     )
@@ -1498,30 +1500,16 @@ def challenge_leaderboard(
         serializers.leaderboard_column(key="top_four_picks", name="TOP 4 PICKS")
     )
     # Knockout-only brackets seed the first round, so it earns no points and
-    # gets no column. Group → knockout brackets keep it: users pick who
-    # advances from the group stage into that first knockout round.
-    has_group_stage = any(
-        stage.stage_type == BracketStage.StageType.GROUP for stage in stages
-    )
-    hidden_stage_id = None
-    if not has_group_stage:
-        first_ko = next(
-            (
-                stage
-                for stage in stages
-                if stage.stage_type == BracketStage.StageType.KNOCKOUT
-            ),
-            None,
-        )
-        if first_ko is not None:
-            hidden_stage_id = first_ko.id
+    # gets no column. Group → knockout brackets may fold the first knockout
+    # into the group column when combine_points_with_group_stage is set.
+    column_plan = leaderboard_stage_column_plan(ctx)
     columns.extend(
         serializers.leaderboard_column(
             key=f"stage:{stage.id}",
             name=stage.name,
         )
         for stage in stages
-        if stage.id != hidden_stage_id
+        if stage.id not in column_plan.hidden_stage_ids
     )
     columns.append(
         serializers.leaderboard_column(key="champion", name="Champions")
@@ -1534,7 +1522,10 @@ def challenge_leaderboard(
                 ub,
                 revision=scoring_revision,
             )
-            stage_scores = scores.stage_scores
+            stage_scores = fold_merged_stage_scores(
+                scores.stage_scores,
+                column_plan.merge_into,
+            )
             score = scores.score
             potential = None if omit_potential else scores.potential
             potential_rank = scores.potential_rank if show_potential_rank else None
@@ -1568,7 +1559,9 @@ def challenge_leaderboard(
             )
         )
     denominators = compute_leaderboard_denominators(
-        ctx, hidden_stage_id=hidden_stage_id
+        ctx,
+        hidden_stage_ids=column_plan.hidden_stage_ids,
+        merge_into=column_plan.merge_into,
     )
     return JsonResponse(
         {"columns": columns, "entries": entries, "denominators": denominators}

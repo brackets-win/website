@@ -75,6 +75,10 @@ class KnockoutStage(BracketStage):
     is_final = models.BooleanField(default=False)
     # Optional third-place game: one matchup fed by semifinal losers (not winners).
     is_third_place = models.BooleanField(default=False)
+    # First knockout after a group stage: fold this stage's points into the
+    # group-stage leaderboard column (and rank-delta baseline) instead of a
+    # separate column. Both are typically decided together when groups finish.
+    combine_points_with_group_stage = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.name} - Knockout Stage"

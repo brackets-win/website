@@ -71,6 +71,9 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
             "number_of_legs": ks.number_of_legs,
             "has_extra_time": ks.has_extra_time,
             "has_penalty_shootout": ks.has_penalty_shootout,
+            "combine_points_with_group_stage": bool(
+                ks.combine_points_with_group_stage
+            ),
         }
     elif stage.stage_type == BracketStage.StageType.GROUP:
         gs = GroupStage.objects.get(pk=stage.pk)

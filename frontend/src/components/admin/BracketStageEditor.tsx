@@ -394,6 +394,27 @@ export function BracketStageEditor({
             Final
           </label>
           {isFirstKnockout && hasGroupStage ? (
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={
+                  stage.knockout.combine_points_with_group_stage !== false
+                }
+                onChange={(e) =>
+                  onChange({
+                    ...stage,
+                    knockout: {
+                      ...stage.knockout!,
+                      combine_points_with_group_stage: e.target.checked,
+                    },
+                  })
+                }
+                disabled={disabled}
+              />
+              Combine points with group stage
+            </label>
+          ) : null}
+          {isFirstKnockout && hasGroupStage ? (
             <div className="field" style={{ marginTop: '0.75rem' }}>
               <label htmlFor={`ko-fill-${stage.id}`}>
                 Group → knockout fill

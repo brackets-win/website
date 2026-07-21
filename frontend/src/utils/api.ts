@@ -512,6 +512,7 @@ export type BracketStageInfo = {
     number_of_legs: number;
     has_extra_time: boolean;
     has_penalty_shootout: boolean;
+    combine_points_with_group_stage?: boolean;
   };
   group?: {
     number_of_groups: number;
@@ -551,6 +552,7 @@ export type AdminStagePatch = {
   has_penalty_shootout?: boolean;
   is_final?: boolean;
   is_third_place?: boolean;
+  combine_points_with_group_stage?: boolean;
 };
 
 /** Group bucket for UI (even split of bracket contestants). */
