@@ -52,16 +52,16 @@ function flattenChampionRows(
       }
     } else {
       for (const third of ru.children) {
-        const fourth = third.children[0];
-        if (!fourth) continue;
-        for (const leaf of fourth.children) {
-          rows.push({
-            runnerUp: ru.team,
-            runnerUpCount: ru.count,
-            semifinalists: [third.team, fourth.team],
-            quarterFinalists: leaf.quarter_finalists,
-            leaf,
-          });
+        for (const fourth of third.children) {
+          for (const leaf of fourth.children) {
+            rows.push({
+              runnerUp: ru.team,
+              runnerUpCount: ru.count,
+              semifinalists: [third.team, fourth.team],
+              quarterFinalists: leaf.quarter_finalists,
+              leaf,
+            });
+          }
         }
       }
     }
