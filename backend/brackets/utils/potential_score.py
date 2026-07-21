@@ -370,6 +370,11 @@ def group_stage_potential(
     slots = _slots_per_group(gs)
     total = 0
 
+    from brackets.utils.group_stage_config import (
+        is_qualifying_only_picking,
+        matching_third_place_advancer_ids,
+    )
+
     if gs.points_per_exact_position > 0:
         preview = (
             groups_preview
@@ -391,6 +396,31 @@ def group_stage_potential(
                 master_cid = UserBracket._position_contestant_id(master_row, pos)
                 if master_cid is None or master_cid == user_cid:
                     total += gs.points_per_exact_position
+
+        if is_qualifying_only_picking(gs) and third_count > 0:
+            user_tp = (user_ub.metadata or {}).get("third_place_advancers") or []
+            master_tp = (master_ub.metadata or {}).get("third_place_advancers") or []
+            if isinstance(user_tp, list) and isinstance(master_tp, list):
+                matched_tp = matching_third_place_advancer_ids(
+                    user_ub.metadata, master_ub.metadata
+                )
+                try:
+                    master_tp_ids = {int(x) for x in master_tp if x is not None}
+                except (TypeError, ValueError):
+                    master_tp_ids = set()
+                for cid in user_tp:
+                    if cid is None:
+                        continue
+                    try:
+                        cid_int = int(cid)
+                    except (TypeError, ValueError):
+                        continue
+                    if cid_int in matched_tp:
+                        total += gs.points_per_exact_position
+                    elif not master_tp_ids:
+                        total += gs.points_per_exact_position
+                    elif len(master_tp_ids) < third_count:
+                        total += gs.points_per_exact_position
 
     if gs.points_per_advancer > 0:
         for code in user_gp:

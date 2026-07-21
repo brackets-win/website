@@ -68,12 +68,17 @@ class GroupStagePickRequirementsTests(TestCase):
             remaining_spots_strategy="HighestPlaceWithinGroup",
             group_position_picking="qualifying_only",
         )
-        from brackets.utils.group_stage_config import group_stage_scorable_ranks
+        from brackets.utils.group_stage_config import (
+            group_stage_exact_placement_count,
+            group_stage_scorable_ranks,
+        )
 
         ranks, third = group_stage_pick_requirements(gs)
         self.assertEqual(ranks, 2)
         self.assertEqual(third, 4)
         self.assertEqual(group_stage_scorable_ranks(gs), 2)
+        # 6 groups × 2 ranks + 4 third-place rail picks
+        self.assertEqual(group_stage_exact_placement_count(gs), 16)
 
     def test_completeness_uses_qualifying_not_hardcoded(self):
         user = User.objects.create_user(username="u3", password="x")

@@ -3,7 +3,14 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from brackets.models import BracketContestant, GroupStage, KnockoutStage, UserBracket
+from brackets.models import (
+    Bracket,
+    BracketContestant,
+    BracketStage,
+    GroupStage,
+    KnockoutStage,
+    UserBracket,
+)
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 
@@ -86,3 +93,50 @@ class ScoringConfigTests(TestCase):
         score = ub.calculate_stage_score(group_stage)
         # 6 exact positions; A has one matching advancer, B has two
         self.assertEqual(score, 6 + 5 + 5 * 2)
+
+    def test_qualifying_only_third_place_rail_earns_exact_points(self):
+        """Under Qualifying Only, matched top-n thirds count as exact placements."""
+        bracket = Bracket.objects.create(
+            identifier="score-qo",
+            name="Score QO",
+            created_by=self.user,
+        )
+        gs = GroupStage.objects.create(
+            bracket=bracket,
+            name="Groups",
+            order=1,
+            stage_type=BracketStage.StageType.GROUP,
+            number_of_contestants=8,
+            contestants_advancing=6,
+            number_of_groups=2,
+            matches_per_contestant=3,
+            contestants_qualifying_per_group=2,
+            remaining_spots_strategy="HighestPlaceWithinGroup",
+            group_position_picking="qualifying_only",
+            points_per_exact_position=1,
+            points_per_advancer=0,
+        )
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.user, is_master=False
+        )
+        master.metadata = {
+            "group_positions": {
+                "A": {"1": 1, "2": 2},
+                "B": {"1": 5, "2": 6},
+            },
+            "third_place_advancers": [3, 7],
+        }
+        master.save()
+        ub.metadata = {
+            "group_positions": {
+                "A": {"1": 1, "2": 2},
+                "B": {"1": 5, "2": 8},
+            },
+            "third_place_advancers": [3, 4],
+        }
+        ub.save()
+
+        score = ub.calculate_stage_score(gs)
+        # Exact: A1, A2, B1 (3) + one matching third-place rail pick (3) = 4
+        self.assertEqual(score, 4)

@@ -28,7 +28,11 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
             continue
 
         if gs.points_per_exact_position > 0:
-            from brackets.utils.group_stage_config import group_stage_scorable_ranks
+            from brackets.utils.group_stage_config import (
+                group_stage_scorable_ranks,
+                is_qualifying_only_picking,
+                matching_third_place_advancer_ids,
+            )
 
             max_pos = group_stage_scorable_ranks(gs)
             for code, user_row in user_gp.items():
@@ -48,7 +52,18 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
                 if row_h:
                     group_positions[code] = row_h
 
+            # Qualifying-only rail matches earn exact-placement points; reuse
+            # group_advancers so the third-place chips highlight as scored.
+            if is_qualifying_only_picking(gs):
+                group_advancers.extend(
+                    matching_third_place_advancer_ids(ub.metadata, master.metadata)
+                )
+
         if gs.points_per_advancer > 0:
+            from brackets.utils.group_stage_config import (
+                matching_third_place_advancer_ids,
+            )
+
             q = gs.contestants_qualifying_per_group
             for code in user_gp:
                 if not isinstance(user_gp.get(code), dict):
@@ -61,22 +76,9 @@ def scoring_highlights_for_user_bracket(ub: UserBracket) -> dict:
                 )
                 group_advancers.extend(sorted(user_ids & master_ids))
 
-            user_tp = (ub.metadata or {}).get("third_place_advancers") or []
-            master_tp = (master.metadata or {}).get("third_place_advancers") or []
-            if isinstance(user_tp, list) and isinstance(master_tp, list):
-                try:
-                    master_tp_ids = {int(x) for x in master_tp if x is not None}
-                except (TypeError, ValueError):
-                    master_tp_ids = set()
-                for cid in user_tp:
-                    if cid is None:
-                        continue
-                    try:
-                        cid_int = int(cid)
-                    except (TypeError, ValueError):
-                        continue
-                    if cid_int in master_tp_ids:
-                        group_advancers.append(cid_int)
+            group_advancers.extend(
+                matching_third_place_advancer_ids(ub.metadata, master.metadata)
+            )
 
     group_advancers = sorted(set(group_advancers))
 

@@ -58,3 +58,46 @@ class ScoringHighlightsKnockoutTests(TestCase):
             x["contestant_id"] for x in highlights["knockout_contestants"]
         }
         self.assertIn(1, ko_ids)
+
+    def test_qualifying_only_third_rail_exact_highlight(self):
+        from brackets.models import Bracket, BracketStage, GroupStage
+
+        bracket = Bracket.objects.create(
+            identifier="hl-qo",
+            name="HL QO",
+            created_by=self.host,
+        )
+        GroupStage.objects.create(
+            bracket=bracket,
+            name="Groups",
+            order=1,
+            stage_type=BracketStage.StageType.GROUP,
+            number_of_contestants=8,
+            contestants_advancing=6,
+            number_of_groups=2,
+            matches_per_contestant=3,
+            contestants_qualifying_per_group=2,
+            remaining_spots_strategy="HighestPlaceWithinGroup",
+            group_position_picking="qualifying_only",
+            points_per_exact_position=1,
+            points_per_advancer=0,
+        )
+        master = bracket.get_master_bracket()
+        ub = UserBracket.objects.create(
+            bracket=bracket, user=self.player, is_master=False
+        )
+        master.metadata = {
+            "group_positions": {"A": {"1": 1, "2": 2}, "B": {"1": 5, "2": 6}},
+            "third_place_advancers": [3, 7],
+        }
+        master.save()
+        ub.metadata = {
+            "group_positions": {"A": {"1": 1, "2": 2}, "B": {"1": 5, "2": 6}},
+            "third_place_advancers": [3, 4],
+        }
+        ub.save()
+
+        highlights = scoring_highlights_for_user_bracket(ub)
+        self.assertIn(3, highlights["group_advancers"])
+        self.assertNotIn(4, highlights["group_advancers"])
+        self.assertEqual(highlights["group_positions"]["A"]["1"], True)

@@ -58,7 +58,10 @@ def group_stage_pick_requirements(
 def group_stage_scorable_ranks(gs: GroupStage) -> int:
     """
     How many finish positions per group earn ``points_per_exact_position``
-    (and count toward perfect-score / potential denominators).
+    from ``group_positions`` (and count toward per-group potential slots).
+
+    Under ``qualifying_only``, correctly matched ``third_place_advancers`` also
+    earn exact-placement points — see ``group_stage_exact_placement_count``.
     """
     if is_qualifying_only_picking(gs):
         ranks, _ = group_stage_pick_requirements(gs)
@@ -66,6 +69,47 @@ def group_stage_scorable_ranks(gs: GroupStage) -> int:
     if gs.number_of_groups <= 0:
         return 0
     return gs.number_of_contestants // gs.number_of_groups
+
+
+def group_stage_exact_placement_count(gs: GroupStage) -> int:
+    """
+    Total exact-placement scoring opportunities for a perfect group score.
+
+    Per-group scorable ranks × groups, plus under ``qualifying_only`` each
+    third-place rail pick (top-n advancing thirds) that can match the master.
+    """
+    ranks = group_stage_scorable_ranks(gs)
+    total = ranks * gs.number_of_groups
+    if is_qualifying_only_picking(gs):
+        _, third = group_stage_pick_requirements(gs)
+        total += third
+    return total
+
+
+def matching_third_place_advancer_ids(
+    user_metadata: dict | None,
+    master_metadata: dict | None,
+) -> set[int]:
+    """Contestant ids present in both user and master ``third_place_advancers``."""
+    user_tp = (user_metadata or {}).get("third_place_advancers") or []
+    master_tp = (master_metadata or {}).get("third_place_advancers") or []
+    if not isinstance(user_tp, list) or not isinstance(master_tp, list):
+        return set()
+    try:
+        master_tp_ids = {int(x) for x in master_tp if x is not None}
+    except (TypeError, ValueError):
+        return set()
+    matched: set[int] = set()
+    for cid in user_tp:
+        if cid is None:
+            continue
+        try:
+            cid_int = int(cid)
+        except (TypeError, ValueError):
+            continue
+        if cid_int in master_tp_ids:
+            matched.add(cid_int)
+    return matched
 
 
 def resolve_group_contestants_advancing(

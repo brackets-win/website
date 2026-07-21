@@ -285,11 +285,17 @@ class UserBracket(models.Model):
         master_gp = (master.metadata or {}).get("group_positions") or {}
         total = 0
 
+        from brackets.utils.group_stage_config import (
+            group_stage_scorable_ranks,
+            is_qualifying_only_picking,
+            matching_third_place_advancer_ids,
+        )
+
+        matched_tp = matching_third_place_advancer_ids(self.metadata, master.metadata)
+
         if gs.points_per_exact_position > 0 and isinstance(user_gp, dict) and isinstance(
             master_gp, dict
         ):
-            from brackets.utils.group_stage_config import group_stage_scorable_ranks
-
             max_pos = group_stage_scorable_ranks(gs)
             for code, user_row in user_gp.items():
                 if not isinstance(user_row, dict):
@@ -307,6 +313,11 @@ class UserBracket(models.Model):
                     if user_cid == master_cid:
                         total += gs.points_per_exact_position
 
+            # Qualifying-only: third-place rail picks have no group slot, but a
+            # correct top-n third still counts as an exact group placement.
+            if is_qualifying_only_picking(gs):
+                total += gs.points_per_exact_position * len(matched_tp)
+
         if gs.points_per_advancer > 0 and isinstance(user_gp, dict) and isinstance(
             master_gp, dict
         ):
@@ -318,21 +329,7 @@ class UserBracket(models.Model):
                 master_ids = self._advancing_ids_from_positions(master_gp, code, q)
                 total += gs.points_per_advancer * len(user_ids & master_ids)
 
-            user_tp = (self.metadata or {}).get("third_place_advancers") or []
-            master_tp = (master.metadata or {}).get("third_place_advancers") or []
-            if isinstance(user_tp, list) and isinstance(master_tp, list):
-                try:
-                    master_tp_ids = {int(x) for x in master_tp if x is not None}
-                except (TypeError, ValueError):
-                    master_tp_ids = set()
-                for cid in user_tp:
-                    if cid is None:
-                        continue
-                    try:
-                        if int(cid) in master_tp_ids:
-                            total += gs.points_per_advancer
-                    except (TypeError, ValueError):
-                        continue
+            total += gs.points_per_advancer * len(matched_tp)
 
         return total
 

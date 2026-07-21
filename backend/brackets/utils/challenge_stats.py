@@ -542,26 +542,35 @@ class _GroupPointsContext:
         *,
         points_per_exact_position: int,
         scorable_ranks: int,
+        qualifying_only: bool,
+        master_third_place_advancers: set[int],
         first_ko_stage: BracketStage | None,
         first_ko_points: int,
         master_gp: dict[str, Any],
         master_first_ko_ids: set[int],
         entry_first_ko_ids: dict[int, set[int]],
+        entry_third_place_advancers: dict[int, set[int]],
     ) -> None:
         self.points_per_exact_position = points_per_exact_position
         self.scorable_ranks = scorable_ranks
+        self.qualifying_only = qualifying_only
+        self.master_third_place_advancers = master_third_place_advancers
         self.first_ko_stage = first_ko_stage
         self.first_ko_points = first_ko_points
         self.master_gp = master_gp
         self.master_first_ko_ids = master_first_ko_ids
         self.entry_first_ko_ids = entry_first_ko_ids
+        self.entry_third_place_advancers = entry_third_place_advancers
 
 
 def _build_group_points_context(
     bracket: Bracket,
     user_brackets: list[UserBracket],
 ) -> _GroupPointsContext:
-    from brackets.utils.group_stage_config import group_stage_scorable_ranks
+    from brackets.utils.group_stage_config import (
+        group_stage_scorable_ranks,
+        is_qualifying_only_picking,
+    )
 
     group_cfg = (
         GroupStage.objects.filter(bracket=bracket).order_by("order").first()
@@ -571,6 +580,9 @@ def _build_group_points_context(
     )
     scorable_ranks = (
         group_stage_scorable_ranks(group_cfg) if group_cfg is not None else 0
+    )
+    qualifying_only = bool(
+        group_cfg is not None and is_qualifying_only_picking(group_cfg)
     )
 
     first_ko_stage = (
@@ -586,28 +598,54 @@ def _build_group_points_context(
     master = bracket.userbracket_set.filter(is_master=True).first()
     master_gp = {}
     master_first_ko_ids: set[int] = set()
+    master_third_place_advancers: set[int] = set()
     if master is not None:
         master_gp = (master.metadata or {}).get("group_positions") or {}
         if first_ko_stage is not None:
             master_first_ko_ids = contestants_credited_for_knockout_score(
                 master, first_ko_stage
             )
+        tp_raw = (master.metadata or {}).get("third_place_advancers") or []
+        if isinstance(tp_raw, list):
+            for x in tp_raw:
+                if x is None:
+                    continue
+                try:
+                    master_third_place_advancers.add(int(x))
+                except (TypeError, ValueError):
+                    continue
 
     entry_first_ko_ids: dict[int, set[int]] = {}
+    entry_third_place_advancers: dict[int, set[int]] = {}
     if first_ko_stage is not None:
         for ub in user_brackets:
             entry_first_ko_ids[ub.id] = contestants_credited_for_knockout_score(
                 ub, first_ko_stage
             )
+    for ub in user_brackets:
+        tp_raw = (ub.metadata or {}).get("third_place_advancers") or []
+        ids: set[int] = set()
+        if isinstance(tp_raw, list):
+            for x in tp_raw:
+                if x is None:
+                    continue
+                try:
+                    ids.add(int(x))
+                except (TypeError, ValueError):
+                    continue
+        entry_third_place_advancers[ub.id] = ids
 
     return _GroupPointsContext(
         points_per_exact_position=points_per_exact_position,
         scorable_ranks=scorable_ranks,
+        qualifying_only=qualifying_only,
+        master_third_place_advancers=master_third_place_advancers,
         first_ko_stage=first_ko_stage,
         first_ko_points=first_ko_points,
         master_gp=master_gp if isinstance(master_gp, dict) else {},
         master_first_ko_ids=master_first_ko_ids,
         entry_first_ko_ids=entry_first_ko_ids,
+        entry_third_place_advancers=entry_third_place_advancers,
     )
 
 
@@ -699,8 +737,15 @@ def _group_points_breakdown(
     group_team_ids = {int(t["id"]) for t in group["teams"]}
 
     advancers_in_group = ctx.master_first_ko_ids & group_team_ids
+    master_tp_in_group = ctx.master_third_place_advancers & group_team_ids
+    qo_exact_third = (
+        len(master_tp_in_group)
+        if ctx.qualifying_only and ctx.points_per_exact_position > 0
+        else 0
+    )
     max_points = (
         ctx.scorable_ranks * ctx.points_per_exact_position
+        + qo_exact_third * ctx.points_per_exact_position
         + len(advancers_in_group) * ctx.first_ko_points
     )
 
@@ -717,6 +762,12 @@ def _group_points_breakdown(
             ctx.points_per_exact_position,
             max_position=ctx.scorable_ranks or None,
         )
+
+        if ctx.qualifying_only and ctx.points_per_exact_position > 0:
+            user_tp = ctx.entry_third_place_advancers.get(ub.id, set())
+            points += (
+                len(user_tp & master_tp_in_group) * ctx.points_per_exact_position
+            )
 
         if ctx.first_ko_points > 0 and ctx.first_ko_stage is not None:
             credited = (

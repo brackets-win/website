@@ -661,12 +661,12 @@ def compute_leaderboard_denominators(
             current = master._calculate_group_stage_score(
                 master, stage, group_stage=gs
             )
-            _, third_count = group_stage_pick_requirements(gs)
-            from brackets.utils.group_stage_config import group_stage_scorable_ranks
+            from brackets.utils.group_stage_config import group_stage_exact_placement_count
 
-            scorable = group_stage_scorable_ranks(gs)
-            perfect = gs.points_per_exact_position * scorable * gs.number_of_groups + (
-                gs.points_per_advancer
+            _, third_count = group_stage_pick_requirements(gs)
+            perfect = (
+                gs.points_per_exact_position * group_stage_exact_placement_count(gs)
+                + gs.points_per_advancer
                 * (
                     gs.contestants_qualifying_per_group * gs.number_of_groups
                     + third_count

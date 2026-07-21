@@ -51,7 +51,8 @@ class GroupStage(BracketStage):
         ALL = 'all', 'All'
         QUALIFYING_ONLY = 'qualifying_only', 'Qualifying Only'
 
-    # Which group ranks users must pick (and which earn exact-placement points).
+    # Which group ranks users must pick. Exact-placement points cover those ranks;
+    # under Qualifying Only, matched third-place rail picks also earn exact points.
     group_position_picking = models.CharField(
         max_length=32,
         choices=GroupPositionPicking.choices,
