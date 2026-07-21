@@ -512,6 +512,7 @@ export type BracketStageInfo = {
     number_of_legs: number;
     has_extra_time: boolean;
     has_penalty_shootout: boolean;
+    seeding_mode?: 'standard' | 'reseed' | 'randomize';
     combine_points_with_group_stage?: boolean;
   };
   group?: {
@@ -552,6 +553,7 @@ export type AdminStagePatch = {
   has_penalty_shootout?: boolean;
   is_final?: boolean;
   is_third_place?: boolean;
+  seeding_mode?: 'standard' | 'reseed' | 'randomize';
   combine_points_with_group_stage?: boolean;
 };
 
@@ -1501,6 +1503,7 @@ export type BracketStructureConfig = {
     has_penalty_shootout?: boolean;
     points_per_correct_pick?: number;
     is_random_draw?: boolean;
+    seeding_mode?: 'standard' | 'reseed' | 'randomize';
     round_points?: Record<number, number>;
   };
 };

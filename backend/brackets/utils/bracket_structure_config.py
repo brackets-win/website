@@ -198,6 +198,8 @@ def resolved_bracket_scoring(config: dict[str, Any] | None) -> dict[str, int]:
 
 def resolved_knockout_defaults(config: dict[str, Any] | None) -> dict[str, Any]:
     ko = (config or {}).get("knockout") or {}
+    from brackets.utils.knockout_stage_seeding import normalize_seeding_mode
+
     return {
         "number_of_legs": (
             _positive_int(ko["number_of_legs"], "number_of_legs")
@@ -213,6 +215,7 @@ def resolved_knockout_defaults(config: dict[str, Any] | None) -> dict[str, Any]:
         ),
         "is_random_draw": _bool_val(ko.get("is_random_draw"), False),
         "metadata": parse_bracket_metadata(ko.get("metadata")),
+        "seeding_mode": normalize_seeding_mode(ko.get("seeding_mode")),
     }
 
 

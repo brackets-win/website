@@ -29,12 +29,18 @@ class MemMatchup:
     is_team_a: bool = False
     feeds: list[tuple[int, str, bool]] = field(default_factory=list)
     db_id: int | None = None
+    # When the next stage uses reseed/randomize, tree next_idx is unused.
+    dynamic_next_stage_idx: int | None = None
 
 
 @dataclass
 class TreeState:
     matchups: list[MemMatchup]
     stage_matchup_indices: list[list[int]]
+    stage_seeding_modes: list[str] = field(default_factory=list)
+    team_seeds: dict[int, int | None] = field(default_factory=dict)
+    user_bracket_id: int = 0
+    stage_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -98,6 +104,12 @@ def first_knockout_fully_seeded(master: UserBracket, first_ko) -> bool:
 
 
 def build_master_tree(master: UserBracket, ko_stages: list) -> TreeState:
+    from brackets.models import BracketContestant
+    from brackets.utils.knockout_stage_seeding import (
+        is_dynamic_seeding_mode,
+        seeding_mode_for_stage,
+    )
+
     db_matchups = list(
         master.matchup_set.filter(stage__in=ko_stages).select_related(
             "stage",
@@ -110,6 +122,18 @@ def build_master_tree(master: UserBracket, ko_stages: list) -> TreeState:
     mem: list[MemMatchup] = []
     stage_indices: list[list[int]] = [[] for _ in ko_stages]
     stage_id_to_idx = {s.pk: i for i, s in enumerate(ko_stages)}
+    stage_seeding_modes = [seeding_mode_for_stage(s) for s in ko_stages]
+    stage_ids = [s.pk for s in ko_stages]
+
+    team_ids: set[int] = set()
+    for m in db_matchups:
+        for cid in (m.contestant1_id, m.contestant2_id, m.winner_id):
+            if cid is not None:
+                team_ids.add(cid)
+    team_seeds = {
+        bc.id: bc.seed
+        for bc in BracketContestant.objects.filter(id__in=team_ids).only("id", "seed")
+    }
 
     for m in db_matchups:
         stage_idx = stage_id_to_idx[m.stage_id]
@@ -136,15 +160,19 @@ def build_master_tree(master: UserBracket, ko_stages: list) -> TreeState:
         except KnockoutStage.DoesNotExist:
             pass
         if ks and not ks.is_final and not ks.is_third_place:
-            next_pos = (m.position + 1) // 2
             next_stages = [
                 s
                 for s in ko_stages
                 if s.order > m.stage.order and not knockout_is_third_place(s)
             ]
             if next_stages:
-                next_idx = key_to_idx.get((next_stages[0].pk, next_pos))
-                mm.next_idx = next_idx
+                next_stage = next_stages[0]
+                next_stage_idx = stage_id_to_idx[next_stage.pk]
+                if is_dynamic_seeding_mode(stage_seeding_modes[next_stage_idx]):
+                    mm.dynamic_next_stage_idx = next_stage_idx
+                else:
+                    next_pos = (m.position + 1) // 2
+                    mm.next_idx = key_to_idx.get((next_stage.pk, next_pos))
         if m.source_a_matchup_id is not None and m.source_a_matchup is not None:
             src = key_to_idx.get(
                 (m.source_a_matchup.stage_id, m.source_a_matchup.position)
@@ -158,7 +186,14 @@ def build_master_tree(master: UserBracket, ko_stages: list) -> TreeState:
             if src is not None:
                 mem[src].feeds.append((idx, "b", m.source_b_uses_winner))
 
-    return TreeState(matchups=mem, stage_matchup_indices=stage_indices)
+    return TreeState(
+        matchups=mem,
+        stage_matchup_indices=stage_indices,
+        stage_seeding_modes=stage_seeding_modes,
+        team_seeds=team_seeds,
+        user_bracket_id=master.id,
+        stage_ids=stage_ids,
+    )
 
 
 def count_branchable_undecided_matchups(tree: TreeState) -> int:
@@ -692,11 +727,98 @@ def copy_tree_state(state: TreeState) -> TreeState:
                 next_idx=m.next_idx,
                 is_team_a=m.is_team_a,
                 feeds=list(m.feeds),
+                db_id=m.db_id,
+                dynamic_next_stage_idx=m.dynamic_next_stage_idx,
             )
             for m in state.matchups
         ],
         stage_matchup_indices=[list(indices) for indices in state.stage_matchup_indices],
+        stage_seeding_modes=list(state.stage_seeding_modes),
+        team_seeds=dict(state.team_seeds),
+        user_bracket_id=state.user_bracket_id,
+        stage_ids=list(state.stage_ids),
     )
+
+
+def _fill_dynamic_stage_in_memory(
+    state: TreeState, dest_stage_idx: int, changes: list[UndoChange] | None
+) -> None:
+    """Assign reseed/randomize pairs into ``dest_stage_idx`` when prior round is complete."""
+    from brackets.utils.knockout_stage_seeding import (
+        RESEED,
+        pair_randomize,
+        pair_reseed,
+        rng_for_stage_draw,
+    )
+
+    if dest_stage_idx < 0 or dest_stage_idx >= len(state.stage_matchup_indices):
+        return
+    mode = state.stage_seeding_modes[dest_stage_idx]
+
+    prev_indices = None
+    for indices in state.stage_matchup_indices:
+        if not indices:
+            continue
+        sample = state.matchups[indices[0]]
+        if sample.dynamic_next_stage_idx == dest_stage_idx:
+            prev_indices = indices
+            break
+    if not prev_indices:
+        return
+
+    winners: list[int] = []
+    for idx in prev_indices:
+        w = state.matchups[idx].winner
+        if w is None:
+            for di in state.stage_matchup_indices[dest_stage_idx]:
+                dm = state.matchups[di]
+                if changes is not None:
+                    changes.append((di, "c1", dm.c1))
+                    changes.append((di, "c2", dm.c2))
+                    changes.append((di, "winner", dm.winner))
+                dm.c1 = None
+                dm.c2 = None
+                dm.winner = None
+            return
+        winners.append(w)
+
+    class _C:
+        __slots__ = ("id",)
+
+        def __init__(self, i: int):
+            self.id = i
+
+    if mode == RESEED:
+        ordered = sorted(
+            winners,
+            key=lambda tid: (
+                state.team_seeds[tid]
+                if state.team_seeds.get(tid) is not None
+                else float("inf"),
+                tid,
+            ),
+        )
+        pairs = pair_reseed([_C(i) for i in ordered])
+    else:
+        rng = rng_for_stage_draw(
+            state.user_bracket_id,
+            state.stage_ids[dest_stage_idx],
+            winners,
+        )
+        pairs = pair_randomize([_C(i) for i in winners], rng=rng)
+    id_pairs = [(a.id, b.id) for a, b in pairs]
+
+    dest_indices = state.stage_matchup_indices[dest_stage_idx]
+    for di, (c1, c2) in zip(dest_indices, id_pairs):
+        dm = state.matchups[di]
+        if changes is not None:
+            changes.append((di, "c1", dm.c1))
+            changes.append((di, "c2", dm.c2))
+            changes.append((di, "winner", dm.winner))
+        dm.c1 = c1
+        dm.c2 = c2
+        if dm.winner is not None and dm.winner not in (c1, c2):
+            dm.winner = None
 
 
 def apply_winner_with_undo(
@@ -722,6 +844,8 @@ def apply_winner_with_undo(
         else:
             record(m.next_idx, "c2")
             nxt.c2 = winner_id
+    elif m.dynamic_next_stage_idx is not None:
+        _fill_dynamic_stage_in_memory(state, m.dynamic_next_stage_idx, changes)
 
     for feed_idx, slot, uses_winner in m.feeds:
         fm = state.matchups[feed_idx]
@@ -753,6 +877,8 @@ def apply_winner(state: TreeState, m_idx: int, winner_id: int) -> None:
             nxt.c1 = winner_id
         else:
             nxt.c2 = winner_id
+    elif m.dynamic_next_stage_idx is not None:
+        _fill_dynamic_stage_in_memory(state, m.dynamic_next_stage_idx, None)
 
     for feed_idx, slot, uses_winner in m.feeds:
         fm = state.matchups[feed_idx]

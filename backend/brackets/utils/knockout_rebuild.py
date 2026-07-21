@@ -57,7 +57,25 @@ def remove_team_from_knockout_path(from_matchup: Matchup, team_id: int) -> None:
     Remove ``team_id`` only where it appears along this matchup's winner path:
     the fed slot in the next round, then that team's winner picks further on.
     Other teams' slots and picks on the same game or other games are untouched.
+
+    When the next stage uses reseed/randomize, invalidate that stage (and later
+    rounds) instead of assuming fixed tree slots.
     """
+    from brackets.utils.knockout_stage_seeding import (
+        is_dynamic_seeding_mode,
+        next_main_knockout_stage,
+        seeding_mode_for_stage,
+        sync_knockout_stage_seeding,
+    )
+
+    dest = next_main_knockout_stage(
+        from_matchup.user_bracket.bracket, from_matchup.stage
+    )
+    if dest is not None and is_dynamic_seeding_mode(seeding_mode_for_stage(dest)):
+        # Prior winner no longer advances; re-sync (clears when round incomplete).
+        sync_knockout_stage_seeding(from_matchup.user_bracket, dest)
+        return
+
     cur = from_matchup
     nxt = cur.get_next_matchup()
     while nxt:
@@ -78,6 +96,12 @@ def remove_team_from_knockout_path(from_matchup: Matchup, team_id: int) -> None:
         nxt.save(update_fields=["contestant1", "contestant2", "winner"])
         cur = nxt
         nxt = cur.get_next_matchup()
+        if nxt is None:
+            break
+        dest = next_main_knockout_stage(cur.user_bracket.bracket, cur.stage)
+        if dest is not None and is_dynamic_seeding_mode(seeding_mode_for_stage(dest)):
+            sync_knockout_stage_seeding(cur.user_bracket, dest)
+            break
 
 
 @transaction.atomic
@@ -127,3 +151,15 @@ def rebuild_knockout_from_first_round(user_bracket: UserBracket) -> None:
     ).order_by("position"):
         if m.winner_id:
             m.propagate_winner()
+
+    # Reseed/randomize later rounds need a full-round sync after all R1 winners
+    # are re-applied (tree propagate alone does not place them).
+    from brackets.utils.knockout_stage_seeding import (
+        is_dynamic_seeding_mode,
+        seeding_mode_for_stage,
+        sync_knockout_stage_seeding,
+    )
+
+    for stage in ko_stages[1:]:
+        if is_dynamic_seeding_mode(seeding_mode_for_stage(stage)):
+            sync_knockout_stage_seeding(user_bracket, stage)

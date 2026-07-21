@@ -152,25 +152,10 @@ class Matchup(models.Model):
 
         # Winner advances to the next knockout round (e.g. semi → final).
         # Always run this even when explicit loser feeds exist (third-place game).
-        next_matchup = self.get_next_matchup()
-        if next_matchup:
-            if self.is_team_a():
-                old_id = next_matchup.contestant1_id
-                if old_id and old_id != self.winner_id:
-                    remove_team_from_knockout_path(self, old_id)
-                    next_matchup.refresh_from_db(
-                        fields=["contestant1", "contestant2", "winner"]
-                    )
-                next_matchup.contestant1 = self.winner
-            else:
-                old_id = next_matchup.contestant2_id
-                if old_id and old_id != self.winner_id:
-                    remove_team_from_knockout_path(self, old_id)
-                    next_matchup.refresh_from_db(
-                        fields=["contestant1", "contestant2", "winner"]
-                    )
-                next_matchup.contestant2 = self.winner
-            next_matchup.save(update_fields=["contestant1", "contestant2"])
+        # Standard uses tree slots; reseed/randomize fill once the prior round is complete.
+        from brackets.utils.knockout_stage_seeding import propagate_to_next_stage
+
+        propagate_to_next_stage(self)
 
     def save(self, *args, **kwargs):
         """Override save to auto-propagate winners."""

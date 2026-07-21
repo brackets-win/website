@@ -9,7 +9,14 @@ const KNOCKOUT_FILL_OPTIONS = [
   { value: 'mapping', label: 'Mapping' },
 ] as const;
 
+const KNOCKOUT_SEEDING_OPTIONS = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'reseed', label: 'Reseed' },
+  { value: 'randomize', label: 'Randomize' },
+] as const;
+
 type KnockoutFillMethod = (typeof KNOCKOUT_FILL_OPTIONS)[number]['value'];
+type KnockoutSeedingMode = (typeof KNOCKOUT_SEEDING_OPTIONS)[number]['value'];
 
 function readKnockoutFillMethod(metadata: unknown): KnockoutFillMethod {
   if (
@@ -39,6 +46,19 @@ function setKnockoutFillMethod(
       : {};
   base.knockout_fill_method = method;
   return base;
+}
+
+function readKnockoutSeedingMode(
+  stage: BracketStageInfo,
+): KnockoutSeedingMode {
+  const raw = stage.knockout?.seeding_mode;
+  if (typeof raw === 'string') {
+    const v = raw.trim().toLowerCase();
+    if (KNOCKOUT_SEEDING_OPTIONS.some((o) => o.value === v)) {
+      return v as KnockoutSeedingMode;
+    }
+  }
+  return 'standard';
 }
 
 type Props = {
@@ -95,17 +115,19 @@ export function BracketStageEditor({
         />
       </div>
 
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          checked={stage.is_random_draw}
-          onChange={(e) =>
-            onChange({ ...stage, is_random_draw: e.target.checked })
-          }
-          disabled={disabled}
-        />
-        Random draw for this stage
-      </label>
+      {!isKo ? (
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={stage.is_random_draw}
+            onChange={(e) =>
+              onChange({ ...stage, is_random_draw: e.target.checked })
+            }
+            disabled={disabled}
+          />
+          Random draw for this stage
+        </label>
+      ) : null}
 
       {isGroup && stage.group ? (
         <div className="stage-editor__block">
@@ -414,6 +436,30 @@ export function BracketStageEditor({
               Combine points with group stage
             </label>
           ) : null}
+          <div className="field" style={{ marginTop: '0.75rem' }}>
+            <label htmlFor={`ko-seed-${stage.id}`}>Round seeding</label>
+            <select
+              id={`ko-seed-${stage.id}`}
+              className="select"
+              value={readKnockoutSeedingMode(stage)}
+              onChange={(e) =>
+                onChange({
+                  ...stage,
+                  knockout: {
+                    ...stage.knockout!,
+                    seeding_mode: e.target.value as KnockoutSeedingMode,
+                  },
+                })
+              }
+              disabled={disabled}
+            >
+              {KNOCKOUT_SEEDING_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
           {isFirstKnockout && hasGroupStage ? (
             <div className="field" style={{ marginTop: '0.75rem' }}>
               <label htmlFor={`ko-fill-${stage.id}`}>

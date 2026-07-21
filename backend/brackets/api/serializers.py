@@ -71,6 +71,7 @@ def stage_public(stage: BracketStage) -> dict[str, Any]:
             "number_of_legs": ks.number_of_legs,
             "has_extra_time": ks.has_extra_time,
             "has_penalty_shootout": ks.has_penalty_shootout,
+            "seeding_mode": ks.seeding_mode or "standard",
             "combine_points_with_group_stage": bool(
                 ks.combine_points_with_group_stage
             ),

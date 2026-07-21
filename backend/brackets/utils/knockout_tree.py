@@ -126,7 +126,6 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
             f'({ko_stages[0].number_of_contestants}).'
         )
 
-    n = len(contestants)
     created: List[Matchup] = []
 
     for idx, stage in enumerate(ko_stages):
@@ -145,18 +144,29 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
             continue
 
         if idx == 0:
-            from brackets.utils.bracket_seeding import first_round_seed_pairs
+            from brackets.utils.knockout_stage_seeding import (
+                first_round_pairs_for_mode,
+                rng_for_stage_draw,
+                seeding_mode_for_stage,
+            )
 
-            for position, (seed1, seed2) in enumerate(
-                first_round_seed_pairs(n), start=1
+            mode = seeding_mode_for_stage(stage)
+            rng = rng_for_stage_draw(
+                user_bracket.id,
+                stage.id,
+                [c.id for c in contestants],
+            )
+            for position, (c1, c2) in enumerate(
+                first_round_pairs_for_mode(contestants, mode, rng=rng),
+                start=1,
             ):
                 created.append(
                     Matchup.objects.create(
                         user_bracket=user_bracket,
                         stage=stage,
                         position=position,
-                        contestant1=contestants[seed1 - 1],
-                        contestant2=contestants[seed2 - 1],
+                        contestant1=c1,
+                        contestant2=c2,
                     )
                 )
         else:

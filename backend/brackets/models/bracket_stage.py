@@ -69,12 +69,24 @@ class GroupStage(BracketStage):
 
 
 class KnockoutStage(BracketStage):
+    class SeedingMode(models.TextChoices):
+        STANDARD = 'standard', 'Standard'
+        RESEED = 'reseed', 'Reseed'
+        RANDOMIZE = 'randomize', 'Randomize'
+
     number_of_legs = models.PositiveIntegerField(default=1)
     has_extra_time = models.BooleanField(default=False)
     has_penalty_shootout = models.BooleanField(default=False)
     is_final = models.BooleanField(default=False)
     # Optional third-place game: one matchup fed by semifinal losers (not winners).
     is_third_place = models.BooleanField(default=False)
+    # How this round's matchups are formed from the previous round's winners
+    # (or from the initial field for the first knockout stage).
+    seeding_mode = models.CharField(
+        max_length=20,
+        choices=SeedingMode.choices,
+        default=SeedingMode.STANDARD,
+    )
     # First knockout after a group stage: fold this stage's points into the
     # group-stage leaderboard column (and rank-delta baseline) instead of a
     # separate column. Both are typically decided together when groups finish.

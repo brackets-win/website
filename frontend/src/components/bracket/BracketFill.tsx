@@ -47,6 +47,7 @@ import {
   findMatchupById,
   prevKnockoutStageBeforeFinal,
   resolveFeederMatchups,
+  stageUsesTreeFeeders,
   sortMatchupsByFeederOrder,
 } from './knockoutFeederLayout';
 import './BracketFill.css';
@@ -1175,12 +1176,16 @@ function ConnectorBetweenStages({
 }) {
   const fromPct = columnCenterFn(fromCol);
   const prevStageId = fromCol.stage.id;
+  const treeOpts = {
+    useTreeFeeders: stageUsesTreeFeeders(toCol.stage),
+  };
   const nextMatchups = sortMatchupsByFeederOrder(
     matchupsForStage(detail, toCol.stage.id).filter(
       (m) => m.position >= toCol.positionMin && m.position <= toCol.positionMax,
     ),
     detail,
     prevStageId,
+    treeOpts,
   );
 
   return (
@@ -1197,6 +1202,7 @@ function ConnectorBetweenStages({
               m,
               detail,
               prevStageId,
+              treeOpts,
             );
             if (!top || !bottom) return null;
             const y1 = fromPct(fromCol.stageIdx, top.position);
@@ -1391,12 +1397,14 @@ function MirrorBracketStageColumn({
   const { stage, stageIdx, positionMin, positionMax, wingMin, wingMax } = col;
   const isFirst = stageIdx === 0;
   const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
+  const treeOpts = { useTreeFeeders: stageUsesTreeFeeders(stage) };
   const matchups = sortMatchupsByFeederOrder(
     matchupsForStage(detail, stage.id).filter(
       (m) => m.position >= positionMin && m.position <= positionMax,
     ),
     detail,
     prevStage?.id ?? null,
+    treeOpts,
   );
   const wingSlots = wingMax - wingMin + 1;
   const stageTitle =
@@ -1415,6 +1423,7 @@ function MirrorBracketStageColumn({
             m,
             detail,
             prevStage?.id ?? null,
+            treeOpts,
           );
           const topPct = columnMatchupCenterPct(
             stageIdx,
@@ -1488,10 +1497,12 @@ function BracketStageColumn({
 }) {
   const isFirst = stageIdx === 0;
   const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
+  const treeOpts = { useTreeFeeders: stageUsesTreeFeeders(stage) };
   const matchups = sortMatchupsByFeederOrder(
     matchupsForStage(detail, stage.id),
     detail,
     prevStage?.id ?? null,
+    treeOpts,
   );
 
   const stageTitle =
@@ -1511,6 +1522,7 @@ function BracketStageColumn({
             m,
             detail,
             prevStage?.id ?? null,
+            treeOpts,
           );
           const topPct = columnMatchupCenterPct(
             stageIdx,
@@ -1803,11 +1815,12 @@ function MatchupCard({
   busy: boolean;
   onClearWinner?: (matchupId: number) => void;
 }) {
-  const feeders = resolveFeederMatchups(m, detail, prevStageId);
+  const stageInfo = knockoutStages.find((s) => s.id === m.stage_id);
+  const feeders = resolveFeederMatchups(m, detail, prevStageId, {
+    useTreeFeeders: stageUsesTreeFeeders(stageInfo),
+  });
   const { top: feederTop, bottom: feederBot } = feeders;
-  const isThirdPlace =
-    knockoutStages.find((s) => s.id === m.stage_id)?.knockout?.is_third_place ===
-    true;
+  const isThirdPlace = stageInfo?.knockout?.is_third_place === true;
   const contestantTop =
     feederTop != null
       ? contestantForFeeder(m, feederTop, feeders, knockoutStages)

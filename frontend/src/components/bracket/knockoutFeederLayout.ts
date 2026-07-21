@@ -34,8 +34,18 @@ export function resolveFeederMatchups(
   m: MatchupInfo,
   detail: UserBracketDetail,
   prevStageId: number | null,
+  opts?: { useTreeFeeders?: boolean },
 ): { top: MatchupInfo | null; bottom: MatchupInfo | null } {
   if (prevStageId == null) {
+    return { top: null, bottom: null };
+  }
+
+  const useTree = opts?.useTreeFeeders !== false;
+  const hasExplicitSources =
+    m.source_a_matchup_id != null || m.source_b_matchup_id != null;
+
+  // Reseed / randomize rounds are not fed by fixed tree slots.
+  if (!useTree && !hasExplicitSources) {
     return { top: null, bottom: null };
   }
 
@@ -45,11 +55,15 @@ export function resolveFeederMatchups(
   const rawTop =
     m.source_a_matchup_id != null
       ? findMatchupById(detail, m.source_a_matchup_id)
-      : prev.find((x) => x.position === 2 * np - 1) ?? null;
+      : useTree
+        ? (prev.find((x) => x.position === 2 * np - 1) ?? null)
+        : null;
   const rawBottom =
     m.source_b_matchup_id != null
       ? findMatchupById(detail, m.source_b_matchup_id)
-      : prev.find((x) => x.position === 2 * np) ?? null;
+      : useTree
+        ? (prev.find((x) => x.position === 2 * np) ?? null)
+        : null;
 
   if (!rawTop || !rawBottom) {
     return { top: rawTop ?? null, bottom: rawBottom ?? null };
@@ -61,12 +75,18 @@ export function resolveFeederMatchups(
   return { top: rawBottom, bottom: rawTop };
 }
 
+export function stageUsesTreeFeeders(stage: BracketStageInfo | undefined): boolean {
+  const mode = stage?.knockout?.seeding_mode ?? 'standard';
+  return mode === 'standard';
+}
+
 export function feederSortKey(
   m: MatchupInfo,
   detail: UserBracketDetail,
   prevStageId: number | null,
+  opts?: { useTreeFeeders?: boolean },
 ): number {
-  const { top, bottom } = resolveFeederMatchups(m, detail, prevStageId);
+  const { top, bottom } = resolveFeederMatchups(m, detail, prevStageId, opts);
   if (top && bottom) return top.position;
   if (top) return top.position;
   if (bottom) return bottom.position;
@@ -77,11 +97,12 @@ export function sortMatchupsByFeederOrder(
   matchups: MatchupInfo[],
   detail: UserBracketDetail,
   prevStageId: number | null,
+  opts?: { useTreeFeeders?: boolean },
 ): MatchupInfo[] {
   return [...matchups].sort(
     (a, b) =>
-      feederSortKey(a, detail, prevStageId) -
-      feederSortKey(b, detail, prevStageId),
+      feederSortKey(a, detail, prevStageId, opts) -
+      feederSortKey(b, detail, prevStageId, opts),
   );
 }
 

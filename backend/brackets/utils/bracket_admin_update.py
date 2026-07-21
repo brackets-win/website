@@ -171,6 +171,20 @@ def apply_stage_admin_patch(stage: BracketStage, patch: dict[str, Any]) -> list[
             ks.is_final = _bool_val(patch["is_final"])
             ks_fields.append("is_final")
 
+        if "seeding_mode" in patch:
+            from brackets.utils.knockout_stage_seeding import (
+                VALID_SEEDING_MODES,
+                normalize_seeding_mode,
+            )
+
+            raw = str(patch["seeding_mode"] or "").strip().lower()
+            if raw not in VALID_SEEDING_MODES:
+                raise ValueError(
+                    "seeding_mode must be 'standard', 'reseed', or 'randomize'"
+                )
+            ks.seeding_mode = normalize_seeding_mode(raw)
+            ks_fields.append("seeding_mode")
+
         if "combine_points_with_group_stage" in patch:
             ks.combine_points_with_group_stage = _bool_val(
                 patch["combine_points_with_group_stage"]
