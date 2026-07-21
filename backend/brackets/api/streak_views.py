@@ -778,6 +778,8 @@ def streak_challenges_list_create(request: HttpRequest) -> JsonResponse:
             return _json_error("Streak competition not found", 404)
 
         is_private = bool(body.get("is_private"))
+        if not user.is_staff:
+            is_private = True
         join_code = _generate_join_code() if is_private else None
 
         with transaction.atomic():

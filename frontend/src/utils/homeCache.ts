@@ -151,13 +151,30 @@ function emptySnapshot(): HomeSnapshot {
   };
 }
 
+/** Match API: submission_deadline desc, nulls last. */
+function sortChallengesByDeadlineDesc(
+  challenges: ChallengeSummary[],
+): ChallengeSummary[] {
+  return [...challenges].sort((a, b) => {
+    const aDeadline = a.submission_deadline;
+    const bDeadline = b.submission_deadline;
+    if (aDeadline && bDeadline) {
+      return bDeadline.localeCompare(aDeadline);
+    }
+    if (aDeadline && !bDeadline) return -1;
+    if (!aDeadline && bDeadline) return 1;
+    return 0;
+  });
+}
+
 export function upsertHomeChallenge(challenge: ChallengeSummary) {
   const prev = snapshot ?? emptySnapshot();
   const idx = prev.challenges.findIndex((row) => row.id === challenge.id);
-  const challenges =
+  const challenges = sortChallengesByDeadlineDesc(
     idx < 0
       ? [challenge, ...prev.challenges]
-      : prev.challenges.map((row, i) => (i === idx ? challenge : row));
+      : prev.challenges.map((row, i) => (i === idx ? challenge : row)),
+  );
   snapshot = { ...prev, challenges };
   notify();
 }

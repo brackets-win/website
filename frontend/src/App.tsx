@@ -303,7 +303,7 @@ export default function App() {
     <AppShell user={sessionUser} onSignOut={() => void handleSignOut()}>
       <LegacyUbRedirect />
       <Routes>
-        <Route path="/" element={<ChallengesPage />} />
+        <Route path="/" element={<ChallengesPage currentUser={sessionUser} />} />
 
         <Route
           path="/challenge/:challengeId"

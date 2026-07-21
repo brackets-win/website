@@ -8,6 +8,7 @@ import {
   createUserBracket,
   joinChallenge,
   joinStreakChallenge,
+  type ApiUser,
   type BracketSummary,
   type ChallengeSummary,
   type LeaderboardPreview,
@@ -108,8 +109,9 @@ type PanelState = {
   mode: PanelMode;
 };
 
-export function ChallengesPage() {
+export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
   const navigate = useNavigate();
+  const canCreatePublic = currentUser.is_staff === true;
 
   function openChallenge(
     challengeId: number,
@@ -398,7 +400,7 @@ export function ChallengesPage() {
         name,
         bracket_id: bcBracketId,
         instance_type: INSTANCE_BRACKET_CHALLENGE,
-        is_private: bcPrivate,
+        is_private: canCreatePublic ? bcPrivate : true,
         submission_deadline: deadlineIso ?? null,
         max_entries: Math.max(1, parseInt(bcMaxEntries, 10) || 1),
       });
@@ -425,7 +427,7 @@ export function ChallengesPage() {
     const name = tName.trim();
     const size = tSize;
     const hasThird = tThird;
-    const isPrivate = tPrivate;
+    const isPrivate = canCreatePublic ? tPrivate : true;
     if (!name) {
       setFormErr('Name is required.');
       return;
@@ -476,7 +478,7 @@ export function ChallengesPage() {
       const { streak_challenge } = await createStreakChallenge({
         name,
         streak_competition_id: sCompetitionId,
-        is_private: sPrivate,
+        is_private: canCreatePublic ? sPrivate : true,
       });
       upsertHomeStreakChallenge(streak_challenge);
       setStreakRows((prev) => [streak_challenge, ...prev]);
@@ -797,15 +799,17 @@ export function ChallengesPage() {
                   disabled={busy}
                 />
               </div>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={bcPrivate}
-                  onChange={(e) => setBcPrivate(e.target.checked)}
-                  disabled={busy}
-                />
-                Private (join code)
-              </label>
+              {canCreatePublic ? (
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bcPrivate}
+                    onChange={(e) => setBcPrivate(e.target.checked)}
+                    disabled={busy}
+                  />
+                  Private (join code)
+                </label>
+              ) : null}
               <div className="activity-panel__actions">
                 <button type="button" className="btn btn--ghost" onClick={closePanel}>
                   Cancel
@@ -867,15 +871,17 @@ export function ChallengesPage() {
                     />
                     Third-place match
                   </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={tPrivate}
-                      onChange={(e) => setTPrivate(e.target.checked)}
-                      disabled={busy}
-                    />
-                    Private (join code)
-                  </label>
+                  {canCreatePublic ? (
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={tPrivate}
+                        onChange={(e) => setTPrivate(e.target.checked)}
+                        disabled={busy}
+                      />
+                      Private (join code)
+                    </label>
+                  ) : null}
                   <div className="activity-panel__actions">
                     <button
                       type="button"
@@ -951,15 +957,17 @@ export function ChallengesPage() {
                   disabled={busy || streakCompetitions.length === 0}
                 />
               </div>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={sPrivate}
-                  onChange={(e) => setSPrivate(e.target.checked)}
-                  disabled={busy}
-                />
-                Private (join code)
-              </label>
+              {canCreatePublic ? (
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={sPrivate}
+                    onChange={(e) => setSPrivate(e.target.checked)}
+                    disabled={busy}
+                  />
+                  Private (join code)
+                </label>
+              ) : null}
               <div className="activity-panel__actions">
                 <button type="button" className="btn btn--ghost" onClick={closePanel}>
                   Cancel

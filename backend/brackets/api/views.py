@@ -12,7 +12,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, F, Prefetch
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.http import HttpRequest, JsonResponse
@@ -1031,6 +1031,8 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
         instance_type = raw_type
 
         is_private = bool(body.get("is_private"))
+        if not user.is_staff:
+            is_private = True
         is_public = not is_private
 
         submission_deadline = None
@@ -1183,7 +1185,15 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
     bootstrap = ChallengeSummaryBootstrap(challenges, user)
 
     rows = []
-    for c in sorted(challenges, key=lambda x: x.created_at, reverse=True):
+    for c in sorted(
+        challenges,
+        key=lambda x: (
+            x.submission_deadline is not None,
+            x.submission_deadline or x.created_at,
+            x.created_at,
+        ),
+        reverse=True,
+    ):
         ubs = ubs_by_challenge.get(c.id, [])
         ub = ubs[0] if ubs else None
         is_participant = bool(ubs) or c.id in from_participant
@@ -1225,7 +1235,7 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
         BracketChallenge.objects.filter(is_public=True)
         .defer("metadata")
         .select_related("bracket", "created_by")
-        .order_by("-created_at")
+        .order_by(F("submission_deadline").desc(nulls_last=True), "-created_at")
     )
     challenges = [
         c
