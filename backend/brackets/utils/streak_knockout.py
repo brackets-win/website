@@ -1014,7 +1014,13 @@ def knockout_header_summary(
             "value": f"{name_a} {scores['score_a']}-{scores['score_b']} {name_b}",
         }
 
-    if not participant.in_knockout_bracket and knockout.champion_id != participant.id:
+    # While the knockout is live, eliminated players see consolation standings.
+    # Once complete, the challenge is over — fall through to last matchup (or nothing).
+    if (
+        knockout.status != StreakKnockout.Status.COMPLETE
+        and not participant.in_knockout_bracket
+        and knockout.champion_id != participant.id
+    ):
         rows = _consolation_rows(challenge, knockout)
         rank = next(
             (idx + 1 for idx, row in enumerate(rows) if row["user_id"] == participant.user_id),

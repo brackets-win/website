@@ -40,6 +40,7 @@ import {
   writeStreakChallengeSessionCache,
 } from '../../utils/streakChallengeSessionCache';
 import {
+  defaultStreakTab,
   streakPath,
   streakPlayerPath,
   type StreakTab,
@@ -503,10 +504,12 @@ export function StreakChallengeView({
         matchupUserAName?: string;
         matchupUserBId?: number;
         matchupUserBName?: string;
+        resolveDefaultTab?: boolean;
       }
     | null
     | undefined;
   const playerNameFromState = playerNavState?.playerName;
+  const resolveDefaultTab = playerNavState?.resolveDefaultTab === true;
 
   function goToTab(nextTab: StreakTab) {
     navigate(streakPath(streakChallengeId, nextTab));
@@ -676,6 +679,13 @@ export function StreakChallengeView({
 
   useEffect(() => {
     if (!summary) return;
+    if (resolveDefaultTab) {
+      navigate(
+        streakPath(streakChallengeId, defaultStreakTab(competitionIsOver)),
+        { replace: true },
+      );
+      return;
+    }
     if (competitionIsOver && tab === 'make') {
       navigate(streakPath(streakChallengeId, 'awards'), { replace: true });
       return;
@@ -683,7 +693,14 @@ export function StreakChallengeView({
     if (!competitionIsOver && tab === 'awards') {
       navigate(streakPath(streakChallengeId, 'leaderboard'), { replace: true });
     }
-  }, [summary, competitionIsOver, tab, navigate, streakChallengeId]);
+  }, [
+    summary,
+    competitionIsOver,
+    tab,
+    navigate,
+    streakChallengeId,
+    resolveDefaultTab,
+  ]);
 
   function onSelectLeaderboardPlayer(userId: number, displayName: string) {
     navigate(streakPlayerPath(streakChallengeId, userId), {

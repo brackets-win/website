@@ -356,10 +356,11 @@ function ChampionColumn({
                 }
               >
                 {champion ? (
-                  <>
+                  <div className="streak-bf__identity">
+                    <span className="bf-ko-seed">{champion.seed || '—'}</span>
                     <button
                       type="button"
-                      className="streak-bf__champion-name streak-leaderboard__player"
+                      className="streak-bf__name streak-leaderboard__player"
                       onClick={() =>
                         onSelectPlayer(
                           champion.user_id,
@@ -374,10 +375,7 @@ function ChampionColumn({
                     >
                       {champion.display_name}
                     </button>
-                    <span className="bf-champion-seed">
-                      Seed #{champion.seed || '—'}
-                    </span>
-                  </>
+                  </div>
                 ) : (
                   <span className="bf-champion-placeholder">Champion</span>
                 )}
@@ -507,13 +505,6 @@ export function StreakKnockout({
   return (
     <section className="card streak-knockout">
       {setupErr ? <div className="alert alert--error">{setupErr}</div> : null}
-      {knockout.status === 'COMPLETE' &&
-      knockout.champion_user_id != null &&
-      !isProjected ? (
-        <p className="streak-knockout__champion">
-          Champion crowned.
-        </p>
-      ) : null}
 
       {isProjected ? (
         <p className="streak-knockout__projected-note">

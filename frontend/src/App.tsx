@@ -86,7 +86,9 @@ function ChallengeLandingRedirect() {
 }
 
 function StreakTabRedirect() {
-  return <Navigate to="leaderboard" replace />;
+  return (
+    <Navigate to="leaderboard" replace state={{ resolveDefaultTab: true }} />
+  );
 }
 
 function AdminTabRedirect() {
@@ -174,7 +176,13 @@ function StreakChallengeViewRoute({ currentUser }: { currentUser: ApiUser }) {
   }
 
   if (tab === 'player' || tab == null || !isStreakTab(tab)) {
-    return <Navigate to={streakPath(streakId, 'leaderboard')} replace />;
+    return (
+      <Navigate
+        to={streakPath(streakId, 'leaderboard')}
+        replace
+        state={{ resolveDefaultTab: true }}
+      />
+    );
   }
 
   return (

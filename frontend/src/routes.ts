@@ -64,6 +64,10 @@ export function challengePlayerPath(
   return `/challenge/${challengeId}/player/${userBracketId}`;
 }
 
+export function defaultStreakTab(competitionIsOver?: boolean): StreakTab {
+  return competitionIsOver ? 'awards' : 'leaderboard';
+}
+
 export function streakPath(
   streakChallengeId: number,
   tab: StreakTab = 'leaderboard',

@@ -34,6 +34,7 @@ import {
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 import {
   challengePath,
+  defaultStreakTab,
   streakPath,
   type ChallengeTab,
 } from '../../routes';
@@ -127,8 +128,13 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
     );
   }
 
-  function openStreak(streakChallengeId: number) {
-    navigate(streakPath(streakChallengeId, 'leaderboard'));
+  function openStreak(
+    streakChallengeId: number,
+    competitionIsOver?: boolean,
+  ) {
+    navigate(
+      streakPath(streakChallengeId, defaultStreakTab(competitionIsOver)),
+    );
   }
 
   function slugify(value: string): string {
@@ -356,7 +362,10 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
         });
         invalidateHome('streaks');
         closePanel();
-        openStreak(streak_challenge.id);
+        openStreak(
+          streak_challenge.id,
+          streak_challenge.competition_is_over === true,
+        );
         return;
       }
 
@@ -484,7 +493,10 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
       setStreakRows((prev) => [streak_challenge, ...prev]);
       invalidateHome('streaks', 'competitions');
       closePanel();
-      openStreak(streak_challenge.id);
+      openStreak(
+        streak_challenge.id,
+        streak_challenge.competition_is_over === true,
+      );
     } catch (err) {
       setFormErr(err instanceof ApiError ? err.message : 'Could not create.');
     } finally {
@@ -550,7 +562,9 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
             <button
               type="button"
               className="challenge-card card challenge-card--clickable"
-              onClick={() => openStreak(s.id)}
+              onClick={() =>
+                openStreak(s.id, s.competition_is_over === true)
+              }
             >
               <div className="challenge-card__body">
                 <ChallengeThumb url={s.image_url} name={s.name} />

@@ -13,12 +13,6 @@
   gap: 1rem;
 }
 
-.streak-knockout__champion {
-  margin: 0;
-  font-weight: 700;
-  color: #16a34a;
-}
-
 .streak-knockout__projected-note {
   margin: 0;
   font-size: 0.9rem;
@@ -289,15 +283,12 @@
 }
 
 .streak-bf__name.streak-leaderboard__player,
-.streak-bf__champion-name.streak-leaderboard__player,
 .streak-knockout__name.streak-leaderboard__player {
   font-weight: 600;
 }
 
 .streak-bf__name.streak-leaderboard__player:hover,
 .streak-bf__name.streak-leaderboard__player:focus-visible,
-.streak-bf__champion-name.streak-leaderboard__player:hover,
-.streak-bf__champion-name.streak-leaderboard__player:focus-visible,
 .streak-knockout__name.streak-leaderboard__player:hover,
 .streak-knockout__name.streak-leaderboard__player:focus-visible {
   text-decoration: none;
@@ -310,17 +301,6 @@
   font-weight: 700;
   color: #434b57;
   white-space: nowrap;
-}
-
-.streak-bf__champion-name {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--activity-btn, var(--app-accent));
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  text-decoration: none;
 }
 
 .streak-bf__champion-stack {
@@ -336,6 +316,14 @@
   flex: none;
   min-height: 3.25rem;
   width: 100%;
+  margin-left: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.streak-bf__champion-anchor .bf-ko-seed {
   margin-left: 0;
 }
 
