@@ -29,7 +29,8 @@ import {
   INSTANCE_BRACKET_CHALLENGE,
   INSTANCE_POLL,
   INSTANCE_TOURNAMENT,
-  SHOW_TOURNAMENT_AND_POLL_SECTIONS,
+  SHOW_POLL_SECTIONS,
+  SHOW_TOURNAMENT_SECTIONS,
 } from '../../utils/challengeTypes';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 import {
@@ -109,9 +110,8 @@ type PanelState = {
   mode: PanelMode;
 };
 
-export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
+export function ChallengesPage({ currentUser: _currentUser }: { currentUser: ApiUser }) {
   const navigate = useNavigate();
-  const canCreatePublic = currentUser.is_staff === true;
 
   function openChallenge(
     challengeId: number,
@@ -174,16 +174,19 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
   const [bcBracketId, setBcBracketId] = useState<number | ''>('');
   const [bcDeadline, setBcDeadline] = useState('');
   const [bcMaxEntries, setBcMaxEntries] = useState('1');
-  const [bcPrivate, setBcPrivate] = useState(false);
 
   const [tName, setTName] = useState('');
   const [tSize, setTSize] = useState(8);
+  const [tStructure, setTStructure] = useState<'SINGLE_ELIM' | 'GROUP_KNOCKOUT'>(
+    'SINGLE_ELIM',
+  );
   const [tThird, setTThird] = useState(false);
-  const [tPrivate, setTPrivate] = useState(false);
+  const [tFillMethod, setTFillMethod] = useState<'standard' | 'seeding'>(
+    'standard',
+  );
 
   const [sName, setSName] = useState('');
   const [sCompetitionId, setSCompetitionId] = useState<number | ''>('');
-  const [sPrivate, setSPrivate] = useState(false);
 
   const applySnapshot = useCallback((home: NonNullable<ReturnType<typeof getHomeSnapshot>>) => {
     setRows(home.challenges);
@@ -230,11 +233,11 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
   }, []);
 
   useEffect(() => {
-    if (
-      !SHOW_TOURNAMENT_AND_POLL_SECTIONS &&
-      panel != null &&
-      (panel.key === 'tournament' || panel.key === 'poll')
-    ) {
+    if (panel == null) return;
+    if (!SHOW_TOURNAMENT_SECTIONS && panel.key === 'tournament') {
+      setPanel(null);
+    }
+    if (!SHOW_POLL_SECTIONS && panel.key === 'poll') {
       setPanel(null);
     }
   }, [panel]);
@@ -258,14 +261,13 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
     setBcName('');
     setBcDeadline('');
     setBcMaxEntries('1');
-    setBcPrivate(false);
     setTName('');
     setTSize(8);
+    setTStructure('SINGLE_ELIM');
     setTThird(false);
-    setTPrivate(false);
+    setTFillMethod('standard');
     setSName('');
     setSCompetitionId(streakCompetitions[0]?.id ?? '');
-    setSPrivate(false);
   }
 
   function closePanel() {
@@ -400,7 +402,7 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
         name,
         bracket_id: bcBracketId,
         instance_type: INSTANCE_BRACKET_CHALLENGE,
-        is_private: canCreatePublic ? bcPrivate : true,
+        is_private: true,
         submission_deadline: deadlineIso ?? null,
         max_entries: Math.max(1, parseInt(bcMaxEntries, 10) || 1),
       });
@@ -426,8 +428,8 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
     setFormErr('');
     const name = tName.trim();
     const size = tSize;
+    const structure = tStructure;
     const hasThird = tThird;
-    const isPrivate = canCreatePublic ? tPrivate : true;
     if (!name) {
       setFormErr('Name is required.');
       return;
@@ -436,18 +438,38 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
       setFormErr('Choose at least 2 teams.');
       return;
     }
+    if (structure === 'GROUP_KNOCKOUT' && size % 4 !== 0) {
+      setFormErr('Group & Knockout needs a team count divisible by 4.');
+      return;
+    }
     setBusy(true);
     try {
+      const numberOfGroups = size / 4;
       const { challenge } = await createChallenge({
         name,
         instance_type: INSTANCE_TOURNAMENT,
-        is_private: isPrivate,
+        is_private: true,
         bracket_setup: {
-          structure: 'SINGLE_ELIM',
+          structure,
           identifier: slugify(name),
           bracket_name: name,
           number_of_contestants: size,
           has_third_place: hasThird,
+          ...(structure === 'GROUP_KNOCKOUT'
+            ? {
+                structure_config: {
+                  group_stage: {
+                    number_of_groups: numberOfGroups,
+                    contestants_qualifying_per_group: 2,
+                  },
+                  knockout: {
+                    metadata: {
+                      knockout_fill_method: tFillMethod,
+                    },
+                  },
+                },
+              }
+            : {}),
         },
       });
       upsertChallenge(challenge);
@@ -478,7 +500,7 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
       const { streak_challenge } = await createStreakChallenge({
         name,
         streak_competition_id: sCompetitionId,
-        is_private: canCreatePublic ? sPrivate : true,
+        is_private: true,
       });
       upsertHomeStreakChallenge(streak_challenge);
       setStreakRows((prev) => [streak_challenge, ...prev]);
@@ -799,17 +821,6 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
                   disabled={busy}
                 />
               </div>
-              {canCreatePublic ? (
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={bcPrivate}
-                    onChange={(e) => setBcPrivate(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Private (join code)
-                </label>
-              ) : null}
               <div className="activity-panel__actions">
                 <button type="button" className="btn btn--ghost" onClick={closePanel}>
                   Cancel
@@ -826,7 +837,7 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
             INSTANCE_BRACKET_CHALLENGE,
           )}
 
-          {SHOW_TOURNAMENT_AND_POLL_SECTIONS
+          {SHOW_TOURNAMENT_SECTIONS
             ? renderSection(
                 'tournament',
                 'Tournament',
@@ -847,6 +858,27 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
                     />
                   </div>
                   <div className="field">
+                    <label htmlFor="t-structure">Structure</label>
+                    <select
+                      id="t-structure"
+                      className="select"
+                      value={tStructure}
+                      onChange={(e) => {
+                        const next = e.target.value as
+                          | 'SINGLE_ELIM'
+                          | 'GROUP_KNOCKOUT';
+                        setTStructure(next);
+                        if (next === 'GROUP_KNOCKOUT' && tSize < 8) {
+                          setTSize(8);
+                        }
+                      }}
+                      disabled={busy}
+                    >
+                      <option value="SINGLE_ELIM">Single Elimination</option>
+                      <option value="GROUP_KNOCKOUT">Group & Knockout</option>
+                    </select>
+                  </div>
+                  <div className="field">
                     <label htmlFor="t-size">Teams</label>
                     <select
                       id="t-size"
@@ -855,13 +887,35 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
                       onChange={(e) => setTSize(parseInt(e.target.value, 10))}
                       disabled={busy}
                     >
-                      {[4, 8, 16, 32].map((n) => (
+                      {(tStructure === 'GROUP_KNOCKOUT'
+                        ? [8, 16, 32]
+                        : [4, 8, 16, 32]
+                      ).map((n) => (
                         <option key={n} value={n}>
                           {n}
                         </option>
                       ))}
                     </select>
                   </div>
+                  {tStructure === 'GROUP_KNOCKOUT' ? (
+                    <div className="field">
+                      <label htmlFor="t-fill">Group → Knockout Fill</label>
+                      <select
+                        id="t-fill"
+                        className="select"
+                        value={tFillMethod}
+                        onChange={(e) =>
+                          setTFillMethod(
+                            e.target.value as 'standard' | 'seeding',
+                          )
+                        }
+                        disabled={busy}
+                      >
+                        <option value="standard">Standard</option>
+                        <option value="seeding">Seeding</option>
+                      </select>
+                    </div>
+                  ) : null}
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
@@ -869,19 +923,8 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
                       onChange={(e) => setTThird(e.target.checked)}
                       disabled={busy}
                     />
-                    Third-place match
+                    Third-place Match
                   </label>
-                  {canCreatePublic ? (
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={tPrivate}
-                        onChange={(e) => setTPrivate(e.target.checked)}
-                        disabled={busy}
-                      />
-                      Private (join code)
-                    </label>
-                  ) : null}
                   <div className="activity-panel__actions">
                     <button
                       type="button"
@@ -903,7 +946,7 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
               )
             : null}
 
-          {SHOW_TOURNAMENT_AND_POLL_SECTIONS
+          {SHOW_POLL_SECTIONS
             ? renderSection(
                 'poll',
                 'Poll',
@@ -957,17 +1000,6 @@ export function ChallengesPage({ currentUser }: { currentUser: ApiUser }) {
                   disabled={busy || streakCompetitions.length === 0}
                 />
               </div>
-              {canCreatePublic ? (
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={sPrivate}
-                    onChange={(e) => setSPrivate(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Private (join code)
-                </label>
-              ) : null}
               <div className="activity-panel__actions">
                 <button type="button" className="btn btn--ghost" onClick={closePanel}>
                   Cancel

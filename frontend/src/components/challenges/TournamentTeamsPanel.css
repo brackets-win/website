@@ -1,0 +1,223 @@
+.ttp {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ttp__mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ttp__mode-btn {
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.15));
+  background: transparent;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--app-muted, #64748b);
+  cursor: pointer;
+}
+
+.ttp__mode-btn--on {
+  border-color: var(--app-accent, #0f766e);
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--app-accent, #0f766e);
+}
+
+.ttp__mode-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ttp__pot-count {
+  max-width: 16rem;
+}
+
+.ttp__groups,
+.ttp__pots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.ttp__box {
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.12));
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: var(--app-surface, #fff);
+}
+
+.ttp__box-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ttp__box-cap {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-muted, #64748b);
+}
+
+.ttp__slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ttp__slots--flat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.ttp__empty {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1.5px dashed transparent;
+  border-radius: 0.4rem;
+  background:
+    linear-gradient(var(--app-surface, #fff), var(--app-surface, #fff)) padding-box,
+    repeating-conic-gradient(
+        from 0deg,
+        rgba(15, 118, 110, 0.35) 0deg 90deg,
+        rgba(15, 118, 110, 0.12) 90deg 180deg
+      )
+      border-box;
+  background-size: auto, 10px 10px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--app-muted, #64748b);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ttp__empty:hover {
+  color: var(--app-accent, #0f766e);
+}
+
+.ttp__empty:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ttp__plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.85rem;
+  line-height: 1;
+  flex: none;
+}
+
+.ttp__filled {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.55rem;
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.12));
+  border-radius: 0.4rem;
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.ttp__slot-label {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--app-muted, #64748b);
+  min-width: 1.25rem;
+}
+
+.ttp__filled-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ttp__clear {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--app-muted, #64748b);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+.ttp__clear:hover {
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.ttp__draw-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ttp__hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--app-muted, #64748b);
+}
+
+.ttp__draft-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 24, 40, 0.45);
+  padding: 1rem;
+}
+
+.ttp__draft {
+  width: min(22rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.6rem;
+  background: var(--app-surface, #fff);
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.22);
+}
+
+.ttp__draft label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ttp__draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}

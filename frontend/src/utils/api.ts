@@ -782,6 +782,7 @@ export type BracketSetupPayload = {
   bracket_name?: string;
   number_of_contestants: number;
   has_third_place?: boolean;
+  structure_config?: BracketStructureConfig;
 };
 
 export async function createChallenge(body: {
@@ -853,18 +854,35 @@ export async function deleteChallenge(
   return apiFetch('DELETE', `challenges/${challengeId}`);
 }
 
-export async function getChallengeTeams(challengeId: number): Promise<{
-  team_count: number;
-  teams: TournamentTeamRow[];
-}> {
+export async function getChallengeTeams(
+  challengeId: number,
+): Promise<TournamentTeamsMeta> {
   return apiFetch('GET', `challenges/${challengeId}/teams`);
 }
+
+export type TournamentTeamsMeta = {
+  team_count: number;
+  structure: 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
+  number_of_groups: number | null;
+  teams_per_group: number | null;
+  teams: TournamentTeamRow[];
+};
 
 export async function saveChallengeTeams(
   challengeId: number,
   body: { teams: Array<{ name: string; seed?: number }> },
-): Promise<{ team_count: number; teams: TournamentTeamRow[] }> {
+): Promise<TournamentTeamsMeta> {
   return apiFetch('PUT', `challenges/${challengeId}/teams`, body);
+}
+
+export async function drawChallengeTeams(
+  challengeId: number,
+  body: {
+    mode: 'random' | 'random_balanced';
+    teams: Array<{ name: string; pot?: number }>;
+  },
+): Promise<TournamentTeamsMeta> {
+  return apiFetch('POST', `challenges/${challengeId}/teams/draw`, body);
 }
 
 export async function getChallengeLeaderboard(challengeId: number): Promise<{
@@ -1505,6 +1523,9 @@ export type BracketStructureConfig = {
     is_random_draw?: boolean;
     seeding_mode?: 'standard' | 'reseed' | 'randomize';
     round_points?: Record<number, number>;
+    metadata?: {
+      knockout_fill_method?: 'standard' | 'seeding' | 'mapping';
+    };
   };
 };
 
