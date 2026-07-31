@@ -65,8 +65,8 @@ from brackets.utils.knockout_tree import (
 from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
 from brackets.utils.tournament_teams import (
     apply_tournament_teams,
-    tournament_team_capacity,
-    tournament_teams_public,
+    draw_and_apply_tournament_teams,
+    tournament_teams_response,
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import (
@@ -1358,13 +1358,7 @@ def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
 
     bracket = challenge.bracket
     if request.method == "GET":
-        capacity = tournament_team_capacity(bracket)
-        return JsonResponse(
-            {
-                "team_count": capacity,
-                "teams": tournament_teams_public(bracket),
-            }
-        )
+        return JsonResponse(tournament_teams_response(bracket))
 
     try:
         body = _parse_json(request)
@@ -1376,16 +1370,46 @@ def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
         return _json_error("teams must be a list", 400)
     rows = [r for r in raw if isinstance(r, dict)]
     try:
-        teams = apply_tournament_teams(bracket, rows)
+        apply_tournament_teams(bracket, rows)
     except ValueError as e:
         return _json_error(str(e), 400)
 
-    return JsonResponse(
-        {
-            "team_count": tournament_team_capacity(bracket),
-            "teams": teams,
-        }
+    return JsonResponse(tournament_teams_response(bracket))
+
+
+@require_http_methods(["POST"])
+def challenge_teams_draw(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
     )
+    if challenge.instance_type != TOURNAMENT:
+        return _json_error("Only tournaments support team setup", 400)
+    if not _can_manage_bracket(user, challenge):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    mode = str(body.get("mode") or "").strip().lower()
+    if mode not in ("random", "random_balanced"):
+        return _json_error("mode must be random or random_balanced", 400)
+
+    raw = body.get("teams")
+    if not isinstance(raw, list):
+        return _json_error("teams must be a list", 400)
+    rows = [r for r in raw if isinstance(r, dict)]
+    try:
+        draw_and_apply_tournament_teams(challenge.bracket, mode=mode, teams=rows)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    return JsonResponse(tournament_teams_response(challenge.bracket))
 
 
 @require_http_methods(["GET"])
