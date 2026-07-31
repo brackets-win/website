@@ -837,6 +837,64 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
             INSTANCE_BRACKET_CHALLENGE,
           )}
 
+          {renderSection(
+            'streak',
+            'Streak Challenge',
+            renderStreakList(),
+            <form className="activity-panel__form" onSubmit={handleCreateStreak}>
+              <div className="field">
+                <label htmlFor="s-competition">Competition</label>
+                {streakCompetitions.length === 0 ? (
+                  <p className="activity-panel__hint">
+                    No competitions available yet.
+                  </p>
+                ) : (
+                  <select
+                    id="s-competition"
+                    className="select"
+                    value={sCompetitionId === '' ? '' : String(sCompetitionId)}
+                    onChange={(e) =>
+                      setSCompetitionId(
+                        e.target.value ? parseInt(e.target.value, 10) : '',
+                      )
+                    }
+                    disabled={busy}
+                    required
+                  >
+                    {streakCompetitions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="field">
+                <label htmlFor="s-name">Challenge name</label>
+                <input
+                  id="s-name"
+                  className="input"
+                  value={sName}
+                  onChange={(e) => setSName(e.target.value)}
+                  required
+                  disabled={busy || streakCompetitions.length === 0}
+                />
+              </div>
+              <div className="activity-panel__actions">
+                <button type="button" className="btn btn--ghost" onClick={closePanel}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={busy || streakCompetitions.length === 0}
+                >
+                  {busy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>,
+          )}
+
           {SHOW_TOURNAMENT_SECTIONS
             ? renderSection(
                 'tournament',
@@ -956,64 +1014,6 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                 false,
               )
             : null}
-
-          {renderSection(
-            'streak',
-            'Streak Challenge',
-            renderStreakList(),
-            <form className="activity-panel__form" onSubmit={handleCreateStreak}>
-              <div className="field">
-                <label htmlFor="s-competition">Competition</label>
-                {streakCompetitions.length === 0 ? (
-                  <p className="activity-panel__hint">
-                    No competitions available yet.
-                  </p>
-                ) : (
-                  <select
-                    id="s-competition"
-                    className="select"
-                    value={sCompetitionId === '' ? '' : String(sCompetitionId)}
-                    onChange={(e) =>
-                      setSCompetitionId(
-                        e.target.value ? parseInt(e.target.value, 10) : '',
-                      )
-                    }
-                    disabled={busy}
-                    required
-                  >
-                    {streakCompetitions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <div className="field">
-                <label htmlFor="s-name">Challenge name</label>
-                <input
-                  id="s-name"
-                  className="input"
-                  value={sName}
-                  onChange={(e) => setSName(e.target.value)}
-                  required
-                  disabled={busy || streakCompetitions.length === 0}
-                />
-              </div>
-              <div className="activity-panel__actions">
-                <button type="button" className="btn btn--ghost" onClick={closePanel}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn--primary"
-                  disabled={busy || streakCompetitions.length === 0}
-                >
-                  {busy ? 'Creating…' : 'Create'}
-                </button>
-              </div>
-            </form>,
-          )}
         </div>
       )}
     </div>
