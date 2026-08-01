@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 from brackets.data.euro24.r16_tree_slots import build_r16_group_knockout_mapping
@@ -14,9 +15,10 @@ from brackets.utils.group_knockout_mapping import (
 
 STANDARD = "standard"
 SEEDING = "seeding"
+RANDOMIZE = "randomize"
 MAPPING = "mapping"
 
-KNOCKOUT_FILL_METHODS = (STANDARD, SEEDING, MAPPING)
+KNOCKOUT_FILL_METHODS = (STANDARD, SEEDING, RANDOMIZE, MAPPING)
 
 # Tournaments whose first KO round uses explicit mapping (+ optional third-place table).
 MAPPING_TOURNAMENT_TYPES = frozenset({"world_cup_2026", "euro_2024"})
@@ -50,9 +52,8 @@ def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
     Resolve how group finishes map into the first knockout round.
 
     Prefer mapping when stage/bracket already carries a custom map, third-place
-    combination table, or known tournament_type. Explicit stage
-    ``knockout_fill_method`` only wins when none of those are present (so a
-    leftover stage ``standard`` does not disable Euro/WC third-place lookup).
+    combination table, or known tournament_type — except an explicit
+    ``randomize`` fill keeps that mode (the stored map is the frozen draw).
     """
     meta = knockout_stage.metadata or {}
     if bracket is None:
@@ -62,6 +63,15 @@ def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
             bracket = None
     bmeta = _bracket_meta(bracket)
 
+    explicit = meta.get("knockout_fill_method")
+    explicit_s = (
+        str(explicit).strip().lower()
+        if explicit is not None and str(explicit).strip()
+        else ""
+    )
+    if explicit_s == RANDOMIZE:
+        return RANDOMIZE
+
     if _mapping_dict_from_meta(meta) or _mapping_dict_from_meta(bmeta):
         return MAPPING
     if bmeta.get("third_place_combinations"):
@@ -69,11 +79,8 @@ def get_knockout_fill_method(knockout_stage, bracket=None) -> str:
     if bmeta.get("tournament_type") in MAPPING_TOURNAMENT_TYPES:
         return MAPPING
 
-    explicit = meta.get("knockout_fill_method")
-    if explicit is not None and str(explicit).strip():
-        method = str(explicit).strip().lower()
-        if method in KNOCKOUT_FILL_METHODS:
-            return method
+    if explicit_s in KNOCKOUT_FILL_METHODS:
+        return explicit_s
     return STANDARD
 
 
@@ -95,6 +102,83 @@ def uses_wc_third_place_table(bracket, knockout_stage) -> bool:
     return bool(_bracket_meta(bracket).get("third_place_combinations"))
 
 
+def _qualifier_codes(num_groups: int) -> list[str]:
+    group_letters = [chr(65 + i) for i in range(num_groups)]
+    return [f"{g}1" for g in group_letters] + [f"{g}2" for g in group_letters]
+
+
+def build_randomize_mapping(
+    num_groups: int,
+    *,
+    rng: random.Random | None = None,
+) -> list[tuple[int, str, str]]:
+    """
+    Shuffle group qualifiers into first-round slots.
+
+    Prefers pairings that avoid the same group meeting in R1 when possible.
+    """
+    codes = _qualifier_codes(num_groups)
+    n = len(codes)
+    if n < 2 or n & (n - 1):
+        raise ValueError(
+            "Randomize fill requires total qualifiers to be a power of 2 "
+            f"(got {n} from {num_groups} groups)."
+        )
+    rng = rng or random.Random()
+
+    def to_mapping(order: list[str]) -> list[tuple[int, str, str]]:
+        out: list[tuple[int, str, str]] = []
+        for pos in range(1, n // 2 + 1):
+            out.append((pos, order[2 * (pos - 1)], order[2 * (pos - 1) + 1]))
+        return out
+
+    def same_group_clash(order: list[str]) -> bool:
+        for i in range(0, n, 2):
+            if order[i][0] == order[i + 1][0]:
+                return True
+        return False
+
+    best = list(codes)
+    rng.shuffle(best)
+    for _ in range(40):
+        cand = list(codes)
+        rng.shuffle(cand)
+        if not same_group_clash(cand):
+            best = cand
+            break
+        best = cand
+    return to_mapping(best)
+
+
+def ensure_randomized_group_knockout_draw(
+    bracket,
+    knockout_stage,
+    *,
+    num_groups: int,
+    ready: bool,
+) -> bool:
+    """
+    When fill method is randomize and all groups are ready, freeze one draw.
+
+    Returns True if a new draw was written.
+    """
+    if get_knockout_fill_method(knockout_stage, bracket) != RANDOMIZE:
+        return False
+    meta = dict(knockout_stage.metadata or {})
+    if _mapping_dict_from_meta(meta):
+        return False
+    if not ready:
+        return False
+    mapping = build_randomize_mapping(num_groups)
+    set_custom_group_knockout_mapping(knockout_stage, mapping)
+    knockout_stage.refresh_from_db()
+    meta = dict(knockout_stage.metadata or {})
+    meta["knockout_fill_method"] = RANDOMIZE
+    knockout_stage.metadata = meta
+    knockout_stage.save(update_fields=["metadata"])
+    return True
+
+
 def load_knockout_mapping(
     bracket,
     knockout_stage,
@@ -106,11 +190,20 @@ def load_knockout_mapping(
 
     - standard: walk groups (A1 vs B2, C1 vs D2, …, B1 vs A2, …)
     - seeding: rank-ordered slots in a normal bracket (1v32, 16v17, …)
+    - randomize: shuffled qualifiers (persisted as ``group_knockout_mapping``)
     - mapping: explicit ``group_knockout_mapping`` on stage or bracket metadata
     """
     method = get_knockout_fill_method(knockout_stage, bracket)
     stage_meta = knockout_stage.metadata or {}
     bmeta = _bracket_meta(bracket)
+
+    if method == RANDOMIZE:
+        mapping_data = _mapping_dict_from_meta(stage_meta) or _mapping_dict_from_meta(
+            bmeta
+        )
+        if mapping_data:
+            return _parse_mapping_dict(mapping_data)
+        return []
 
     if method == MAPPING:
         mapping_data = _mapping_dict_from_meta(stage_meta) or _mapping_dict_from_meta(
@@ -169,13 +262,7 @@ def _build_seeding_mapping(num_groups: int) -> list[tuple[int, str, str]]:
             f"(got {n} from {num_groups} groups)."
         )
 
-    codes: list[str] = []
-    group_letters = [chr(65 + i) for i in range(num_groups)]
-    for g in group_letters:
-        codes.append(f"{g}1")
-    for g in group_letters:
-        codes.append(f"{g}2")
-
+    codes = _qualifier_codes(num_groups)
     pairs = first_round_seed_pairs(n)
     mapping: list[tuple[int, str, str]] = []
     for pos, (seed_a, seed_b) in enumerate(pairs, start=1):

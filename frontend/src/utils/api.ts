@@ -1575,7 +1575,7 @@ export type BracketStructureConfig = {
     round_points?: Record<number, number>;
     round_legs?: Record<number, number>;
     metadata?: {
-      knockout_fill_method?: 'standard' | 'seeding' | 'mapping';
+      knockout_fill_method?: 'standard' | 'seeding' | 'randomize' | 'mapping';
     };
   };
 };

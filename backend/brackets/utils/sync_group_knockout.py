@@ -133,7 +133,7 @@ def _placements_ready_for_knockout(
 
     - Standings: only after ``group_stage_completed``.
     - Table/fixtures + standard/mapping: only groups with all fixtures scored.
-    - Table/fixtures + seeding: only once every group has all fixtures scored.
+    - Table/fixtures + randomize: only once every group has all fixtures scored.
     Challenge picks (non-master) always pass through for live KO preview.
     """
     if not user_bracket.is_master:
@@ -141,7 +141,7 @@ def _placements_ready_for_knockout(
 
     from brackets.utils.group_fixtures import completed_group_codes_from_fixtures
     from brackets.utils.group_knockout_fill import (
-        SEEDING,
+        RANDOMIZE,
         get_knockout_fill_method,
     )
     from brackets.utils.results_entry import (
@@ -188,8 +188,8 @@ def _placements_ready_for_knockout(
         else "standard"
     )
     all_codes = {g["code"] for g in preview}
-    # Seeding places every qualifier into the bracket at once — wait for all groups.
-    if method == SEEDING:
+    # Randomize freezes the full draw at once — wait for all groups.
+    if method == RANDOMIZE:
         if not completed.issuperset(all_codes):
             return {}
         return placements
@@ -434,6 +434,37 @@ def sync_first_knockout_from_group_picks(
     placements = _placements_ready_for_knockout(
         user_bracket, _placement_map(bracket, metadata)
     )
+
+    from brackets.models import GroupStage
+    from brackets.utils.group_knockout_fill import (
+        ensure_randomized_group_knockout_draw,
+    )
+
+    group_stage = (
+        bracket.stages.filter(
+            stage_type=BracketStage.StageType.GROUP,
+            order__lt=first_ko.order,
+        )
+        .order_by("-order")
+        .first()
+    )
+    if group_stage is not None:
+        num_groups = GroupStage.objects.get(pk=group_stage.pk).number_of_groups
+        preview = bracket_groups_preview(bracket)
+        all_codes = {g["code"] for g in preview} if preview else set()
+        draw_ready = bool(all_codes) and all(
+            code in placements
+            and 1 in placements[code]
+            and 2 in placements[code]
+            for code in all_codes
+        )
+        if ensure_randomized_group_knockout_draw(
+            bracket,
+            first_ko,
+            num_groups=num_groups,
+            ready=draw_ready,
+        ):
+            first_ko.refresh_from_db()
 
     mapping = load_knockout_mapping(bracket, first_ko)
     if not mapping:

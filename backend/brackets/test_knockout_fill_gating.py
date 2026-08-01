@@ -7,7 +7,10 @@ from django.test import Client, TestCase
 from brackets.models import BracketContestant, Contestant, Matchup, User
 from brackets.utils.bracket_factory import create_bracket_with_structure
 from brackets.utils.group_fixtures import generate_round_robin
-from brackets.utils.group_knockout_fill import SEEDING, ensure_knockout_fill_method_persisted
+from brackets.utils.group_knockout_fill import (
+    RANDOMIZE,
+    ensure_knockout_fill_method_persisted,
+)
 from brackets.utils.knockout_tree import ensure_knockout_matchup_shell
 from brackets.utils.results_entry import merge_results_entry_into_metadata
 from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_picks
@@ -134,7 +137,7 @@ class MasterKnockoutFillGatingTests(TestCase):
         self.assertIsNotNone(m1.contestant1_id)
         self.assertIsNone(m1.contestant2_id)
 
-    def test_fixtures_seeding_waits_for_all_groups(self):
+    def test_fixtures_randomize_waits_for_all_groups(self):
         self.bracket.metadata = merge_results_entry_into_metadata(
             self.bracket.metadata, {"group": "table", "knockout": "winner"}
         )
@@ -142,7 +145,9 @@ class MasterKnockoutFillGatingTests(TestCase):
         first_ko = (
             self.bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
         )
-        ensure_knockout_fill_method_persisted(first_ko, self.bracket, method=SEEDING)
+        ensure_knockout_fill_method_persisted(
+            first_ko, self.bracket, method=RANDOMIZE
+        )
 
         g = self._g()
         fixtures = {}
