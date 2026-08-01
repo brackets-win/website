@@ -2269,6 +2269,11 @@ function MatchupScoreBlock({
   }
 
   function commit() {
+    // Don't POST while a leg has only one side filled — that surfaces a red
+    // banner mid-entry. Wait until each leg is fully scored or fully empty.
+    if (legs.some(([a, b]) => (a == null) !== (b == null))) {
+      return;
+    }
     const complete = legs.every(([a, b]) => a != null && b != null);
     let t1 = 0;
     let t2 = 0;
