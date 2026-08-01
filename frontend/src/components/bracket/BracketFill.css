@@ -8,7 +8,7 @@
   --bf-line: #c5cdd8;
   --bf-radius: 10px;
   --bf-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
-  --bf-ko-col-width: 210px;
+  --bf-ko-col-width: 200px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--bf-text);
   background: var(--bf-bg);
@@ -212,9 +212,9 @@
 .bf-score-row {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  min-height: 2.5rem;
-  padding: 0.3rem 0.45rem;
+  gap: 0.4rem;
+  min-height: 2.85rem;
+  padding: 0.4rem 0.5rem;
 }
 
 .bf-score-row--winner {
@@ -224,7 +224,7 @@
 
 .bf-score-row__team {
   flex: 1 1 auto;
-  min-width: 7.5rem;
+  min-width: 5.5rem;
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -344,32 +344,6 @@
   width: var(--bf-ko-col-width);
   display: flex;
   flex-direction: column;
-}
-
-/* Grow knockout columns across desktop width (narrow cards leave dead space). */
-@media (min-width: 900px) {
-  .bf:not(.bf--split-knockout) .bf-board-inner {
-    width: 100%;
-  }
-
-  .bf:not(.bf--split-knockout) .bf-stage-col,
-  .bf:not(.bf--split-knockout) .bf-stage-col--center,
-  .bf:not(.bf--split-knockout) .bf-stage-col--champion {
-    flex: 1 1 var(--bf-ko-col-width);
-    width: auto;
-    min-width: var(--bf-ko-col-width);
-    max-width: 26rem;
-  }
-
-  .bf--score-entry:not(.bf--split-knockout) .bf-stage-col,
-  .bf--score-entry:not(.bf--split-knockout) .bf-stage-col--center,
-  .bf--score-entry:not(.bf--split-knockout) .bf-stage-col--champion {
-    max-width: 30rem;
-  }
-
-  .bf:not(.bf--split-knockout) .bf-connector-strip {
-    flex: 0 0 auto;
-  }
 }
 
 .bf-stage-col--champion {
@@ -782,9 +756,9 @@
 }
 
 .bf-slot {
-  padding: 0.65rem 0.75rem;
+  padding: 0.75rem 0.8rem;
   border-bottom: 1px solid var(--bf-border);
-  min-height: 3.05rem;
+  min-height: 3.35rem;
   display: flex;
   align-items: center;
   font-size: 0.9rem;
@@ -986,8 +960,8 @@
 
 .bf--split-knockout .bf-matchup .bf-slot {
   flex: 1 1 0;
-  min-height: 2.65rem;
-  padding: 0.5rem 0.65rem;
+  min-height: 2.95rem;
+  padding: 0.55rem 0.7rem;
 }
 
 .bf-knockout-placeholder {
