@@ -1973,10 +1973,9 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
     if has_scores:
         from brackets.models import KnockoutStage
         from brackets.utils.matchup_scores import (
-            aggregate_totals,
             normalize_legs,
             scores_are_tied,
-            winner_id_from_totals,
+            winner_id_from_legs,
         )
 
         ks = KnockoutStage.objects.filter(pk=m.stage_id).first()
@@ -1998,9 +1997,10 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
                 return _json_error(str(e), 400)
             m.scores = {"legs": legs}
 
-        total1, total2 = aggregate_totals(legs) if legs else (None, None)
-        derived = winner_id_from_totals(
-            m.contestant1_id, m.contestant2_id, total1, total2
+        derived = (
+            winner_id_from_legs(m.contestant1_id, m.contestant2_id, legs)
+            if legs
+            else None
         )
         # Explicit winner only when aggregates are tied (host pick / pens).
         if has_winner and body.get("winner_id") is not None:
@@ -2064,17 +2064,15 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         )
 
     from brackets.utils.matchup_scores import (
-        aggregate_totals,
         parse_stored_legs,
         scores_are_tied,
-        winner_id_from_totals,
+        winner_id_from_legs,
     )
 
     stored_legs = parse_stored_legs(m.scores)
     if stored_legs is not None:
-        total1, total2 = aggregate_totals(stored_legs)
-        score_winner = winner_id_from_totals(
-            m.contestant1_id, m.contestant2_id, total1, total2
+        score_winner = winner_id_from_legs(
+            m.contestant1_id, m.contestant2_id, stored_legs
         )
         if score_winner is not None and score_winner != winner_id:
             return _json_error(

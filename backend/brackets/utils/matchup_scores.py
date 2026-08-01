@@ -100,6 +100,25 @@ def winner_id_from_totals(
     return None
 
 
+def winner_id_from_legs(
+    contestant1_id: int | None,
+    contestant2_id: int | None,
+    legs: list[list[int | None]],
+) -> int | None:
+    """
+    Derive a winner only when every expected leg is scored.
+
+    Partial aggregates (e.g. only leg 1 of 2) may still be displayed, but they
+    must not advance a team until the series is complete.
+    """
+    if not legs_complete(legs):
+        return None
+    total1, total2 = aggregate_totals(legs)
+    return winner_id_from_totals(
+        contestant1_id, contestant2_id, total1, total2
+    )
+
+
 def parse_stored_legs(scores: Any) -> list[list[int | None]] | None:
     """Return legs from a matchup.scores JSON blob, or None."""
     if not isinstance(scores, dict):

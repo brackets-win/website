@@ -7,6 +7,7 @@ from brackets.utils.matchup_scores import (
     legs_complete,
     normalize_legs,
     scores_are_tied,
+    winner_id_from_legs,
     winner_id_from_totals,
 )
 from brackets.utils.results_entry import normalize_results_entry
@@ -37,6 +38,14 @@ class MatchupScoresTests(SimpleTestCase):
         self.assertTrue(scores_are_tied(both))
         decisive = normalize_legs([[2, 0], [0, 1]], expected_legs=2)
         self.assertFalse(scores_are_tied(decisive))
+
+    def test_winner_waits_for_all_legs(self):
+        only_first = normalize_legs([[3, 0], [None, None]], expected_legs=2)
+        self.assertEqual(aggregate_totals(only_first), (3, 0))
+        self.assertIsNone(winner_id_from_legs(10, 20, only_first))
+        both = normalize_legs([[3, 0], [0, 1]], expected_legs=2)
+        self.assertEqual(aggregate_totals(both), (3, 1))
+        self.assertEqual(winner_id_from_legs(10, 20, both), 10)
 
 
 class ResultsEntryTests(SimpleTestCase):
