@@ -672,7 +672,7 @@ export function BracketFill({
       const matchupPx = 108;
       return Math.max(640, wingGames * matchupPx);
     }
-    return Math.max(600, leaves * 175);
+    return Math.max(640, leaves * 188);
   }, [leaves, splitKnockoutBoard]);
 
   const mirrorLayout = useMemo(
@@ -734,9 +734,9 @@ export function BracketFill({
   const koColWidthPx =
     resultsEntry.knockout === 'score'
       ? maxKnockoutLegs >= 2
-        ? 280
-        : 248
-      : 200;
+        ? 308
+        : 268
+      : 212;
 
   const hasTournamentResultsEntry = useMemo(() => {
     const meta = bracketDef?.metadata;

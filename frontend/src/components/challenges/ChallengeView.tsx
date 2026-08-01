@@ -193,14 +193,10 @@ export function ChallengeView({
         setEntries([]);
         setDenominators(null);
       }
-      // Don't block challenge chrome on scoring-rules bracket fetch.
-      if (c.instance_type === INSTANCE_BRACKET_CHALLENGE) {
-        void getBracket(c.bracket_id)
-          .then(({ bracket }) => setBracketDef(bracket))
-          .catch(() => setBracketDef(null));
-      } else {
-        setBracketDef(null);
-      }
+      // Shared bracket def for scoring rules, group tabs, and tournament settings.
+      void getBracket(c.bracket_id)
+        .then(({ bracket }) => setBracketDef(bracket))
+        .catch(() => setBracketDef(null));
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load challenge.',
@@ -510,16 +506,27 @@ export function ChallengeView({
 
   async function handleSaveShowSeeds(e: React.FormEvent) {
     e.preventDefault();
-    if (!challenge || !bracketDef) return;
-    const current = bracketDef.show_seeds !== false;
-    if (showSeedsDraft === current) return;
+    if (!challenge) return;
+    const current = bracketDef?.show_seeds !== false;
+    if (showSeedsDraft === current && bracketDef != null) return;
     setShowSeedsBusy(true);
     setShowSeedsErr('');
     try {
       await updateChallenge(challenge.id, { show_seeds: showSeedsDraft });
       setBracketDef((prev) =>
-        prev ? { ...prev, show_seeds: showSeedsDraft } : prev,
+        prev
+          ? { ...prev, show_seeds: showSeedsDraft }
+          : prev,
       );
+      // If bracket def hasn't loaded yet, fetch so the UI can reflect the flag.
+      if (bracketDef == null) {
+        try {
+          const { bracket } = await getBracket(challenge.bracket_id);
+          setBracketDef({ ...bracket, show_seeds: showSeedsDraft });
+        } catch {
+          /* ignore — flag is saved server-side */
+        }
+      }
       setBracketRevision((n) => n + 1);
     } catch (err) {
       setShowSeedsErr(
@@ -1171,7 +1178,8 @@ export function ChallengeView({
               </button>
             </form>
           ) : null}
-          {challenge.is_creator && isTournament && bracketDef ? (
+          {(challenge.is_creator || challenge.can_manage_bracket) &&
+          isTournament ? (
             <form
               className="challenge-view__settings-form"
               onSubmit={(e) => void handleSaveShowSeeds(e)}
@@ -1184,7 +1192,7 @@ export function ChallengeView({
                   type="checkbox"
                   checked={showSeedsDraft}
                   onChange={(e) => setShowSeedsDraft(e.target.checked)}
-                  disabled={showSeedsBusy}
+                  disabled={showSeedsBusy || !bracketDef}
                 />
                 Show Seed Numbers
               </label>
@@ -1198,6 +1206,7 @@ export function ChallengeView({
                 className="btn btn--primary"
                 disabled={
                   showSeedsBusy ||
+                  !bracketDef ||
                   showSeedsDraft === (bracketDef.show_seeds !== false)
                 }
               >
