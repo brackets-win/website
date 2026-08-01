@@ -38,12 +38,8 @@ function generateRoundRobin(
 ): GroupFixture[] {
   const n = teamIds.length;
   if (n < 2) return [];
-  const single = n - 1;
   const double = 2 * (n - 1);
-  const doubleRr = matchesPerContestant === double;
-  if (matchesPerContestant !== single && matchesPerContestant !== double) {
-    // Fall back to single RR so the UI is usable.
-  }
+  // Values below home&away count use single RR; >= double uses home and away.
   const useDouble = matchesPerContestant >= double;
   const out: GroupFixture[] = [];
   let idx = 0;
