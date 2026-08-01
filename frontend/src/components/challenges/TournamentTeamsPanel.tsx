@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
@@ -7,6 +7,11 @@ import {
   saveChallengeTeams,
   type TournamentTeamRow,
 } from '../../utils/api';
+import {
+  isPowerOf2,
+  singleElimByeCount,
+  singleElimPlayInCount,
+} from '../../utils/singleElimByes';
 
 import './TournamentTeamsPanel.css';
 
@@ -74,7 +79,20 @@ export function TournamentTeamsPanel({
   const [saveErr, setSaveErr] = useState('');
 
   const potOptions = useMemo(() => divisorsForPots(capacity), [capacity]);
+  const byeCount = useMemo(
+    () =>
+      structure === 'SINGLE_ELIM' && !isPowerOf2(capacity)
+        ? singleElimByeCount(capacity)
+        : 0,
+    [structure, capacity],
+  );
+  const useByePots = byeCount > 0;
+  const playInCount = useByePots ? singleElimPlayInCount(capacity) : 0;
   const potSize = potCount > 0 ? capacity / potCount : 0;
+  const potCapacities = useMemo(() => {
+    if (useByePots) return [byeCount, playInCount];
+    return Array.from({ length: potCount }, () => potSize);
+  }, [useByePots, byeCount, playInCount, potCount, potSize]);
 
   const applyMeta = useCallback(
     (meta: {
@@ -99,9 +117,18 @@ export function TournamentTeamsPanel({
       setManualNames(bySeed);
       setPoolNames(bySeed.map((name) => name));
 
-      const nextPotCount = defaultPotCount(n, meta.teams_per_group);
-      setPotCount(nextPotCount);
-      setPotNames(Array.from({ length: nextPotCount }, () => []));
+      const seByes =
+        meta.structure === 'SINGLE_ELIM' && !isPowerOf2(n)
+          ? singleElimByeCount(n)
+          : 0;
+      if (seByes > 0) {
+        setPotCount(2);
+        setPotNames([[], []]);
+      } else {
+        const nextPotCount = defaultPotCount(n, meta.teams_per_group);
+        setPotCount(nextPotCount);
+        setPotNames(Array.from({ length: nextPotCount }, () => []));
+      }
     },
     [teamCount],
   );
@@ -125,20 +152,26 @@ export function TournamentTeamsPanel({
   }, [load]);
 
   useEffect(() => {
+    if (useByePots) {
+      if (potCount !== 2) setPotCount(2);
+      return;
+    }
     if (!potOptions.includes(potCount) && potOptions.length > 0) {
       const next = defaultPotCount(capacity, teamsPerGroup);
       setPotCount(next);
+      setPotNames(Array.from({ length: next }, () => []));
     }
-  }, [capacity, potCount, potOptions, teamsPerGroup]);
+  }, [potOptions, potCount, capacity, teamsPerGroup, useByePots]);
 
   useEffect(() => {
     setPotNames((prev) => {
-      const next = Array.from({ length: potCount }, (_, i) =>
-        (prev[i] ?? []).slice(0, potSize),
-      );
+      const next = Array.from({ length: potCount }, (_, i) => {
+        const cap = potCapacities[i] ?? potSize;
+        return (prev[i] ?? []).slice(0, cap);
+      });
       return next;
     });
-  }, [potCount, potSize]);
+  }, [potCount, potSize, potCapacities]);
 
   function openDraft(target: string) {
     setDraftTarget(target);
@@ -164,10 +197,11 @@ export function TournamentTeamsPanel({
       setPoolNames((prev) => prev.map((n, i) => (i === idx ? name : n)));
     } else if (draftTarget.startsWith('pot:')) {
       const potIdx = parseInt(draftTarget.slice('pot:'.length), 10);
+      const cap = potCapacities[potIdx] ?? potSize;
       setPotNames((prev) =>
         prev.map((bucket, i) => {
           if (i !== potIdx) return bucket;
-          if (bucket.length >= potSize) return bucket;
+          if (bucket.length >= cap) return bucket;
           return [...bucket, name];
         }),
       );
@@ -177,6 +211,17 @@ export function TournamentTeamsPanel({
 
   function clearManual(idx: number) {
     setManualNames((prev) => prev.map((n, i) => (i === idx ? '' : n)));
+  }
+
+  function reorderManual(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
+    setManualNames((prev) => {
+      if (fromIdx >= prev.length || toIdx >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, item ?? '');
+      return next;
+    });
   }
 
   function clearPool(idx: number) {
@@ -232,7 +277,9 @@ export function TournamentTeamsPanel({
       });
       if (flat.length !== capacity) {
         setSaveErr(
-          `Fill every pot (${potSize} teams each) before drawing.`,
+          useByePots
+            ? `Fill both pots (${byeCount} bye, ${playInCount} round 1) before drawing.`
+            : `Fill every pot (${potSize} teams each) before drawing.`,
         );
         return;
       }
@@ -298,7 +345,7 @@ export function TournamentTeamsPanel({
         ))}
       </div>
 
-      {mode === 'random_balanced' ? (
+      {mode === 'random_balanced' && !useByePots ? (
         <div className="field ttp__pot-count">
           <label htmlFor="ttp-pots">Pots</label>
           <select
@@ -369,38 +416,76 @@ export function TournamentTeamsPanel({
               ))}
             </div>
           ) : (
-            <ul className="ttp__slots ttp__slots--flat">
+            <ul className="ttp__slots ttp__slots--seeds">
               {manualNames.map((name, idx) => (
-                <li key={idx}>
-                  {name ? (
-                    <div className="ttp__filled">
-                      <span className="ttp__slot-label">{idx + 1}</span>
-                      <span className="ttp__filled-name">{name}</span>
+                <Fragment key={idx}>
+                  {byeCount > 0 && idx === byeCount ? (
+                    <li className="ttp__seed-divider" aria-hidden>
+                      <span className="ttp__seed-divider-line" />
+                      <span className="ttp__seed-divider-label">Round 1</span>
+                      <span className="ttp__seed-divider-line" />
+                    </li>
+                  ) : null}
+                  <li
+                    className="ttp__seed-row"
+                    onDragOver={(e) => {
+                      if (busy) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (busy) return;
+                      const raw = e.dataTransfer.getData('text/plain');
+                      const fromIdx = parseInt(raw, 10);
+                      if (!Number.isFinite(fromIdx)) return;
+                      reorderManual(fromIdx, idx);
+                    }}
+                  >
+                    {name ? (
+                      <div className="ttp__filled">
+                        <span
+                          className="ttp__drag"
+                          draggable={!busy}
+                          aria-label="Drag to reorder seed"
+                          title="Drag to reorder"
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', String(idx));
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                        >
+                          <span className="ttp__drag-bar" aria-hidden />
+                          <span className="ttp__drag-bar" aria-hidden />
+                          <span className="ttp__drag-bar" aria-hidden />
+                        </span>
+                        <span className="ttp__slot-label">{idx + 1}</span>
+                        <span className="ttp__filled-name">{name}</span>
+                        <button
+                          type="button"
+                          className="ttp__clear"
+                          onClick={() => clearManual(idx)}
+                          disabled={busy}
+                          aria-label={`Remove ${name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        className="ttp__clear"
-                        onClick={() => clearManual(idx)}
+                        className="ttp__empty"
+                        onClick={() => openDraft(`manual:${idx}`)}
                         disabled={busy}
-                        aria-label={`Remove ${name}`}
                       >
-                        ×
+                        <span className="ttp__slot-label">{idx + 1}</span>
+                        <span className="ttp__plus" aria-hidden>
+                          +
+                        </span>
+                        <span>Add Team</span>
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ttp__empty"
-                      onClick={() => openDraft(`manual:${idx}`)}
-                      disabled={busy}
-                    >
-                      <span className="ttp__slot-label">{idx + 1}</span>
-                      <span className="ttp__plus" aria-hidden>
-                        +
-                      </span>
-                      <span>Add Team</span>
-                    </button>
-                  )}
-                </li>
+                    )}
+                  </li>
+                </Fragment>
               ))}
             </ul>
           )}
@@ -469,12 +554,19 @@ export function TournamentTeamsPanel({
       {mode === 'random_balanced' ? (
         <div className="ttp__draw-block">
           <div className="ttp__pots">
-            {potNames.map((bucket, potIdx) => (
+            {potNames.map((bucket, potIdx) => {
+              const cap = potCapacities[potIdx] ?? potSize;
+              const title = useByePots
+                ? potIdx === 0
+                  ? 'Bye'
+                  : 'Round 1'
+                : `Pot ${potIdx + 1}`;
+              return (
               <div key={potIdx} className="ttp__box">
                 <h3 className="ttp__box-title">
-                  Pot {potIdx + 1}
+                  {title}
                   <span className="ttp__box-cap">
-                    {bucket.length}/{potSize}
+                    {bucket.length}/{cap}
                   </span>
                 </h3>
                 <ul className="ttp__slots">
@@ -495,7 +587,7 @@ export function TournamentTeamsPanel({
                     </li>
                   ))}
                   {Array.from({
-                    length: Math.max(0, potSize - bucket.length),
+                    length: Math.max(0, cap - bucket.length),
                   }).map((_, emptyIdx) => (
                     <li key={`empty-${emptyIdx}`}>
                       <button
@@ -513,7 +605,8 @@ export function TournamentTeamsPanel({
                   ))}
                 </ul>
               </div>
-            ))}
+              );
+            })}
           </div>
           {saveErr ? (
             <div className="alert alert--error" role="status">

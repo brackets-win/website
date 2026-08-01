@@ -124,6 +124,84 @@ def _placement_map(
     return out
 
 
+def _placements_ready_for_knockout(
+    user_bracket: UserBracket,
+    placements: dict[str, dict[int, int]],
+) -> dict[str, dict[int, int]]:
+    """
+    Gate first-KO fill for tournament master results entry.
+
+    - Standings: only after ``group_stage_completed``.
+    - Table/fixtures + standard/mapping: only groups with all fixtures scored.
+    - Table/fixtures + seeding: only once every group has all fixtures scored.
+    Challenge picks (non-master) always pass through for live KO preview.
+    """
+    if not user_bracket.is_master:
+        return placements
+
+    from brackets.utils.group_fixtures import completed_group_codes_from_fixtures
+    from brackets.utils.group_knockout_fill import (
+        SEEDING,
+        get_knockout_fill_method,
+    )
+    from brackets.utils.results_entry import (
+        GROUP_FIXTURES,
+        GROUP_STANDINGS,
+        GROUP_TABLE,
+        results_entry_from_bracket,
+    )
+
+    bracket = user_bracket.bracket
+    bmeta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    # Prediction / legacy masters keep live KO fill. Tournament hosts set
+    # ``results_entry`` explicitly and use Complete / fixture completion rules.
+    if "results_entry" not in bmeta:
+        return placements
+
+    mode = results_entry_from_bracket(bracket).get("group") or GROUP_STANDINGS
+    metadata = (
+        user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
+    )
+
+    if mode == GROUP_STANDINGS:
+        if not metadata.get("group_stage_completed"):
+            return {}
+        return placements
+
+    if mode not in (GROUP_TABLE, GROUP_FIXTURES):
+        return placements
+
+    preview = bracket_groups_preview(bracket)
+    if not preview:
+        return {}
+
+    completed = completed_group_codes_from_fixtures(
+        preview, metadata.get("group_fixtures")
+    )
+    if not completed:
+        return {}
+
+    first_ko = _get_first_knockout_stage(bracket)
+    method = (
+        get_knockout_fill_method(first_ko, bracket)
+        if first_ko is not None
+        else "standard"
+    )
+    all_codes = {g["code"] for g in preview}
+    # Seeding places every qualifier into the bracket at once — wait for all groups.
+    if method == SEEDING:
+        if not completed.issuperset(all_codes):
+            return {}
+        return placements
+
+    # Standard / mapping: fill slots whose group finish is already final.
+    return {
+        code: row
+        for code, row in placements.items()
+        if code in completed
+    }
+
+
 def _third_place_advancer_by_group(
     bracket,
     metadata: dict[str, Any],
@@ -253,7 +331,9 @@ def projected_first_knockout_contestant_ids(user_bracket: UserBracket) -> set[in
         return set()
 
     metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
-    placements = _placement_map(bracket, metadata)
+    placements = _placements_ready_for_knockout(
+        user_bracket, _placement_map(bracket, metadata)
+    )
     if not placements:
         return set()
 
@@ -351,7 +431,9 @@ def sync_first_knockout_from_group_picks(
     ensure_knockout_fill_method_persisted(first_ko, bracket)
 
     metadata = user_bracket.metadata if isinstance(user_bracket.metadata, dict) else {}
-    placements = _placement_map(bracket, metadata)
+    placements = _placements_ready_for_knockout(
+        user_bracket, _placement_map(bracket, metadata)
+    )
 
     mapping = load_knockout_mapping(bracket, first_ko)
     if not mapping:

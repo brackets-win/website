@@ -32,6 +32,7 @@ import {
   SHOW_POLL_SECTIONS,
   SHOW_TOURNAMENT_SECTIONS,
 } from '../../utils/challengeTypes';
+import { evenTeamSizes } from '../../utils/singleElimByes';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 import {
   challengePath,
@@ -184,6 +185,12 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
   const [tFillMethod, setTFillMethod] = useState<'standard' | 'seeding'>(
     'standard',
   );
+  const [tGroupEntry, setTGroupEntry] = useState<
+    'standings' | 'table' | 'fixtures'
+  >('table');
+  const [tKoEntry, setTKoEntry] = useState<'winner' | 'score'>('winner');
+  const [tKoLegs, setTKoLegs] = useState(1);
+  const [tMatchesPer, setTMatchesPer] = useState(3);
 
   const [sName, setSName] = useState('');
   const [sCompetitionId, setSCompetitionId] = useState<number | ''>('');
@@ -266,6 +273,10 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTStructure('SINGLE_ELIM');
     setTThird(false);
     setTFillMethod('standard');
+    setTGroupEntry('standings');
+    setTKoEntry('winner');
+    setTKoLegs(1);
+    setTMatchesPer(3);
     setSName('');
     setSCompetitionId(streakCompetitions[0]?.id ?? '');
   }
@@ -438,6 +449,10 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
       setFormErr('Choose at least 2 teams.');
       return;
     }
+    if (structure === 'SINGLE_ELIM' && size % 2 !== 0) {
+      setFormErr('Single elimination needs an even team count.');
+      return;
+    }
     if (structure === 'GROUP_KNOCKOUT' && size % 4 !== 0) {
       setFormErr('Group & Knockout needs a team count divisible by 4.');
       return;
@@ -455,21 +470,32 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
           bracket_name: name,
           number_of_contestants: size,
           has_third_place: hasThird,
-          ...(structure === 'GROUP_KNOCKOUT'
-            ? {
-                structure_config: {
+          structure_config: {
+            results_entry: {
+              group: structure === 'GROUP_KNOCKOUT' ? tGroupEntry : 'standings',
+              knockout: tKoEntry,
+            },
+            ...(structure === 'GROUP_KNOCKOUT'
+              ? {
                   group_stage: {
                     number_of_groups: numberOfGroups,
                     contestants_qualifying_per_group: 2,
+                    matches_per_contestant:
+                      tGroupEntry === 'standings' ? 3 : tMatchesPer,
                   },
                   knockout: {
+                    number_of_legs: tKoLegs,
                     metadata: {
                       knockout_fill_method: tFillMethod,
                     },
                   },
-                },
-              }
-            : {}),
+                }
+              : {
+                  knockout: {
+                    number_of_legs: tKoLegs,
+                  },
+                }),
+          },
         },
       });
       upsertChallenge(challenge);
@@ -947,7 +973,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                     >
                       {(tStructure === 'GROUP_KNOCKOUT'
                         ? [8, 16, 32]
-                        : [4, 8, 16, 32]
+                        : evenTeamSizes(4, 64)
                       ).map((n) => (
                         <option key={n} value={n}>
                           {n}
@@ -956,24 +982,99 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                     </select>
                   </div>
                   {tStructure === 'GROUP_KNOCKOUT' ? (
-                    <div className="field">
-                      <label htmlFor="t-fill">Group → Knockout Fill</label>
-                      <select
-                        id="t-fill"
-                        className="select"
-                        value={tFillMethod}
-                        onChange={(e) =>
-                          setTFillMethod(
-                            e.target.value as 'standard' | 'seeding',
-                          )
-                        }
-                        disabled={busy}
-                      >
-                        <option value="standard">Standard</option>
-                        <option value="seeding">Seeding</option>
-                      </select>
-                    </div>
+                    <>
+                      <div className="field">
+                        <label htmlFor="t-fill">Group → Knockout Fill</label>
+                        <select
+                          id="t-fill"
+                          className="select"
+                          value={tFillMethod}
+                          onChange={(e) =>
+                            setTFillMethod(
+                              e.target.value as 'standard' | 'seeding',
+                            )
+                          }
+                          disabled={busy}
+                        >
+                          <option value="standard">Standard</option>
+                          <option value="seeding">Seeding</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="t-group-entry">Group Results</label>
+                        <select
+                          id="t-group-entry"
+                          className="select"
+                          value={tGroupEntry}
+                          onChange={(e) =>
+                            setTGroupEntry(
+                              e.target.value as
+                                | 'standings'
+                                | 'table'
+                                | 'fixtures',
+                            )
+                          }
+                          disabled={busy}
+                        >
+                          <option value="standings">Standings</option>
+                          <option value="table">Table</option>
+                        </select>
+                      </div>
+                      {tGroupEntry === 'table' ||
+                      tGroupEntry === 'fixtures' ? (
+                        <div className="field">
+                          <label htmlFor="t-matches-per">
+                            Matches Per Team
+                          </label>
+                          <select
+                            id="t-matches-per"
+                            className="select"
+                            value={tMatchesPer}
+                            onChange={(e) =>
+                              setTMatchesPer(parseInt(e.target.value, 10))
+                            }
+                            disabled={busy}
+                          >
+                            {[3, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n === 3 ? '3 (Once Each)' : '6 (Home & Away)'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
+                  <div className="field">
+                    <label htmlFor="t-ko-entry">Knockout Results</label>
+                    <select
+                      id="t-ko-entry"
+                      className="select"
+                      value={tKoEntry}
+                      onChange={(e) =>
+                        setTKoEntry(e.target.value as 'winner' | 'score')
+                      }
+                      disabled={busy}
+                    >
+                      <option value="winner">Winner Only</option>
+                      <option value="score">Score</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-ko-legs">Knockout Legs</label>
+                    <select
+                      id="t-ko-legs"
+                      className="select"
+                      value={tKoLegs}
+                      onChange={(e) =>
+                        setTKoLegs(parseInt(e.target.value, 10))
+                      }
+                      disabled={busy}
+                    >
+                      <option value={1}>1 Leg</option>
+                      <option value={2}>2 Legs</option>
+                    </select>
+                  </div>
                   <label className="checkbox-row">
                     <input
                       type="checkbox"

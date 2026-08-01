@@ -197,10 +197,83 @@
   width: 100%;
 }
 
+.bf-matchup--scores {
+  min-width: 0;
+}
+
+.bf-score-match {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.bf-score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.35rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.bf-score-row--winner {
+  background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.1);
+  font-weight: 600;
+}
+
+.bf-score-row__team {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.bf-score-row__name {
+  font-size: 0.8125rem;
+  color: var(--app-muted, #64748b);
+}
+
+.bf-score-row__cols {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: none;
+}
+
+.bf-score-leg {
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid var(--bf-border, rgba(16, 24, 40, 0.15));
+  border-radius: 0.25rem;
+  text-align: center;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--app-surface, #fff);
+}
+
+.bf-score-leg:disabled {
+  opacity: 0.7;
+}
+
+.bf-score-total {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  height: 1.65rem;
+  margin-left: 0.15rem;
+  padding: 0 0.2rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
 /* One card per game — flat picks inside the matchup shell. */
 .bf-matchup .bf-slot {
   border-bottom: none;
 }
+
 
 .bf-matchup .bf-slot + .bf-slot {
   border-top: 1px solid var(--bf-border);
@@ -472,6 +545,21 @@
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--bf-muted);
+}
+
+.bf-g-entry-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--bf-muted, #64748b);
+}
+
+.bf-g-complete {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--bf-border, rgba(16, 24, 40, 0.1));
 }
 
 .bf-toolbar .bf-tabs {

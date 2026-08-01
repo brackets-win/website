@@ -16,11 +16,13 @@ import {
   type BracketDetail,
   type BracketStageInfo,
   type MatchupInfo,
+  type ResultsEntryConfig,
   type UserBracketDetail,
   getBracket,
   getUserBracket,
   adminGetUserBracket,
   materializeBracketScores,
+  patchMatchupScores,
   patchMatchupWinner,
   setBracketNextMatch,
   submitUserBracket,
@@ -85,6 +87,25 @@ type NextMatchControl = {
 };
 
 const NextMatchContext = createContext<NextMatchControl | null>(null);
+
+type KnockoutEntryControl = {
+  mode: 'winner' | 'score';
+  locked: boolean;
+  applyScores: (
+    matchupId: number,
+    legs: Array<[number | null, number | null]>,
+  ) => void | Promise<void>;
+};
+
+const KnockoutEntryContext = createContext<KnockoutEntryControl>({
+  mode: 'winner',
+  locked: true,
+  applyScores: async () => {},
+});
+
+function useKnockoutEntry() {
+  return useContext(KnockoutEntryContext);
+}
 
 /** Master-edit control: flag an undecided matchup as the leaderboard "Next Match". */
 function NextMatchToggle({ matchup }: { matchup: MatchupInfo }) {
@@ -656,6 +677,36 @@ export function BracketFill({
   // Never lock the whole board on a pick save — chips stay clickable.
   const uiBusy = locked;
 
+  const resultsEntry = useMemo((): ResultsEntryConfig => {
+    const meta =
+      bracketDef?.metadata &&
+      typeof bracketDef.metadata === 'object' &&
+      !Array.isArray(bracketDef.metadata)
+        ? (bracketDef.metadata as Record<string, unknown>)
+        : {};
+    const raw =
+      meta.results_entry && typeof meta.results_entry === 'object'
+        ? (meta.results_entry as Record<string, unknown>)
+        : {};
+    const group = String(raw.group || 'standings');
+    const knockout = String(raw.knockout || 'winner');
+    return {
+      group:
+        group === 'table' || group === 'fixtures' ? group : 'standings',
+      knockout: knockout === 'score' ? 'score' : 'winner',
+    };
+  }, [bracketDef?.metadata]);
+
+  const hasTournamentResultsEntry = useMemo(() => {
+    const meta = bracketDef?.metadata;
+    return (
+      meta != null &&
+      typeof meta === 'object' &&
+      !Array.isArray(meta) &&
+      'results_entry' in meta
+    );
+  }, [bracketDef?.metadata]);
+
   const scoringLookup = useMemo(() => {
     if (!showScoringHighlights || !detail) return null;
     return buildScoringLookup(detail.scoring_highlights);
@@ -672,6 +723,24 @@ export function BracketFill({
         if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save pick.');
+      }
+    },
+    [locked, reloadUserBracket],
+  );
+
+  const applyScores = useCallback(
+    async (
+      matchupId: number,
+      legs: Array<[number | null, number | null]>,
+    ) => {
+      if (locked) return;
+      setError(null);
+      try {
+        await patchMatchupScores(matchupId, legs);
+        const ub = await reloadUserBracket();
+        if (ub) invalidateHomeForUserBracket(ub);
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : 'Could not save scores.');
       }
     },
     [locked, reloadUserBracket],
@@ -942,6 +1011,13 @@ export function BracketFill({
   return (
     <ScoringHighlightContext.Provider value={scoringLookup}>
     <NextMatchContext.Provider value={nextMatchControl}>
+    <KnockoutEntryContext.Provider
+      value={{
+        mode: resultsEntry.knockout,
+        locked,
+        applyScores,
+      }}
+    >
     <section
       className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
       style={
@@ -1119,12 +1195,20 @@ export function BracketFill({
                 initialMetadata={{
                   group_positions: meta.group_positions ?? {},
                   third_place_advancers: meta.third_place_advancers ?? [],
+                  group_fixtures: meta.group_fixtures,
+                  group_stage_completed: meta.group_stage_completed === true,
                 }}
                 scoringHighlights={
                   showScoringHighlights ? detail.scoring_highlights : undefined
                 }
                 busy={uiBusy}
                 readOnly={locked}
+                entryMode={resultsEntry.group}
+                showCompleteGroupStage={
+                  hasTournamentResultsEntry &&
+                  detail?.is_master === true &&
+                  resultsEntry.group === 'standings'
+                }
                 onSaved={handleGroupSaved}
                 onError={(msg) => setError(msg || null)}
                 saveDebounceMs={deferLeaderboardScoring ? 600 : 200}
@@ -1156,6 +1240,7 @@ export function BracketFill({
       ) : null}
 
     </section>
+    </KnockoutEntryContext.Provider>
     </NextMatchContext.Provider>
     </ScoringHighlightContext.Provider>
   );
@@ -1816,6 +1901,9 @@ function MatchupCard({
   onClearWinner?: (matchupId: number) => void;
 }) {
   const stageInfo = knockoutStages.find((s) => s.id === m.stage_id);
+  const entry = useKnockoutEntry();
+  const legsCount = Math.min(2, Math.max(1, stageInfo?.knockout?.number_of_legs ?? 1));
+  const scoreMode = entry.mode === 'score';
   const feeders = resolveFeederMatchups(m, detail, prevStageId, {
     useTreeFeeders: stageUsesTreeFeeders(stageInfo),
   });
@@ -1843,6 +1931,34 @@ function MatchupCard({
       feederBot != null ||
       contestantTop != null ||
       contestantBot != null);
+
+  const teamTop = isFirst ? m.contestant1 : contestantTop;
+  const teamBot = isFirst ? m.contestant2 : contestantBot;
+
+  if (scoreMode) {
+    return (
+      <div className="bf-matchup bf-matchup--scores">
+        <MatchupScoreBlock
+          matchup={m}
+          teamTop={teamTop}
+          teamBot={teamBot}
+          emptyTop={isFirst ? undefined : labelTop}
+          emptyBot={isFirst ? undefined : labelBot}
+          legsCount={legsCount}
+          showSeeds={showSeeds}
+          busy={busy || entry.locked}
+          readOnly={entry.locked}
+          onSaveLegs={(legs) => void entry.applyScores(m.id, legs)}
+          onClearWinner={
+            onClearWinner && m.winner
+              ? () => void onClearWinner(m.id)
+              : undefined
+          }
+        />
+        <NextMatchToggle matchup={m} />
+      </div>
+    );
+  }
 
   return (
     <div className="bf-matchup">
@@ -1909,6 +2025,222 @@ function MatchupCard({
   );
 }
 
+function MatchupScoreBlock({
+  matchup,
+  teamTop,
+  teamBot,
+  emptyTop,
+  emptyBot,
+  legsCount,
+  showSeeds,
+  busy,
+  readOnly,
+  onSaveLegs,
+  onClearWinner,
+}: {
+  matchup: MatchupInfo;
+  teamTop: BracketContestantInfo | null | undefined;
+  teamBot: BracketContestantInfo | null | undefined;
+  emptyTop?: string;
+  emptyBot?: string;
+  legsCount: number;
+  showSeeds: boolean;
+  busy: boolean;
+  readOnly: boolean;
+  onSaveLegs: (legs: Array<[number | null, number | null]>) => void;
+  onClearWinner?: () => void;
+}) {
+  const initialLegs = useMemo(() => {
+    const fromServer = matchup.scores?.legs;
+    const base: Array<[number | null, number | null]> = Array.from(
+      { length: legsCount },
+      (_, i) => {
+        const pair = fromServer?.[i];
+        if (pair && pair.length >= 2) {
+          return [pair[0] ?? null, pair[1] ?? null];
+        }
+        return [null, null];
+      },
+    );
+    return base;
+  }, [matchup.scores?.legs, legsCount, matchup.id]);
+
+  const [legs, setLegs] = useState(initialLegs);
+  useEffect(() => {
+    setLegs(initialLegs);
+  }, [initialLegs]);
+
+  const computed = (() => {
+    let t1 = 0;
+    let t2 = 0;
+    let any = false;
+    for (const [a, b] of legs) {
+      if (a == null || b == null) continue;
+      any = true;
+      t1 += a;
+      t2 += b;
+    }
+    return any ? ([t1, t2] as const) : ([null, null] as const);
+  })();
+
+  function setCell(legIdx: number, side: 0 | 1, raw: string) {
+    const trimmed = raw.trim();
+    const val =
+      trimmed === ''
+        ? null
+        : Number.isFinite(Number(trimmed))
+          ? Math.max(0, Math.min(99, parseInt(trimmed, 10)))
+          : null;
+    setLegs((prev) =>
+      prev.map((pair, i) => {
+        if (i !== legIdx) return pair;
+        const next: [number | null, number | null] = [...pair];
+        next[side] = val;
+        return next;
+      }),
+    );
+  }
+
+  function commit() {
+    onSaveLegs(legs);
+  }
+
+  const winnerId = matchup.winner?.id;
+
+  return (
+    <div className="bf-score-match">
+      <MatchupScoreRow
+        contestant={teamTop ?? null}
+        emptyLabel={emptyTop || 'TBD'}
+        side={0}
+        legs={legs}
+        total={computed[0]}
+        isWinner={winnerId != null && teamTop?.id === winnerId}
+        showSeeds={showSeeds}
+        busy={busy}
+        readOnly={readOnly || !teamTop || !teamBot}
+        onChange={setCell}
+        onBlurCommit={commit}
+        onClear={
+          winnerId != null && teamTop?.id === winnerId ? onClearWinner : undefined
+        }
+      />
+      <MatchupScoreRow
+        contestant={teamBot ?? null}
+        emptyLabel={emptyBot || 'TBD'}
+        side={1}
+        legs={legs}
+        total={computed[1]}
+        isWinner={winnerId != null && teamBot?.id === winnerId}
+        showSeeds={showSeeds}
+        busy={busy}
+        readOnly={readOnly || !teamTop || !teamBot}
+        onChange={setCell}
+        onBlurCommit={commit}
+        onClear={
+          winnerId != null && teamBot?.id === winnerId ? onClearWinner : undefined
+        }
+      />
+    </div>
+  );
+}
+
+function MatchupScoreRow({
+  contestant,
+  emptyLabel,
+  side,
+  legs,
+  total,
+  isWinner,
+  showSeeds,
+  busy,
+  readOnly,
+  onChange,
+  onBlurCommit,
+  onClear,
+}: {
+  contestant: BracketContestantInfo | null;
+  emptyLabel: string;
+  side: 0 | 1;
+  legs: Array<[number | null, number | null]>;
+  total: number | null;
+  isWinner: boolean;
+  showSeeds: boolean;
+  busy: boolean;
+  readOnly: boolean;
+  onChange: (legIdx: number, side: 0 | 1, raw: string) => void;
+  onBlurCommit: () => void;
+  onClear?: () => void;
+}) {
+  if (!contestant) {
+    return (
+      <div className="bf-slot bf-slot--empty bf-score-row">
+        <span className="bf-score-row__name">{emptyLabel}</span>
+        <div className="bf-score-row__cols" aria-hidden>
+          {legs.map((_, i) => (
+            <span key={i} className="bf-score-leg">
+              —
+            </span>
+          ))}
+          <span className="bf-score-total">—</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        'bf-slot',
+        'bf-score-row',
+        isWinner ? 'bf-score-row--winner' : '',
+        onClear ? 'bf-slot--with-clear' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <div className="bf-score-row__team">
+        <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
+        {onClear ? (
+          <button
+            type="button"
+            className="bf-pick-clear"
+            disabled={busy}
+            onClick={() => onClear()}
+            aria-label="Remove result"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+      <div className="bf-score-row__cols">
+        {legs.map((pair, legIdx) => (
+          <input
+            key={legIdx}
+            className="bf-score-leg"
+            inputMode="numeric"
+            maxLength={2}
+            value={pair[side] ?? ''}
+            disabled={busy || readOnly}
+            aria-label={`Leg ${legIdx + 1} score for ${contestant.display_name}`}
+            onChange={(e) => onChange(legIdx, side, e.target.value)}
+            onBlur={onBlurCommit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+          />
+        ))}
+        <span className="bf-score-total" aria-label="Total">
+          {total == null ? '—' : total}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** First round: click a team to pick the winner of this game. */
 function ContestantOnly({
   label,
@@ -1933,8 +2265,8 @@ function ContestantOnly({
 }) {
   if (!label) {
     return (
-      <div className="bf-slot bf-slot--empty" aria-label="Empty slot">
-        TBD
+      <div className="bf-slot bf-slot--empty" aria-label={otherId != null ? 'Bye' : 'Empty slot'}>
+        {otherId != null ? 'Bye' : 'TBD'}
       </div>
     );
   }

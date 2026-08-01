@@ -152,6 +152,34 @@ def _order_by_pots(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
+def _order_bye_and_play_pots(teams: list[dict[str, Any]], bye_count: int) -> list[dict[str, Any]]:
+    """
+    Two unequal pots for non-power-of-2 single elim:
+    pot 1 = bye seeds 1..byes, pot 2 = play-in seeds byes+1..N.
+    """
+    by_pot: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for team in teams:
+        pot = team.get("pot")
+        if pot is None:
+            raise ValueError("Each team needs a pot for random balanced draw.")
+        by_pot[int(pot)].append(team)
+
+    if sorted(by_pot.keys()) != [1, 2]:
+        raise ValueError("Bye draws use two pots: Bye and Round 1.")
+
+    bye_bucket = list(by_pot[1])
+    play_bucket = list(by_pot[2])
+    play_count = len(teams) - bye_count
+    if len(bye_bucket) != bye_count:
+        raise ValueError(f"Bye pot must have exactly {bye_count} teams.")
+    if len(play_bucket) != play_count:
+        raise ValueError(f"Round 1 pot must have exactly {play_count} teams.")
+
+    random.shuffle(bye_bucket)
+    random.shuffle(play_bucket)
+    return bye_bucket + play_bucket
+
+
 def compute_draw_seeds(
     *,
     mode: str,
@@ -165,6 +193,12 @@ def compute_draw_seeds(
 
     mode: ``random`` | ``random_balanced``
     """
+    from brackets.utils.single_elim_byes import (
+        is_power_of_2,
+        single_elim_bye_count,
+        validate_single_elim_roster,
+    )
+
     parsed = _parse_named_teams(teams)
     n = len(parsed)
     if n < 2:
@@ -178,6 +212,8 @@ def compute_draw_seeds(
             raise ValueError(
                 f"Provide exactly {number_of_groups * teams_per_group} teams."
             )
+    else:
+        validate_single_elim_roster(n)
 
     if mode == "random":
         shuffled = list(parsed)
@@ -189,6 +225,10 @@ def compute_draw_seeds(
         return _knockout_seeds_in_order(shuffled)
 
     if mode == "random_balanced":
+        if not is_gk and not is_power_of_2(n):
+            bye_count = single_elim_bye_count(n)
+            ordered = _order_bye_and_play_pots(parsed, bye_count)
+            return _knockout_seeds_in_order(ordered)
         ordered = _order_by_pots(parsed)
         if is_gk:
             return _snake_group_assignment(

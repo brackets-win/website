@@ -9,36 +9,48 @@ from brackets.utils.group_stage_config import (
 )
 
 
-def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
+def group_stage_picks_complete(ub: UserBracket) -> tuple[bool, str | None]:
+    """Whether group positions (and third-place rail) are fully filled."""
     from brackets.api.serializers import bracket_groups_preview
 
     bracket = ub.bracket
     preview = bracket_groups_preview(bracket)
+    if not preview:
+        return True, None
+
+    gs = get_group_stage(bracket)
+    if gs is None:
+        return False, "Bracket has no group stage"
+
     meta = ub.metadata if isinstance(ub.metadata, dict) else {}
+    ranks_required, third_count = group_stage_pick_requirements(gs)
+    slot_keys = [str(i) for i in range(1, ranks_required + 1)]
 
-    if preview:
-        gs = get_group_stage(bracket)
-        if gs is None:
-            return False, "Bracket has no group stage"
+    gp = meta.get("group_positions") or {}
+    for group in preview:
+        code = group["code"]
+        slots = gp.get(code) or {}
+        for key in slot_keys:
+            val = slots.get(key)
+            if val is None:
+                val = slots.get(int(key)) if isinstance(slots, dict) else None
+            if val is None:
+                return False, f"Complete group {code} picks first"
 
-        ranks_required, third_count = group_stage_pick_requirements(gs)
-        slot_keys = [str(i) for i in range(1, ranks_required + 1)]
+    if third_count > 0:
+        tp = meta.get("third_place_advancers") or []
+        if len(tp) < third_count:
+            return False, f"Select {third_count} third-place teams"
 
-        gp = meta.get("group_positions") or {}
-        for group in preview:
-            code = group["code"]
-            slots = gp.get(code) or {}
-            for key in slot_keys:
-                val = slots.get(key)
-                if val is None:
-                    val = slots.get(int(key)) if isinstance(slots, dict) else None
-                if val is None:
-                    return False, f"Complete group {code} picks first"
+    return True, None
 
-        if third_count > 0:
-            tp = meta.get("third_place_advancers") or []
-            if len(tp) < third_count:
-                return False, f"Select {third_count} third-place teams"
+
+def user_bracket_is_complete(ub: UserBracket) -> tuple[bool, str | None]:
+    ok, err = group_stage_picks_complete(ub)
+    if not ok:
+        return False, err
+
+    bracket = ub.bracket
 
     for m in ub.matchup_set.select_related("stage").all():
         if m.contestant1_id and m.contestant2_id and m.winner_id is None:
