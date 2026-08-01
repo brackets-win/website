@@ -620,7 +620,7 @@ export function ChallengeView({
   const bracketTabLabel = isPoll
     ? 'Vote'
     : isTournament
-      ? 'Bracket'
+      ? 'Tournament'
       : 'My Bracket';
 
   const showLeaderboard = challenge.uses_prediction_leaderboard !== false;
