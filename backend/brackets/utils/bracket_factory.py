@@ -173,5 +173,17 @@ def create_bracket_with_structure(
 
     if has_third_place:
         sync_third_place_structure(bracket)
+        ko_cfg = (structure_config or {}).get("knockout") or {}
+        if "third_place_number_of_legs" in ko_cfg:
+            from brackets.utils.third_place_structure import get_third_place_stage
+
+            tp = get_third_place_stage(bracket)
+            if tp is not None:
+                legs = int(ko_cfg["third_place_number_of_legs"])
+                if legs < 1 or legs > 2:
+                    raise ValueError("third_place_number_of_legs must be 1 or 2")
+                if tp.number_of_legs != legs:
+                    tp.number_of_legs = legs
+                    tp.save(update_fields=["number_of_legs"])
 
     return bracket

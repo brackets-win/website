@@ -870,7 +870,13 @@ export async function getChallenge(
 
 export async function updateChallenge(
   challengeId: number,
-  body: FormData | { max_entries: number } | { show_seeds: boolean },
+  body:
+    | FormData
+    | { max_entries: number }
+    | { show_seeds: boolean }
+    | {
+        knockout_legs: Array<{ stage_id: number; number_of_legs: 1 | 2 }>;
+      },
 ): Promise<{ challenge: ChallengeSummary }> {
   return apiFetch('PATCH', `challenges/${challengeId}`, body);
 }

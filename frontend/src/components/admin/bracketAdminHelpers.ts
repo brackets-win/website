@@ -4,6 +4,7 @@ import type {
   BracketStructureConfig,
   BracketStructureType,
 } from '../../utils/api';
+import { singleElimFieldSize } from '../../utils/singleElimByes';
 
 export function metadataToText(value: unknown): string {
   if (value == null) return '';
@@ -172,7 +173,8 @@ export function knockoutRounds(opts: {
         : 2;
     start = groups * qualify;
   } else {
-    start = numContestants;
+    // Mirror bracket_factory: shell is next power of 2 (byes pad the field).
+    start = singleElimFieldSize(numContestants);
   }
   const rounds: KnockoutRound[] = [];
   let cur = start;

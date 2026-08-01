@@ -162,6 +162,11 @@ export function ChallengeView({
   const [showSeedsDraft, setShowSeedsDraft] = useState(true);
   const [showSeedsBusy, setShowSeedsBusy] = useState(false);
   const [showSeedsErr, setShowSeedsErr] = useState('');
+  const [knockoutLegsDraft, setKnockoutLegsDraft] = useState<
+    Record<number, 1 | 2>
+  >({});
+  const [knockoutLegsBusy, setKnockoutLegsBusy] = useState(false);
+  const [knockoutLegsErr, setKnockoutLegsErr] = useState('');
   const [bracketRevision, setBracketRevision] = useState(0);
   const autoTeamsTabDone = useRef(false);
 
@@ -383,8 +388,31 @@ export function ChallengeView({
     if (bracketDef) {
       setShowSeedsDraft(bracketDef.show_seeds !== false);
       setShowSeedsErr('');
+      const next: Record<number, 1 | 2> = {};
+      for (const stage of bracketDef.stages) {
+        if (stage.stage_type !== 'KNOCKOUT' || !stage.knockout) continue;
+        next[stage.id] = stage.knockout.number_of_legs >= 2 ? 2 : 1;
+      }
+      setKnockoutLegsDraft(next);
+      setKnockoutLegsErr('');
     }
-  }, [bracketDef?.id, bracketDef?.show_seeds]);
+  }, [bracketDef?.id, bracketDef?.stages]);
+
+  const knockoutLegsStages = useMemo(() => {
+    if (!bracketDef) return [];
+    return [...bracketDef.stages]
+      .filter((s) => s.stage_type === 'KNOCKOUT' && s.knockout)
+      .sort((a, b) => a.order - b.order);
+  }, [bracketDef]);
+
+  const knockoutLegsDirty = useMemo(() => {
+    if (!bracketDef) return false;
+    return knockoutLegsStages.some((stage) => {
+      const current = stage.knockout!.number_of_legs >= 2 ? 2 : 1;
+      const draft = knockoutLegsDraft[stage.id] ?? current;
+      return draft !== current;
+    });
+  }, [bracketDef, knockoutLegsStages, knockoutLegsDraft]);
 
   useEffect(() => {
     if (!challenge || challenge.can_view_peer_brackets) return;
@@ -531,6 +559,47 @@ export function ChallengeView({
       );
     } finally {
       setShowSeedsBusy(false);
+    }
+  }
+
+  async function handleSaveKnockoutLegs(e: React.FormEvent) {
+    e.preventDefault();
+    if (!challenge || !bracketDef || !knockoutLegsDirty) return;
+    setKnockoutLegsBusy(true);
+    setKnockoutLegsErr('');
+    try {
+      const payload = knockoutLegsStages.map((stage) => ({
+        stage_id: stage.id,
+        number_of_legs: (knockoutLegsDraft[stage.id] ??
+          (stage.knockout!.number_of_legs >= 2 ? 2 : 1)) as 1 | 2,
+      }));
+      await updateChallenge(challenge.id, { knockout_legs: payload });
+      setBracketDef((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          stages: prev.stages.map((stage) => {
+            if (stage.stage_type !== 'KNOCKOUT' || !stage.knockout) {
+              return stage;
+            }
+            const legs = knockoutLegsDraft[stage.id];
+            if (legs == null) return stage;
+            return {
+              ...stage,
+              knockout: { ...stage.knockout, number_of_legs: legs },
+            };
+          }),
+        };
+      });
+      setBracketRevision((n) => n + 1);
+    } catch (err) {
+      setKnockoutLegsErr(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not update knockout legs.',
+      );
+    } finally {
+      setKnockoutLegsBusy(false);
     }
   }
 
@@ -1173,6 +1242,57 @@ export function ChallengeView({
                 }
               >
                 {showSeedsBusy ? 'Saving…' : 'Save'}
+              </button>
+            </form>
+          ) : null}
+          {(challenge.is_creator || challenge.can_manage_bracket) &&
+          isTournament &&
+          knockoutLegsStages.length > 0 ? (
+            <form
+              className="challenge-view__settings-form"
+              onSubmit={(e) => void handleSaveKnockoutLegs(e)}
+            >
+              <h2 className="challenge-view__settings-heading">
+                Knockout Legs
+              </h2>
+              {knockoutLegsStages.map((stage) => (
+                <div className="field" key={stage.id}>
+                  <label htmlFor={`settings-ko-legs-${stage.id}`}>
+                    {stage.name}
+                  </label>
+                  <select
+                    id={`settings-ko-legs-${stage.id}`}
+                    className="select"
+                    value={
+                      knockoutLegsDraft[stage.id] ??
+                      (stage.knockout!.number_of_legs >= 2 ? 2 : 1)
+                    }
+                    onChange={(e) => {
+                      const legs =
+                        parseInt(e.target.value, 10) === 2 ? 2 : 1;
+                      setKnockoutLegsDraft((prev) => ({
+                        ...prev,
+                        [stage.id]: legs,
+                      }));
+                    }}
+                    disabled={knockoutLegsBusy}
+                  >
+                    <option value={1}>1 Leg</option>
+                    <option value={2}>2 Legs</option>
+                  </select>
+                </div>
+              ))}
+              {knockoutLegsErr ? (
+                <div className="alert alert--error" role="status">
+                  {knockoutLegsErr}
+                </div>
+              ) : null}
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={knockoutLegsBusy || !knockoutLegsDirty}
+              >
+                {knockoutLegsBusy ? 'Saving…' : 'Save'}
               </button>
             </form>
           ) : null}

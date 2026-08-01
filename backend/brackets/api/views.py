@@ -1345,13 +1345,67 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
             return _json_error("Invalid JSON body", 400)
 
         if challenge.instance_type == TOURNAMENT:
-            if "show_seeds" not in body:
-                return _json_error("show_seeds is required", 400)
-            bracket = challenge.bracket
-            show_seeds = bool(body.get("show_seeds"))
-            if bracket.show_seeds != show_seeds:
-                bracket.show_seeds = show_seeds
-                bracket.save(update_fields=["show_seeds"])
+            touched = False
+            if "show_seeds" in body:
+                bracket = challenge.bracket
+                show_seeds = bool(body.get("show_seeds"))
+                if bracket.show_seeds != show_seeds:
+                    bracket.show_seeds = show_seeds
+                    bracket.save(update_fields=["show_seeds"])
+                touched = True
+            if "knockout_legs" in body:
+                raw_legs = body.get("knockout_legs")
+                if not isinstance(raw_legs, list):
+                    return _json_error("knockout_legs must be a list", 400)
+                from brackets.models import KnockoutStage, Matchup
+                from brackets.utils.matchup_scores import parse_stored_legs
+
+                stage_ids = {
+                    s.id
+                    for s in KnockoutStage.objects.filter(bracket=challenge.bracket)
+                }
+                for row in raw_legs:
+                    if not isinstance(row, dict):
+                        return _json_error(
+                            "knockout_legs entries must be objects", 400
+                        )
+                    try:
+                        stage_id = int(row.get("stage_id"))
+                        legs = int(row.get("number_of_legs"))
+                    except (TypeError, ValueError):
+                        return _json_error(
+                            "stage_id and number_of_legs are required", 400
+                        )
+                    if stage_id not in stage_ids:
+                        return _json_error(
+                            f"Unknown knockout stage {stage_id}", 400
+                        )
+                    if legs not in (1, 2):
+                        return _json_error("number_of_legs must be 1 or 2", 400)
+                    ks = KnockoutStage.objects.get(pk=stage_id)
+                    if ks.number_of_legs == legs:
+                        continue
+                    ks.number_of_legs = legs
+                    ks.save(update_fields=["number_of_legs"])
+                    for m in Matchup.objects.filter(stage_id=stage_id):
+                        stored = parse_stored_legs(m.scores)
+                        if stored is None:
+                            continue
+                        if len(stored) == legs:
+                            continue
+                        if len(stored) > legs:
+                            stored = stored[:legs]
+                        else:
+                            stored = stored + [
+                                [None, None] for _ in range(legs - len(stored))
+                            ]
+                        m.scores = {"legs": stored}
+                        m.save(update_fields=["scores"])
+                touched = True
+            if not touched:
+                return _json_error(
+                    "show_seeds or knockout_legs is required", 400
+                )
             return JsonResponse(
                 {
                     "challenge": _challenge_summary_for_user(

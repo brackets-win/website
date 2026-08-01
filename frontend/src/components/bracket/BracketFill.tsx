@@ -2250,6 +2250,13 @@ function MatchupScoreBlock({
   }
 
   const winnerId = matchup.winner?.id;
+  const hasScoreEntry = legs.some(
+    ([a, b]) => a != null || b != null,
+  );
+  // Clear-X is for winner-only picks. With scores entered, edit/clear via the
+  // score cells instead — the × was colliding with the inputs.
+  const clearWinnerIfScoreless =
+    !hasScoreEntry && onClearWinner != null ? onClearWinner : undefined;
 
   return (
     <div className="bf-score-match">
@@ -2273,7 +2280,7 @@ function MatchupScoreBlock({
         onBlurCommit={commit}
         onClear={
           winnerId != null && teamTop?.id === winnerId
-            ? onClearWinner
+            ? clearWinnerIfScoreless
             : undefined
         }
       />
@@ -2297,7 +2304,7 @@ function MatchupScoreBlock({
         onBlurCommit={commit}
         onClear={
           winnerId != null && teamBot?.id === winnerId
-            ? onClearWinner
+            ? clearWinnerIfScoreless
             : undefined
         }
       />

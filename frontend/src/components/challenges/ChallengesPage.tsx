@@ -34,6 +34,9 @@ import {
   SHOW_TOURNAMENT_SECTIONS,
 } from '../../utils/challengeTypes';
 import { evenTeamSizes } from '../../utils/singleElimByes';
+import {
+  knockoutRounds,
+} from '../admin/bracketAdminHelpers';
 import { estLocalInputToIso, formatDeadlineEst } from '../../utils/est';
 import {
   challengePath,
@@ -191,7 +194,8 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     'standings',
   );
   const [tKoEntry, setTKoEntry] = useState<'winner' | 'score'>('winner');
-  const [tKoLegs, setTKoLegs] = useState(1);
+  const [tKoRoundLegs, setTKoRoundLegs] = useState<Record<number, 1 | 2>>({});
+  const [tThirdLegs, setTThirdLegs] = useState<1 | 2>(1);
   const [tMatchesPer, setTMatchesPer] = useState(3);
   const [tImage, setTImage] = useState<File | null>(null);
 
@@ -265,6 +269,17 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     [rows],
   );
 
+  const tKnockoutRounds = useMemo(
+    () =>
+      knockoutRounds({
+        structureKind: tStructure,
+        numContestants: tSize,
+        numGroups: tStructure === 'GROUP_KNOCKOUT' ? tSize / 4 : null,
+        qualifyPerGroup: 2,
+      }),
+    [tStructure, tSize],
+  );
+
   function resetForms() {
     setFormErr('');
     setJoinCode('');
@@ -279,7 +294,8 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTFillMethod('standard');
     setTGroupEntry('standings');
     setTKoEntry('winner');
-    setTKoLegs(1);
+    setTKoRoundLegs({});
+    setTThirdLegs(1);
     setTMatchesPer(3);
     setTImage(null);
     setSName('');
@@ -466,6 +482,10 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setBusy(true);
     try {
       const numberOfGroups = size / 4;
+      const roundLegs: Record<string, number> = {};
+      for (const round of tKnockoutRounds) {
+        roundLegs[String(round.size)] = tKoRoundLegs[round.size] === 2 ? 2 : 1;
+      }
       let { challenge } = await createChallenge({
         name,
         instance_type: INSTANCE_TOURNAMENT,
@@ -491,7 +511,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       tGroupEntry === 'standings' ? 3 : tMatchesPer,
                   },
                   knockout: {
-                    number_of_legs: tKoLegs,
+                    number_of_legs: 1,
+                    round_legs: roundLegs,
+                    ...(hasThird
+                      ? { third_place_number_of_legs: tThirdLegs }
+                      : {}),
                     metadata: {
                       knockout_fill_method: tFillMethod,
                     },
@@ -499,7 +523,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                 }
               : {
                   knockout: {
-                    number_of_legs: tKoLegs,
+                    number_of_legs: 1,
+                    round_legs: roundLegs,
+                    ...(hasThird
+                      ? { third_place_number_of_legs: tThirdLegs }
+                      : {}),
                   },
                 }),
           },
@@ -1088,21 +1116,6 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       <option value="score">Score</option>
                     </select>
                   </div>
-                  <div className="field">
-                    <label htmlFor="t-ko-legs">Knockout Legs</label>
-                    <select
-                      id="t-ko-legs"
-                      className="select"
-                      value={tKoLegs}
-                      onChange={(e) =>
-                        setTKoLegs(parseInt(e.target.value, 10))
-                      }
-                      disabled={busy}
-                    >
-                      <option value={1}>1 Leg</option>
-                      <option value={2}>2 Legs</option>
-                    </select>
-                  </div>
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
@@ -1112,6 +1125,50 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                     />
                     Third-place Match
                   </label>
+                  <fieldset className="field" disabled={busy}>
+                    <legend>Legs Per Knockout Round</legend>
+                    {tKnockoutRounds.map((round) => (
+                      <div className="field" key={round.size}>
+                        <label htmlFor={`t-ko-legs-${round.size}`}>
+                          {round.name}
+                        </label>
+                        <select
+                          id={`t-ko-legs-${round.size}`}
+                          className="select"
+                          value={tKoRoundLegs[round.size] ?? 1}
+                          onChange={(e) => {
+                            const legs =
+                              parseInt(e.target.value, 10) === 2 ? 2 : 1;
+                            setTKoRoundLegs((prev) => ({
+                              ...prev,
+                              [round.size]: legs,
+                            }));
+                          }}
+                        >
+                          <option value={1}>1 Leg</option>
+                          <option value={2}>2 Legs</option>
+                        </select>
+                      </div>
+                    ))}
+                    {tThird ? (
+                      <div className="field">
+                        <label htmlFor="t-ko-legs-third">Third Place</label>
+                        <select
+                          id="t-ko-legs-third"
+                          className="select"
+                          value={tThirdLegs}
+                          onChange={(e) =>
+                            setTThirdLegs(
+                              parseInt(e.target.value, 10) === 2 ? 2 : 1,
+                            )
+                          }
+                        >
+                          <option value={1}>1 Leg</option>
+                          <option value={2}>2 Legs</option>
+                        </select>
+                      </div>
+                    ) : null}
+                  </fieldset>
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
