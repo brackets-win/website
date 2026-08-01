@@ -84,6 +84,36 @@ function defaultPotCount(
   return opts[0] ?? 2;
 }
 
+/** Fill pots from a flat list without dropping teams when pot count changes. */
+function distributeToPots(
+  picks: TeamPick[],
+  count: number,
+  capacities: number[],
+): TeamPick[][] {
+  const buckets: TeamPick[][] = Array.from({ length: count }, () => []);
+  let i = 0;
+  for (let potIdx = 0; potIdx < count; potIdx += 1) {
+    const cap = Math.max(0, capacities[potIdx] ?? 0);
+    while (buckets[potIdx]!.length < cap && i < picks.length) {
+      buckets[potIdx]!.push(picks[i]!);
+      i += 1;
+    }
+  }
+  return buckets;
+}
+
+function reshapePots(
+  prev: TeamPick[][],
+  count: number,
+  capacities: number[],
+): TeamPick[][] {
+  const fits =
+    prev.length === count &&
+    prev.every((bucket, i) => bucket.length <= (capacities[i] ?? 0));
+  if (fits) return prev;
+  return distributeToPots(prev.flat(), count, capacities);
+}
+
 function groupCode(index: number): string {
   return String.fromCharCode(65 + index);
 }
@@ -146,17 +176,21 @@ export function TournamentTeamsPanel({
 
   const assignedIds = useMemo(() => {
     const ids = new Set<number>();
-    for (const slot of manualSlots) {
-      if (slot) ids.add(slot.contestant_id);
-    }
-    for (const slot of poolSlots) {
-      if (slot) ids.add(slot.contestant_id);
-    }
-    for (const bucket of potSlots) {
-      for (const slot of bucket) ids.add(slot.contestant_id);
+    if (mode === 'manual') {
+      for (const slot of manualSlots) {
+        if (slot) ids.add(slot.contestant_id);
+      }
+    } else if (mode === 'random') {
+      for (const slot of poolSlots) {
+        if (slot) ids.add(slot.contestant_id);
+      }
+    } else {
+      for (const bucket of potSlots) {
+        for (const slot of bucket) ids.add(slot.contestant_id);
+      }
     }
     return ids;
-  }, [manualSlots, poolSlots, potSlots]);
+  }, [mode, manualSlots, poolSlots, potSlots]);
 
   const available = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -208,6 +242,7 @@ export function TournamentTeamsPanel({
           bySeed[row.seed - 1] = pickFromRow(row);
         }
       });
+      const picks = bySeed.filter((s): s is TeamPick => s != null);
       setManualSlots(bySeed);
       setPoolSlots(bySeed.map((slot) => (slot ? { ...slot } : null)));
 
@@ -216,12 +251,20 @@ export function TournamentTeamsPanel({
           ? singleElimByeCount(n)
           : 0;
       if (seByes > 0) {
+        const play = singleElimPlayInCount(n);
         setPotCount(2);
-        setPotSlots([[], []]);
+        setPotSlots(distributeToPots(picks, 2, [seByes, play]));
       } else {
         const nextPotCount = defaultPotCount(n, meta.teams_per_group);
+        const cap = nextPotCount > 0 ? n / nextPotCount : 0;
         setPotCount(nextPotCount);
-        setPotSlots(Array.from({ length: nextPotCount }, () => []));
+        setPotSlots(
+          distributeToPots(
+            picks,
+            nextPotCount,
+            Array.from({ length: nextPotCount }, () => cap),
+          ),
+        );
       }
     },
     [teamCount],
@@ -243,6 +286,7 @@ export function TournamentTeamsPanel({
       );
       setManualSlots(emptySlots(teamCount));
       setPoolSlots(emptySlots(teamCount));
+      setPotSlots([[], []]);
     }
   }, [applyMeta, challengeId, teamCount]);
 
@@ -256,20 +300,13 @@ export function TournamentTeamsPanel({
       return;
     }
     if (!potOptions.includes(potCount) && potOptions.length > 0) {
-      const next = defaultPotCount(capacity, teamsPerGroup);
-      setPotCount(next);
-      setPotSlots(Array.from({ length: next }, () => []));
+      setPotCount(defaultPotCount(capacity, teamsPerGroup));
     }
   }, [potOptions, potCount, capacity, teamsPerGroup, useByePots]);
 
   useEffect(() => {
-    setPotSlots((prev) => {
-      return Array.from({ length: potCount }, (_, i) => {
-        const cap = potCapacities[i] ?? potSize;
-        return (prev[i] ?? []).slice(0, cap);
-      });
-    });
-  }, [potCount, potSize, potCapacities]);
+    setPotSlots((prev) => reshapePots(prev, potCount, potCapacities));
+  }, [potCount, potCapacities]);
 
   useEffect(() => {
     return () => {
@@ -287,6 +324,19 @@ export function TournamentTeamsPanel({
     return potSlots.flat();
   }
 
+  /** Prefer the active mode; if it’s empty, keep the fullest roster from any mode. */
+  function picksForSwitch(): TeamPick[] {
+    const current = picksFromMode(mode);
+    if (current.length > 0) return current;
+    const manual = manualSlots.filter((s): s is TeamPick => s != null);
+    const pool = poolSlots.filter((s): s is TeamPick => s != null);
+    const pots = potSlots.flat();
+    let best = manual;
+    if (pool.length > best.length) best = pool;
+    if (pots.length > best.length) best = pots;
+    return best;
+  }
+
   function slotsFromPicks(picks: TeamPick[]): (TeamPick | null)[] {
     const next = emptySlots(capacity);
     picks.slice(0, capacity).forEach((pick, i) => {
@@ -296,28 +346,20 @@ export function TournamentTeamsPanel({
   }
 
   function potsFromPicks(picks: TeamPick[]): TeamPick[][] {
-    const buckets: TeamPick[][] = Array.from({ length: potCount }, () => []);
-    let i = 0;
-    for (let potIdx = 0; potIdx < potCount; potIdx += 1) {
-      const cap = potCapacities[potIdx] ?? potSize;
-      while (buckets[potIdx]!.length < cap && i < picks.length) {
-        buckets[potIdx]!.push(picks[i]!);
-        i += 1;
-      }
-    }
-    return buckets;
+    return distributeToPots(picks, potCount, potCapacities);
+  }
+
+  function syncAllModes(picks: TeamPick[]) {
+    const slots = slotsFromPicks(picks);
+    setManualSlots(slots);
+    setPoolSlots(slots.map((slot) => (slot ? { ...slot } : null)));
+    setPotSlots(potsFromPicks(picks));
   }
 
   function switchMode(next: PlacementMode) {
     if (next === mode) return;
-    const picks = picksFromMode(mode);
-    if (next === 'manual') {
-      setManualSlots(slotsFromPicks(picks));
-    } else if (next === 'random') {
-      setPoolSlots(slotsFromPicks(picks));
-    } else {
-      setPotSlots(potsFromPicks(picks));
-    }
+    // Keep one shared roster across modes so an empty view can’t wipe teams.
+    syncAllModes(picksForSwitch());
     setMode(next);
   }
 
