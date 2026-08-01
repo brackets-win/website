@@ -808,6 +808,7 @@ export type BracketSetupPayload = {
   bracket_name?: string;
   number_of_contestants: number;
   has_third_place?: boolean;
+  show_seeds?: boolean;
   structure_config?: BracketStructureConfig;
 };
 
@@ -869,7 +870,7 @@ export async function getChallenge(
 
 export async function updateChallenge(
   challengeId: number,
-  body: FormData | { max_entries: number },
+  body: FormData | { max_entries: number } | { show_seeds: boolean },
 ): Promise<{ challenge: ChallengeSummary }> {
   return apiFetch('PATCH', `challenges/${challengeId}`, body);
 }

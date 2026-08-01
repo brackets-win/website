@@ -183,6 +183,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     'SINGLE_ELIM',
   );
   const [tThird, setTThird] = useState(false);
+  const [tShowSeeds, setTShowSeeds] = useState(true);
   const [tFillMethod, setTFillMethod] = useState<'standard' | 'randomize'>(
     'standard',
   );
@@ -274,6 +275,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTSize(8);
     setTStructure('SINGLE_ELIM');
     setTThird(false);
+    setTShowSeeds(true);
     setTFillMethod('standard');
     setTGroupEntry('standings');
     setTKoEntry('winner');
@@ -444,6 +446,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     const size = tSize;
     const structure = tStructure;
     const hasThird = tThird;
+    const showSeeds = tShowSeeds;
     if (!name) {
       setFormErr('Name is required.');
       return;
@@ -473,6 +476,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
           bracket_name: name,
           number_of_contestants: size,
           has_third_place: hasThird,
+          show_seeds: showSeeds,
           structure_config: {
             results_entry: {
               group: structure === 'GROUP_KNOCKOUT' ? tGroupEntry : 'standings',
@@ -979,6 +983,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                           | 'SINGLE_ELIM'
                           | 'GROUP_KNOCKOUT';
                         setTStructure(next);
+                        setTShowSeeds(next === 'SINGLE_ELIM');
                         if (next === 'GROUP_KNOCKOUT' && tSize < 8) {
                           setTSize(8);
                         }
@@ -1106,6 +1111,15 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       disabled={busy}
                     />
                     Third-place Match
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={tShowSeeds}
+                      onChange={(e) => setTShowSeeds(e.target.checked)}
+                      disabled={busy}
+                    />
+                    Show Seed Numbers
                   </label>
                   <div className="activity-panel__actions">
                     <button

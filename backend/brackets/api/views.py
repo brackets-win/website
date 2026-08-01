@@ -1093,6 +1093,11 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                 return _json_error(str(e), 400)
             bracket_name = (setup.get("bracket_name") or name).strip()[:100]
             has_third = bool(setup.get("has_third_place"))
+            if "show_seeds" in setup:
+                show_seeds = bool(setup.get("show_seeds"))
+            else:
+                # Single elim: seeds on by default; group+knockout: off.
+                show_seeds = structure == "SINGLE_ELIM"
             try:
                 structure_config = parse_structure_config(
                     setup.get("structure_config")
@@ -1109,6 +1114,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     has_third_place=has_third,
                     structure_config=structure_config,
                     is_reusable=False,
+                    show_seeds=show_seeds,
                 )
             except ValueError as e:
                 return _json_error(str(e), 400)
@@ -1333,14 +1339,31 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
                 }
             )
 
-        if challenge.instance_type != CHALLENGE:
-            return _json_error(
-                "Only bracket challenges support this setting", 400
-            )
         try:
             body = _parse_json(request)
         except json.JSONDecodeError:
             return _json_error("Invalid JSON body", 400)
+
+        if challenge.instance_type == TOURNAMENT:
+            if "show_seeds" not in body:
+                return _json_error("show_seeds is required", 400)
+            bracket = challenge.bracket
+            show_seeds = bool(body.get("show_seeds"))
+            if bracket.show_seeds != show_seeds:
+                bracket.show_seeds = show_seeds
+                bracket.save(update_fields=["show_seeds"])
+            return JsonResponse(
+                {
+                    "challenge": _challenge_summary_for_user(
+                        challenge, user, request
+                    )
+                }
+            )
+
+        if challenge.instance_type != CHALLENGE:
+            return _json_error(
+                "Only bracket challenges support this setting", 400
+            )
         if "max_entries" not in body:
             return _json_error("max_entries is required", 400)
         try:

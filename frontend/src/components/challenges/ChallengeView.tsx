@@ -159,6 +159,9 @@ export function ChallengeView({
   const [tournamentImage, setTournamentImage] = useState<File | null>(null);
   const [tournamentImageBusy, setTournamentImageBusy] = useState(false);
   const [tournamentImageErr, setTournamentImageErr] = useState('');
+  const [showSeedsDraft, setShowSeedsDraft] = useState(true);
+  const [showSeedsBusy, setShowSeedsBusy] = useState(false);
+  const [showSeedsErr, setShowSeedsErr] = useState('');
   const [bracketRevision, setBracketRevision] = useState(0);
   const autoTeamsTabDone = useRef(false);
 
@@ -385,6 +388,13 @@ export function ChallengeView({
   }, [challenge?.id, challenge?.max_entries]);
 
   useEffect(() => {
+    if (bracketDef) {
+      setShowSeedsDraft(bracketDef.show_seeds !== false);
+      setShowSeedsErr('');
+    }
+  }, [bracketDef?.id, bracketDef?.show_seeds]);
+
+  useEffect(() => {
     if (!challenge || challenge.can_view_peer_brackets) return;
     if (viewingPlayerId != null) {
       navigate(challengePath(challengeId, 'leaderboard'), { replace: true });
@@ -495,6 +505,30 @@ export function ChallengeView({
       );
     } finally {
       setTournamentImageBusy(false);
+    }
+  }
+
+  async function handleSaveShowSeeds(e: React.FormEvent) {
+    e.preventDefault();
+    if (!challenge || !bracketDef) return;
+    const current = bracketDef.show_seeds !== false;
+    if (showSeedsDraft === current) return;
+    setShowSeedsBusy(true);
+    setShowSeedsErr('');
+    try {
+      await updateChallenge(challenge.id, { show_seeds: showSeedsDraft });
+      setBracketDef((prev) =>
+        prev ? { ...prev, show_seeds: showSeedsDraft } : prev,
+      );
+      setBracketRevision((n) => n + 1);
+    } catch (err) {
+      setShowSeedsErr(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not update seed display.',
+      );
+    } finally {
+      setShowSeedsBusy(false);
     }
   }
 
@@ -1134,6 +1168,40 @@ export function ChallengeView({
                 disabled={tournamentImageBusy || !tournamentImage}
               >
                 {tournamentImageBusy ? 'Saving…' : 'Save Image'}
+              </button>
+            </form>
+          ) : null}
+          {challenge.is_creator && isTournament && bracketDef ? (
+            <form
+              className="challenge-view__settings-form"
+              onSubmit={(e) => void handleSaveShowSeeds(e)}
+            >
+              <h2 className="challenge-view__settings-heading">
+                Seed Numbers
+              </h2>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={showSeedsDraft}
+                  onChange={(e) => setShowSeedsDraft(e.target.checked)}
+                  disabled={showSeedsBusy}
+                />
+                Show Seed Numbers
+              </label>
+              {showSeedsErr ? (
+                <div className="alert alert--error" role="status">
+                  {showSeedsErr}
+                </div>
+              ) : null}
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={
+                  showSeedsBusy ||
+                  showSeedsDraft === (bracketDef.show_seeds !== false)
+                }
+              >
+                {showSeedsBusy ? 'Saving…' : 'Save'}
               </button>
             </form>
           ) : null}
