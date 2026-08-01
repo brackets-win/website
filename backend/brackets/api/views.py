@@ -1311,7 +1311,27 @@ def challenge_detail(request: HttpRequest, challenge_id: int) -> JsonResponse:
             max_entries_in_use,
             normalize_max_entries,
         )
-        from brackets.utils.challenge_types import CHALLENGE
+        from brackets.utils.challenge_types import CHALLENGE, TOURNAMENT
+
+        if _is_multipart(request):
+            if challenge.instance_type != TOURNAMENT:
+                return _json_error(
+                    "Only tournaments support image upload here", 400
+                )
+            _post, files = _multipart_post_files(request)
+            image = files.get("image")
+            if not image:
+                return _json_error("image is required", 400)
+            bracket = challenge.bracket
+            bracket.image = image
+            bracket.save(update_fields=["image"])
+            return JsonResponse(
+                {
+                    "challenge": _challenge_summary_for_user(
+                        challenge, user, request
+                    )
+                }
+            )
 
         if challenge.instance_type != CHALLENGE:
             return _json_error(
@@ -1932,6 +1952,7 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         from brackets.utils.matchup_scores import (
             aggregate_totals,
             normalize_legs,
+            scores_are_tied,
             winner_id_from_totals,
         )
 
@@ -1958,7 +1979,7 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         derived = winner_id_from_totals(
             m.contestant1_id, m.contestant2_id, total1, total2
         )
-        # Optional explicit winner when aggregate is tied (e.g. pens).
+        # Explicit winner only when aggregates are tied (host pick / pens).
         if has_winner and body.get("winner_id") is not None:
             winner_id = body.get("winner_id")
             if m.contestant1_id != winner_id and m.contestant2_id != winner_id:
@@ -1966,9 +1987,21 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
                     "winner_id must match contestant1 or contestant2 in this matchup",
                     400,
                 )
-            derived = winner_id
-        elif not has_winner or body.get("winner_id") is None:
-            pass
+            if derived is not None and derived != winner_id:
+                return _json_error(
+                    "Cannot override a winner decided by the score",
+                    400,
+                )
+            if derived is None and legs and scores_are_tied(legs):
+                derived = winner_id
+            elif derived is None:
+                return _json_error(
+                    "Scores must be tied before picking a winner",
+                    400,
+                )
+        elif has_winner and body.get("winner_id") is None:
+            # Keep scores; clear host-picked winner on a tie (or incomplete).
+            derived = None
 
         old_winner_id = m.winner_id
         if derived is None:
@@ -1987,16 +2020,49 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
 
     winner_id = body.get("winner_id")
     if winner_id is None:
-        m.scores = None
-        m.save(update_fields=["scores"])
+        from brackets.utils.matchup_scores import parse_stored_legs, scores_are_tied
+
+        kept_scores = m.scores
+        legs = parse_stored_legs(kept_scores)
+        keep_tied_scores = legs is not None and scores_are_tied(legs)
         clear_matchup_winner_and_downstream(m)
         m.refresh_from_db()
+        if keep_tied_scores:
+            m.scores = kept_scores
+            m.save(update_fields=["scores"])
+        else:
+            m.scores = None
+            m.save(update_fields=["scores"])
         return _after_matchup_change()
 
     if m.contestant1_id != winner_id and m.contestant2_id != winner_id:
         return _json_error(
             "winner_id must match contestant1 or contestant2 in this matchup", 400
         )
+
+    from brackets.utils.matchup_scores import (
+        aggregate_totals,
+        parse_stored_legs,
+        scores_are_tied,
+        winner_id_from_totals,
+    )
+
+    stored_legs = parse_stored_legs(m.scores)
+    if stored_legs is not None:
+        total1, total2 = aggregate_totals(stored_legs)
+        score_winner = winner_id_from_totals(
+            m.contestant1_id, m.contestant2_id, total1, total2
+        )
+        if score_winner is not None and score_winner != winner_id:
+            return _json_error(
+                "Cannot override a winner decided by the score",
+                400,
+            )
+        if score_winner is None and not scores_are_tied(stored_legs):
+            return _json_error(
+                "Scores must be tied before picking a winner",
+                400,
+            )
 
     old_winner_id = m.winner_id
     if old_winner_id and old_winner_id != winner_id:

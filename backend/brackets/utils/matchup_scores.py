@@ -65,6 +65,21 @@ def aggregate_totals(legs: list[list[int | None]]) -> tuple[int | None, int | No
     return t1, t2
 
 
+def legs_complete(legs: list[list[int | None]]) -> bool:
+    """True when every expected leg has both scores set."""
+    if not legs:
+        return False
+    return all(a is not None and b is not None for a, b in legs)
+
+
+def scores_are_tied(legs: list[list[int | None]]) -> bool:
+    """True when all legs are scored and aggregates are equal."""
+    if not legs_complete(legs):
+        return False
+    total1, total2 = aggregate_totals(legs)
+    return total1 is not None and total2 is not None and total1 == total2
+
+
 def winner_id_from_totals(
     contestant1_id: int | None,
     contestant2_id: int | None,
@@ -83,6 +98,21 @@ def winner_id_from_totals(
     if total2 > total1:
         return contestant2_id
     return None
+
+
+def parse_stored_legs(scores: Any) -> list[list[int | None]] | None:
+    """Return legs from a matchup.scores JSON blob, or None."""
+    if not isinstance(scores, dict):
+        return None
+    raw = scores.get("legs")
+    if not isinstance(raw, list) or not raw:
+        return None
+    out: list[list[int | None]] = []
+    for pair in raw:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            return None
+        out.append([pair[0], pair[1]])
+    return out
 
 
 def scores_public(legs: list[list[int | None]]) -> dict[str, Any]:

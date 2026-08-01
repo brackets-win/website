@@ -156,6 +156,9 @@ export function ChallengeView({
   const [maxEntriesDraft, setMaxEntriesDraft] = useState('1');
   const [maxEntriesBusy, setMaxEntriesBusy] = useState(false);
   const [maxEntriesErr, setMaxEntriesErr] = useState('');
+  const [tournamentImage, setTournamentImage] = useState<File | null>(null);
+  const [tournamentImageBusy, setTournamentImageBusy] = useState(false);
+  const [tournamentImageErr, setTournamentImageErr] = useState('');
   const [bracketRevision, setBracketRevision] = useState(0);
   const autoTeamsTabDone = useRef(false);
 
@@ -403,6 +406,17 @@ export function ChallengeView({
     setActiveBracketId(fallback);
   }, [challenge, activeBracketId]);
 
+  useEffect(() => {
+    if (!challenge) return;
+    if (challenge.tournament_started === true && tab === 'teams') {
+      const nextTab =
+        bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true
+          ? 'groups'
+          : 'bracket';
+      navigate(challengePath(challengeId, nextTab), { replace: true });
+    }
+  }, [challenge, tab, navigate, challengeId, bracketDef]);
+
   async function handleAddEntry(e: React.FormEvent) {
     e.preventDefault();
     if (!challenge) return;
@@ -460,6 +474,27 @@ export function ChallengeView({
       );
     } finally {
       setMaxEntriesBusy(false);
+    }
+  }
+
+  async function handleSaveTournamentImage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!challenge || !tournamentImage) return;
+    setTournamentImageBusy(true);
+    setTournamentImageErr('');
+    try {
+      const fd = new FormData();
+      fd.append('image', tournamentImage);
+      const { challenge: updated } = await updateChallenge(challenge.id, fd);
+      setChallenge(updated);
+      setTournamentImage(null);
+      invalidateHome('challenges');
+    } catch (err) {
+      setTournamentImageErr(
+        err instanceof ApiError ? err.message : 'Could not update image.',
+      );
+    } finally {
+      setTournamentImageBusy(false);
     }
   }
 
@@ -565,16 +600,6 @@ export function ChallengeView({
     : [];
   const hasGroupStage =
     bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true;
-
-  useEffect(() => {
-    if (!challenge) return;
-    if (challenge.tournament_started === true && tab === 'teams') {
-      navigate(
-        challengePath(challengeId, hasGroupStage ? 'groups' : 'bracket'),
-        { replace: true },
-      );
-    }
-  }, [challenge, tab, navigate, challengeId, hasGroupStage]);
 
   if (primaryBracketId == null && !isTournament) {
     return (
@@ -1069,6 +1094,47 @@ export function ChallengeView({
               This challenge is public. Anyone can join from the public list.
             </p>
           )}
+          {challenge.is_creator && isTournament ? (
+            <form
+              className="challenge-view__settings-form"
+              onSubmit={(e) => void handleSaveTournamentImage(e)}
+            >
+              <h2 className="challenge-view__settings-heading">Image</h2>
+              {challenge.bracket_image_url ? (
+                <div className="challenge-view__image-preview">
+                  <img src={challenge.bracket_image_url} alt="" />
+                </div>
+              ) : null}
+              <div className="field">
+                <label htmlFor="tournament-image">
+                  {challenge.bracket_image_url ? 'Replace image' : 'Upload image'}
+                </label>
+                <input
+                  id="tournament-image"
+                  key={challenge.bracket_image_url ?? 'none'}
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  disabled={tournamentImageBusy}
+                  onChange={(e) =>
+                    setTournamentImage(e.target.files?.[0] ?? null)
+                  }
+                />
+              </div>
+              {tournamentImageErr ? (
+                <div className="alert alert--error" role="status">
+                  {tournamentImageErr}
+                </div>
+              ) : null}
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={tournamentImageBusy || !tournamentImage}
+              >
+                {tournamentImageBusy ? 'Saving…' : 'Save Image'}
+              </button>
+            </form>
+          ) : null}
           {challenge.is_creator && isBracketChallenge ? (
             <form
               className="challenge-view__settings-form"

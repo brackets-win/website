@@ -8,6 +8,7 @@ import {
   createUserBracket,
   joinChallenge,
   joinStreakChallenge,
+  updateChallenge,
   type ApiUser,
   type BracketSummary,
   type ChallengeSummary,
@@ -191,6 +192,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
   const [tKoEntry, setTKoEntry] = useState<'winner' | 'score'>('winner');
   const [tKoLegs, setTKoLegs] = useState(1);
   const [tMatchesPer, setTMatchesPer] = useState(3);
+  const [tImage, setTImage] = useState<File | null>(null);
 
   const [sName, setSName] = useState('');
   const [sCompetitionId, setSCompetitionId] = useState<number | ''>('');
@@ -277,6 +279,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTKoEntry('winner');
     setTKoLegs(1);
     setTMatchesPer(3);
+    setTImage(null);
     setSName('');
     setSCompetitionId(streakCompetitions[0]?.id ?? '');
   }
@@ -460,7 +463,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setBusy(true);
     try {
       const numberOfGroups = size / 4;
-      const { challenge } = await createChallenge({
+      let { challenge } = await createChallenge({
         name,
         instance_type: INSTANCE_TOURNAMENT,
         is_private: true,
@@ -498,6 +501,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
           },
         },
       });
+      if (tImage) {
+        const fd = new FormData();
+        fd.append('image', tImage);
+        ({ challenge } = await updateChallenge(challenge.id, fd));
+      }
       upsertChallenge(challenge);
       invalidateHome('challenges');
       closePanel();
@@ -565,7 +573,9 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                 <ChallengeThumb url={c.bracket_image_url} name={c.name} />
                 <div className="challenge-card__text">
                   <h3 className="challenge-card__name">{c.name}</h3>
-                  <p className="challenge-card__meta">{c.bracket_name}</p>
+                  {c.instance_type !== INSTANCE_TOURNAMENT ? (
+                    <p className="challenge-card__meta">{c.bracket_name}</p>
+                  ) : null}
                   <CreatedByMeta username={c.created_by_username} />
                   {showDeadline && c.submission_deadline && !c.is_submitted ? (
                     <p className="challenge-card__due">
@@ -681,7 +691,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                   <div className="challenge-card__body">
                     <div>
                       <strong>{c.name}</strong>
-                      <span className="challenge-card__meta">{c.bracket_name}</span>
+                      {c.instance_type !== INSTANCE_TOURNAMENT ? (
+                        <span className="challenge-card__meta">
+                          {c.bracket_name}
+                        </span>
+                      ) : null}
                       <CreatedByMeta username={c.created_by_username} />
                     </div>
                   </div>
@@ -939,6 +953,19 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       onChange={(e) => setTName(e.target.value)}
                       required
                       disabled={busy}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-image">Image</label>
+                    <input
+                      id="t-image"
+                      className="input"
+                      type="file"
+                      accept="image/*"
+                      disabled={busy}
+                      onChange={(e) =>
+                        setTImage(e.target.files?.[0] ?? null)
+                      }
                     />
                   </div>
                   <div className="field">

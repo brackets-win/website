@@ -228,6 +228,35 @@
   gap: 0.25rem;
 }
 
+.bf-score-row__pick {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.25rem;
+}
+
+.bf-score-row__pick:hover:not(:disabled),
+.bf-score-row__pick:focus-visible {
+  outline: 2px solid rgba(var(--app-accent-rgb, 87, 130, 168), 0.45);
+  outline-offset: 1px;
+}
+
+.bf-score-row__pick:disabled {
+  cursor: default;
+}
+
+.bf-score-row--pickable .bf-score-row__pick {
+  cursor: pointer;
+}
+
 .bf-score-row__name {
   font-size: 0.8125rem;
   color: var(--app-muted, #64748b);

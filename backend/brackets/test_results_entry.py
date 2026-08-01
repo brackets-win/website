@@ -4,7 +4,9 @@ from django.test import SimpleTestCase
 
 from brackets.utils.matchup_scores import (
     aggregate_totals,
+    legs_complete,
     normalize_legs,
+    scores_are_tied,
     winner_id_from_totals,
 )
 from brackets.utils.results_entry import normalize_results_entry
@@ -25,6 +27,16 @@ class MatchupScoresTests(SimpleTestCase):
         legs = normalize_legs([[None, None], [None, None]], expected_legs=2)
         self.assertEqual(aggregate_totals(legs), (None, None))
         self.assertIsNone(winner_id_from_totals(1, 2, None, None))
+
+    def test_scores_are_tied_requires_all_legs(self):
+        one_leg_draw = normalize_legs([[1, 1], [None, None]], expected_legs=2)
+        self.assertFalse(legs_complete(one_leg_draw))
+        self.assertFalse(scores_are_tied(one_leg_draw))
+        both = normalize_legs([[1, 0], [0, 1]], expected_legs=2)
+        self.assertTrue(legs_complete(both))
+        self.assertTrue(scores_are_tied(both))
+        decisive = normalize_legs([[2, 0], [0, 1]], expected_legs=2)
+        self.assertFalse(scores_are_tied(decisive))
 
 
 class ResultsEntryTests(SimpleTestCase):

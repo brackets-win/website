@@ -121,6 +121,22 @@
   margin: 1rem 0;
 }
 
+.challenge-view__image-preview {
+  margin: 0.75rem 0 0;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--app-surface-2, #f1f5f9);
+}
+
+.challenge-view__image-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .challenge-view__danger {
   margin-top: 2rem;
   padding-top: 1.5rem;

@@ -869,7 +869,7 @@ export async function getChallenge(
 
 export async function updateChallenge(
   challengeId: number,
-  body: { max_entries: number },
+  body: FormData | { max_entries: number },
 ): Promise<{ challenge: ChallengeSummary }> {
   return apiFetch('PATCH', `challenges/${challengeId}`, body);
 }

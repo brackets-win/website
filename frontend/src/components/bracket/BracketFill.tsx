@@ -94,6 +94,11 @@ type KnockoutEntryControl = {
   applyScores: (
     matchupId: number,
     legs: Array<[number | null, number | null]>,
+    winnerId?: number | null,
+  ) => void | Promise<void>;
+  applyWinner: (
+    matchupId: number,
+    contestantId: number,
   ) => void | Promise<void>;
 };
 
@@ -101,6 +106,7 @@ const KnockoutEntryContext = createContext<KnockoutEntryControl>({
   mode: 'winner',
   locked: true,
   applyScores: async () => {},
+  applyWinner: async () => {},
 });
 
 function useKnockoutEntry() {
@@ -739,11 +745,12 @@ export function BracketFill({
     async (
       matchupId: number,
       legs: Array<[number | null, number | null]>,
+      winnerId?: number | null,
     ) => {
       if (locked) return;
       setError(null);
       try {
-        await patchMatchupScores(matchupId, legs);
+        await patchMatchupScores(matchupId, legs, winnerId);
         const ub = await reloadUserBracket();
         if (ub) invalidateHomeForUserBracket(ub);
       } catch (e) {
@@ -1023,6 +1030,7 @@ export function BracketFill({
         mode: resultsEntry.knockout,
         locked,
         applyScores,
+        applyWinner,
       }}
     >
     <section
@@ -1986,7 +1994,14 @@ function MatchupCard({
           showSeeds={showSeeds}
           busy={busy || entry.locked}
           readOnly={entry.locked}
-          onSaveLegs={(legs) => void entry.applyScores(m.id, legs)}
+          onSaveLegs={(legs, winnerId) =>
+            void entry.applyScores(m.id, legs, winnerId)
+          }
+          onPickWinner={
+            entry.locked
+              ? undefined
+              : (contestantId) => void entry.applyWinner(m.id, contestantId)
+          }
           onClearWinner={
             onClearWinner && m.winner
               ? () => void onClearWinner(m.id)
@@ -2074,6 +2089,7 @@ function MatchupScoreBlock({
   busy,
   readOnly,
   onSaveLegs,
+  onPickWinner,
   onClearWinner,
 }: {
   matchup: MatchupInfo;
@@ -2085,7 +2101,11 @@ function MatchupScoreBlock({
   showSeeds: boolean;
   busy: boolean;
   readOnly: boolean;
-  onSaveLegs: (legs: Array<[number | null, number | null]>) => void;
+  onSaveLegs: (
+    legs: Array<[number | null, number | null]>,
+    winnerId?: number | null,
+  ) => void;
+  onPickWinner?: (contestantId: number) => void;
   onClearWinner?: () => void;
 }) {
   const initialLegs = useMemo(() => {
@@ -2108,6 +2128,7 @@ function MatchupScoreBlock({
     setLegs(initialLegs);
   }, [initialLegs]);
 
+  const allLegsComplete = legs.every(([a, b]) => a != null && b != null);
   const computed = (() => {
     let t1 = 0;
     let t2 = 0;
@@ -2120,6 +2141,18 @@ function MatchupScoreBlock({
     }
     return any ? ([t1, t2] as const) : ([null, null] as const);
   })();
+  const scoresTied =
+    allLegsComplete &&
+    computed[0] != null &&
+    computed[1] != null &&
+    computed[0] === computed[1];
+  const canPickWinner =
+    !readOnly &&
+    !busy &&
+    scoresTied &&
+    teamTop != null &&
+    teamBot != null &&
+    onPickWinner != null;
 
   function setCell(legIdx: number, side: 0 | 1, raw: string) {
     const trimmed = raw.trim();
@@ -2140,6 +2173,41 @@ function MatchupScoreBlock({
   }
 
   function commit() {
+    const complete = legs.every(([a, b]) => a != null && b != null);
+    let t1 = 0;
+    let t2 = 0;
+    if (complete) {
+      for (const [a, b] of legs) {
+        t1 += a as number;
+        t2 += b as number;
+      }
+    }
+    const tied = complete && t1 === t2;
+    // Keep a host-picked winner when re-saving a still-tied scoreline.
+    const serverLegs = matchup.scores?.legs;
+    const serverWasTied =
+      Array.isArray(serverLegs) &&
+      serverLegs.length === legsCount &&
+      serverLegs.every(
+        (pair) =>
+          pair != null &&
+          pair.length >= 2 &&
+          pair[0] != null &&
+          pair[1] != null,
+      ) &&
+      (() => {
+        let s1 = 0;
+        let s2 = 0;
+        for (const pair of serverLegs) {
+          s1 += pair[0] as number;
+          s2 += pair[1] as number;
+        }
+        return s1 === s2;
+      })();
+    if (tied && serverWasTied && matchup.winner?.id != null) {
+      onSaveLegs(legs, matchup.winner.id);
+      return;
+    }
     onSaveLegs(legs);
   }
 
@@ -2157,10 +2225,18 @@ function MatchupScoreBlock({
         showSeeds={showSeeds}
         busy={busy}
         readOnly={readOnly || !teamTop || !teamBot}
+        canPick={canPickWinner}
+        onPick={
+          canPickWinner && teamTop
+            ? () => onPickWinner(teamTop.id)
+            : undefined
+        }
         onChange={setCell}
         onBlurCommit={commit}
         onClear={
-          winnerId != null && teamTop?.id === winnerId ? onClearWinner : undefined
+          winnerId != null && teamTop?.id === winnerId
+            ? onClearWinner
+            : undefined
         }
       />
       <MatchupScoreRow
@@ -2173,10 +2249,18 @@ function MatchupScoreBlock({
         showSeeds={showSeeds}
         busy={busy}
         readOnly={readOnly || !teamTop || !teamBot}
+        canPick={canPickWinner}
+        onPick={
+          canPickWinner && teamBot
+            ? () => onPickWinner(teamBot.id)
+            : undefined
+        }
         onChange={setCell}
         onBlurCommit={commit}
         onClear={
-          winnerId != null && teamBot?.id === winnerId ? onClearWinner : undefined
+          winnerId != null && teamBot?.id === winnerId
+            ? onClearWinner
+            : undefined
         }
       />
     </div>
@@ -2193,6 +2277,8 @@ function MatchupScoreRow({
   showSeeds,
   busy,
   readOnly,
+  canPick,
+  onPick,
   onChange,
   onBlurCommit,
   onClear,
@@ -2206,6 +2292,8 @@ function MatchupScoreRow({
   showSeeds: boolean;
   busy: boolean;
   readOnly: boolean;
+  canPick?: boolean;
+  onPick?: () => void;
   onChange: (legIdx: number, side: 0 | 1, raw: string) => void;
   onBlurCommit: () => void;
   onClear?: () => void;
@@ -2232,13 +2320,34 @@ function MatchupScoreRow({
         'bf-slot',
         'bf-score-row',
         isWinner ? 'bf-score-row--winner' : '',
+        canPick ? 'bf-score-row--pickable' : '',
         onClear ? 'bf-slot--with-clear' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
       <div className="bf-score-row__team">
-        <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
+        {onPick ? (
+          <button
+            type="button"
+            className={[
+              'bf-score-row__pick',
+              isWinner ? 'bf-score-row__pick--winner' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            disabled={busy}
+            onClick={() => onPick()}
+            aria-label={`${contestant.display_name}, pick to advance`}
+          >
+            <MatchupContestantFace
+              contestant={contestant}
+              showSeed={showSeeds}
+            />
+          </button>
+        ) : (
+          <MatchupContestantFace contestant={contestant} showSeed={showSeeds} />
+        )}
         {onClear ? (
           <button
             type="button"
