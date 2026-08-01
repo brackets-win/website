@@ -172,16 +172,34 @@ def create_tournament_contestant(
     raise ValueError("Could not allocate a unique team identifier.")
 
 
+def is_structural_bye_matchup(matchup) -> bool:
+    """
+    True for single-elim bye slots: exactly one side filled, winner is that team.
+
+    These are auto-created when the roster is smaller than the bracket shell and
+    must not count as recorded results (they block redraw / start otherwise).
+    """
+    c1 = matchup.contestant1_id
+    c2 = matchup.contestant2_id
+    w = matchup.winner_id
+    if c1 is not None and c2 is None:
+        return w is None or w == c1
+    if c2 is not None and c1 is None:
+        return w is None or w == c2
+    return False
+
+
 def _assert_roster_editable(bracket: Bracket, master: UserBracket) -> None:
     if tournament_started(bracket):
         raise ValueError(
             "Teams are locked after the tournament has started."
         )
-    if master.matchup_set.filter(winner_id__isnull=False).exists():
-        raise ValueError(
-            "Cannot change teams after results have been recorded. "
-            "Clear winners on the bracket first."
-        )
+    for m in master.matchup_set.filter(winner_id__isnull=False).iterator():
+        if not is_structural_bye_matchup(m):
+            raise ValueError(
+                "Cannot change teams after results have been recorded. "
+                "Clear winners on the bracket first."
+            )
     gp = (master.metadata or {}).get("group_positions") or {}
     if isinstance(gp, dict) and any(
         isinstance(v, dict) and any(x is not None for x in v.values())

@@ -141,7 +141,17 @@ const KO_STAGE_NAMES: Record<number, string> = {
   2: 'Final',
 };
 
-export function knockoutRoundName(size: number): string {
+export function knockoutRoundName(
+  size: number,
+  opts?: { numberedEarlyRounds?: boolean; earlyRoundNumber?: number },
+): string {
+  if (size <= 8) {
+    return KO_STAGE_NAMES[size] ?? `Round of ${size}`;
+  }
+  if (opts?.numberedEarlyRounds) {
+    const n = opts.earlyRoundNumber ?? 0;
+    return n >= 1 ? `Round ${n}` : `Round of ${size}`;
+  }
   return KO_STAGE_NAMES[size] ?? `Round of ${size}`;
 }
 
@@ -162,6 +172,7 @@ export function knockoutRounds(opts: {
   const { structureKind, numContestants } = opts;
   if (!Number.isFinite(numContestants) || numContestants < 2) return [];
   let start: number;
+  let numberedEarly = false;
   if (structureKind === 'GROUP_KNOCKOUT') {
     const groups =
       opts.numGroups && opts.numGroups > 0
@@ -175,11 +186,27 @@ export function knockoutRounds(opts: {
   } else {
     // Mirror bracket_factory: shell is next power of 2 (byes pad the field).
     start = singleElimFieldSize(numContestants);
+    numberedEarly = !isPowerOfTwo(numContestants);
   }
   const rounds: KnockoutRound[] = [];
   let cur = start;
+  let early = 0;
   while (cur >= 2) {
-    rounds.push({ size: cur, name: knockoutRoundName(cur) });
+    if (cur > 8 && numberedEarly) {
+      early += 1;
+      rounds.push({
+        size: cur,
+        name: knockoutRoundName(cur, {
+          numberedEarlyRounds: true,
+          earlyRoundNumber: early,
+        }),
+      });
+    } else {
+      rounds.push({
+        size: cur,
+        name: knockoutRoundName(cur, { numberedEarlyRounds: numberedEarly }),
+      });
+    }
     cur = Math.floor(cur / 2);
   }
   return rounds;

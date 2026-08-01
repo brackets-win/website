@@ -15,7 +15,7 @@ import {
 import {
   isPowerOf2,
   singleElimByeCount,
-  singleElimPlayInCount,
+  singleElimByeDrawPots,
 } from '../../utils/singleElimByes';
 import { ContestantAvatar } from '../bracket/ContestantAvatar';
 import '../admin/BracketSeeder.css';
@@ -167,12 +167,19 @@ export function TournamentTeamsPanel({
     [structure, capacity],
   );
   const useByePots = byeCount > 0;
-  const playInCount = useByePots ? singleElimPlayInCount(capacity) : 0;
+  const byeDrawPots = useMemo(
+    () => (useByePots ? singleElimByeDrawPots(capacity) : []),
+    [useByePots, capacity],
+  );
   const potSize = potCount > 0 ? capacity / potCount : 0;
   const potCapacities = useMemo(() => {
-    if (useByePots) return [byeCount, playInCount];
+    if (useByePots) return byeDrawPots.map((p) => p.size);
     return Array.from({ length: potCount }, () => potSize);
-  }, [useByePots, byeCount, playInCount, potCount, potSize]);
+  }, [useByePots, byeDrawPots, potCount, potSize]);
+  const byePotLabels = useMemo(
+    () => byeDrawPots.map((p) => p.label),
+    [byeDrawPots],
+  );
 
   const assignedIds = useMemo(() => {
     const ids = new Set<number>();
@@ -251,9 +258,10 @@ export function TournamentTeamsPanel({
           ? singleElimByeCount(n)
           : 0;
       if (seByes > 0) {
-        const play = singleElimPlayInCount(n);
-        setPotCount(2);
-        setPotSlots(distributeToPots(picks, 2, [seByes, play]));
+        const pots = singleElimByeDrawPots(n);
+        const caps = pots.map((p) => p.size);
+        setPotCount(Math.max(pots.length, 1));
+        setPotSlots(distributeToPots(picks, pots.length, caps));
       } else {
         const nextPotCount = defaultPotCount(n, meta.teams_per_group);
         const cap = nextPotCount > 0 ? n / nextPotCount : 0;
@@ -296,13 +304,14 @@ export function TournamentTeamsPanel({
 
   useEffect(() => {
     if (useByePots) {
-      if (potCount !== 2) setPotCount(2);
+      const n = byeDrawPots.length;
+      if (n > 0 && potCount !== n) setPotCount(n);
       return;
     }
     if (!potOptions.includes(potCount) && potOptions.length > 0) {
       setPotCount(defaultPotCount(capacity, teamsPerGroup));
     }
-  }, [potOptions, potCount, capacity, teamsPerGroup, useByePots]);
+  }, [potOptions, potCount, capacity, teamsPerGroup, useByePots, byeDrawPots]);
 
   useEffect(() => {
     setPotSlots((prev) => reshapePots(prev, potCount, potCapacities));
@@ -630,7 +639,7 @@ export function TournamentTeamsPanel({
       if (flat.length !== capacity) {
         setSaveErr(
           useByePots
-            ? `Fill both pots (${byeCount} bye, ${playInCount} round 1) before drawing.`
+            ? `Fill every pot (${byePotLabels.join(', ')}) before drawing.`
             : `Fill every pot (${potSize} teams each) before drawing.`,
         );
         return;
@@ -887,9 +896,7 @@ export function TournamentTeamsPanel({
             {potSlots.map((bucket, potIdx) => {
               const cap = potCapacities[potIdx] ?? potSize;
               const title = useByePots
-                ? potIdx === 0
-                  ? 'Bye'
-                  : 'Round 1'
+                ? (byePotLabels[potIdx] ?? `Pot ${potIdx + 1}`)
                 : `Pot ${potIdx + 1}`;
               return (
                 <div key={potIdx} className="ttp__box">

@@ -30,6 +30,106 @@ class SingleElimByeMathTests(TestCase):
         self.assertEqual(single_elim_bye_count(16), 0)
         self.assertEqual(single_elim_field_size(16), 16)
 
+    def test_bye_draw_pots_thirty_four(self):
+        from brackets.utils.single_elim_byes import single_elim_bye_draw_pots
+
+        pots = single_elim_bye_draw_pots(34)
+        self.assertEqual(
+            [(p["label"], p["size"]) for p in pots],
+            [
+                ("Bye vs R1 Winners", 2),
+                ("Bye", 28),
+                ("Round 1", 4),
+            ],
+        )
+        self.assertEqual(pots[0]["seeds"], [1, 2])
+        self.assertEqual(pots[2]["seeds"], [31, 32, 33, 34])
+
+    def test_bye_draw_pots_six_omits_pure_bye(self):
+        from brackets.utils.single_elim_byes import single_elim_bye_draw_pots
+
+        pots = single_elim_bye_draw_pots(6)
+        self.assertEqual(
+            [(p["label"], p["size"]) for p in pots],
+            [
+                ("Bye vs R1 Winners", 2),
+                ("Round 1", 4),
+            ],
+        )
+
+
+class SingleElimStageNameTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="namhost", password="x")
+
+    def test_non_power_of_two_uses_numbered_rounds(self):
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "se-34",
+            "Thirty Four",
+            34,
+            self.user,
+        )
+        names = list(
+            bracket.stages.filter(stage_type="KNOCKOUT")
+            .order_by("order")
+            .values_list("name", flat=True)
+        )
+        self.assertEqual(
+            names,
+            [
+                "Round 1",
+                "Round 2",
+                "Round 3",
+                "Quarterfinals",
+                "Semifinals",
+                "Final",
+            ],
+        )
+
+    def test_power_of_two_keeps_round_of_n(self):
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "se-32",
+            "Thirty Two",
+            32,
+            self.user,
+        )
+        names = list(
+            bracket.stages.filter(stage_type="KNOCKOUT")
+            .order_by("order")
+            .values_list("name", flat=True)
+        )
+        self.assertEqual(
+            names,
+            [
+                "Round of 32",
+                "Round of 16",
+                "Quarterfinals",
+                "Semifinals",
+                "Final",
+            ],
+        )
+
+    def test_sync_renames_legacy_round_of_labels(self):
+        from brackets.utils.single_elim_byes import sync_single_elim_knockout_stage_names
+
+        bracket = create_bracket_with_structure(
+            "SINGLE_ELIM",
+            "se-34-legacy",
+            "Legacy",
+            34,
+            self.user,
+        )
+        first = (
+            bracket.stages.filter(stage_type="KNOCKOUT").order_by("order").first()
+        )
+        first.name = "Round of 64"
+        first.save(update_fields=["name"])
+        sync_single_elim_knockout_stage_names(bracket)
+        first.refresh_from_db()
+        self.assertEqual(first.name, "Round 1")
+
 
 class SingleElimByeBracketTests(TestCase):
     def setUp(self):
@@ -118,3 +218,24 @@ class SingleElimByeBracketTests(TestCase):
         self.assertTrue(by_seed[2].startswith("B"))
         self.assertTrue(by_seed[3].startswith("P"))
         self.assertTrue(by_seed[6].startswith("P"))
+
+    def test_three_band_bye_draw_for_thirty_four(self):
+        teams = (
+            [{"name": f"X{i}", "pot": 1} for i in range(2)]
+            + [{"name": f"Y{i}", "pot": 2} for i in range(28)]
+            + [{"name": f"Z{i}", "pot": 3} for i in range(4)]
+        )
+        out = compute_draw_seeds(
+            mode="random_balanced",
+            teams=teams,
+            structure="SINGLE_ELIM",
+            number_of_groups=None,
+            teams_per_group=None,
+        )
+        by_seed = {row["seed"]: row["name"] for row in out}
+        self.assertTrue(by_seed[1].startswith("X"))
+        self.assertTrue(by_seed[2].startswith("X"))
+        self.assertTrue(by_seed[3].startswith("Y"))
+        self.assertTrue(by_seed[30].startswith("Y"))
+        self.assertTrue(by_seed[31].startswith("Z"))
+        self.assertTrue(by_seed[34].startswith("Z"))

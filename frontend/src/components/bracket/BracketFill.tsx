@@ -206,6 +206,8 @@ function stageShortPrefix(stage: BracketStageInfo): string {
     'Group Stage': 'G',
   };
   if (KNOWN[name]) return KNOWN[name];
+  const numbered = /^Round (\d+)$/i.exec(name);
+  if (numbered) return `R${numbered[1]}`;
   const rom = /^Round of (\d+)$/i.exec(name);
   if (rom) return `R${rom[1]}`;
   if (!name) return 'G';
@@ -356,6 +358,23 @@ export function matchupsForStage(
 ): MatchupInfo[] {
   const pack = ub.matchups_by_stage.find((s) => s.stage_id === stageId);
   return pack ? [...pack.matchups].sort((a, b) => a.position - b.position) : [];
+}
+
+/** Opening-round bye: one team auto-advances; no playable fixture to show. */
+export function isStructuralByeMatchup(m: MatchupInfo): boolean {
+  const a = m.contestant1 != null;
+  const b = m.contestant2 != null;
+  return (a && !b) || (!a && b);
+}
+
+function visibleMatchupsForStage(
+  ub: UserBracketDetail,
+  stageId: number,
+  hideStructuralByes: boolean,
+): MatchupInfo[] {
+  const rows = matchupsForStage(ub, stageId);
+  if (!hideStructuralByes) return rows;
+  return rows.filter((m) => !isStructuralByeMatchup(m));
 }
 
 /** Vertical center % (0–100) for a matchup so the bracket stays aligned & centered. */
@@ -1374,6 +1393,10 @@ function ConnectorBetweenStages({
               treeOpts,
             );
             if (!top || !bottom) return null;
+            // Bye feeders have no Round-1 box; skip arms that would float in empty space.
+            const topBye = isStructuralByeMatchup(top);
+            const bottomBye = isStructuralByeMatchup(bottom);
+            if (topBye && bottomBye) return null;
             const y1 = fromPct(fromCol.stageIdx, top.position);
             const y2 = fromPct(fromCol.stageIdx, bottom.position);
             const ym = columnMatchupCenterPct(
@@ -1385,6 +1408,13 @@ function ConnectorBetweenStages({
               top.position,
               bottom.position,
             );
+            if (topBye || bottomBye) {
+              const yPlay = topBye ? y2 : y1;
+              const d = mirrored
+                ? `M 100 ${yPlay} H 76 M 76 ${yPlay} V ${ym} M 76 ${ym} H 0`
+                : `M 0 ${yPlay} H 24 M 24 ${yPlay} V ${ym} M 24 ${ym} H 100`;
+              return <path key={m.id} d={d} className="bf-connector-path" />;
+            }
             const d = mirrored
               ? `M 100 ${y1} H 76 M 100 ${y2} H 76 M 76 ${y1} V ${y2} M 76 ${ym} H 0`
               : `M 0 ${y1} H 24 M 0 ${y2} H 24 M 24 ${y1} V ${y2} M 24 ${ym} H 100`;
@@ -1568,7 +1598,7 @@ function MirrorBracketStageColumn({
   const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
   const treeOpts = { useTreeFeeders: stageUsesTreeFeeders(stage) };
   const matchups = sortMatchupsByFeederOrder(
-    matchupsForStage(detail, stage.id).filter(
+    visibleMatchupsForStage(detail, stage.id, isFirst).filter(
       (m) => m.position >= positionMin && m.position <= positionMax,
     ),
     detail,
@@ -1668,7 +1698,7 @@ function BracketStageColumn({
   const prevStage = stageIdx > 0 ? stages[stageIdx - 1] : null;
   const treeOpts = { useTreeFeeders: stageUsesTreeFeeders(stage) };
   const matchups = sortMatchupsByFeederOrder(
-    matchupsForStage(detail, stage.id),
+    visibleMatchupsForStage(detail, stage.id, isFirst),
     detail,
     prevStage?.id ?? null,
     treeOpts,

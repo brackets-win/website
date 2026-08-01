@@ -219,3 +219,23 @@ class TournamentTeamsApiTests(TestCase):
         )
         self.assertEqual(blocked.status_code, 400)
 
+    def test_start_after_draw_with_byes(self):
+        """Bye auto-winners must not block Start after a non-power-of-2 draw."""
+        ch = self._create_tournament(6)
+        teams = [
+            {"name": f"T{i}", "pot": 1 if i <= 2 else 2} for i in range(1, 7)
+        ]
+        draw = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/draw",
+            data=json.dumps({"mode": "random_balanced", "teams": teams}),
+            content_type="application/json",
+        )
+        self.assertEqual(draw.status_code, 200, draw.content)
+        start = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/start",
+            data=json.dumps({"mode": "random_balanced", "teams": teams}),
+            content_type="application/json",
+        )
+        self.assertEqual(start.status_code, 200, start.content)
+        self.assertTrue(start.json()["tournament_started"])
+

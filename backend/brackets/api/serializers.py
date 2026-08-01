@@ -202,6 +202,9 @@ def bracket_summary(b: Bracket, request=None) -> dict[str, Any]:
 def bracket_detail(
     b: Bracket, *, master_user_bracket_id: int | None = None, request=None
 ) -> dict[str, Any]:
+    from brackets.utils.single_elim_byes import sync_single_elim_knockout_stage_names
+
+    sync_single_elim_knockout_stage_names(b)
     stages = [stage_public(s) for s in b.stages.all()]
     contestants = [
         contestant_public(bc)

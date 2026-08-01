@@ -17,6 +17,7 @@ from brackets.utils.bracket_structure_config import (
     resolved_knockout_round_points,
 )
 from brackets.utils.results_entry import merge_results_entry_into_metadata
+from brackets.utils.single_elim_byes import knockout_stage_name
 from brackets.utils.third_place_structure import sync_third_place_structure
 
 VALID_STRUCTURE_TYPES = frozenset({"GROUP_KNOCKOUT", "SINGLE_ELIM"})
@@ -100,19 +101,10 @@ def create_bracket_with_structure(
         current_contestants = contestants_advancing
         order = 2
 
-        stage_names = {
-            64: "Round of 64",
-            32: "Round of 32",
-            16: "Round of 16",
-            8: "Quarterfinals",
-            4: "Semifinals",
-            2: "Final",
-        }
-
         while current_contestants >= 2:
             is_final = current_contestants == 2
-            stage_name = stage_names.get(
-                current_contestants, f"Round of {current_contestants}"
+            stage_name = knockout_stage_name(
+                current_contestants, numbered_early_rounds=False
             )
 
             KnockoutStage.objects.create(
@@ -130,10 +122,14 @@ def create_bracket_with_structure(
             order += 1
 
     elif template_type == "SINGLE_ELIM":
-        from brackets.utils.single_elim_byes import single_elim_field_size
+        from brackets.utils.single_elim_byes import (
+            is_power_of_2,
+            single_elim_field_size,
+        )
 
         roster = number_of_contestants
         field_size = single_elim_field_size(roster)
+        numbered_early = not is_power_of_2(roster)
         meta["roster_size"] = roster
         if bracket.metadata != meta:
             bracket.metadata = meta
@@ -141,21 +137,21 @@ def create_bracket_with_structure(
 
         current_contestants = field_size
         order = 1
-
-        stage_names = {
-            64: "Round of 64",
-            32: "Round of 32",
-            16: "Round of 16",
-            8: "Quarterfinals",
-            4: "Semifinals",
-            2: "Final",
-        }
+        early_round = 0
 
         while current_contestants >= 2:
             is_final = current_contestants == 2
-            stage_name = stage_names.get(
-                current_contestants, f"Round of {current_contestants}"
-            )
+            if current_contestants > 8 and numbered_early:
+                early_round += 1
+                stage_name = knockout_stage_name(
+                    current_contestants,
+                    numbered_early_rounds=True,
+                    early_round_number=early_round,
+                )
+            else:
+                stage_name = knockout_stage_name(
+                    current_contestants, numbered_early_rounds=numbered_early
+                )
 
             KnockoutStage.objects.create(
                 bracket=bracket,

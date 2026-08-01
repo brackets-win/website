@@ -168,11 +168,20 @@ def _order_by_pots(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
-def _order_bye_and_play_pots(teams: list[dict[str, Any]], bye_count: int) -> list[dict[str, Any]]:
+def _order_bye_and_play_pots(teams: list[dict[str, Any]], roster: int) -> list[dict[str, Any]]:
     """
-    Two unequal pots for non-power-of-2 single elim:
-    pot 1 = bye seeds 1..byes, pot 2 = play-in seeds byes+1..N.
+    Unequal pots for non-power-of-2 single elim (2 or 3 bands):
+
+    pot order matches ``single_elim_bye_draw_pots`` — Bye vs R1 Winners, Bye,
+    Round 1 (empty bands omitted). Teams are shuffled within each pot, then
+    placed onto that pot's bracket seeds.
     """
+    from brackets.utils.single_elim_byes import single_elim_bye_draw_pots
+
+    pots = single_elim_bye_draw_pots(roster)
+    if not pots:
+        raise ValueError("Bye pots require a non-power-of-2 roster.")
+
     by_pot: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for team in teams:
         pot = team.get("pot")
@@ -180,20 +189,23 @@ def _order_bye_and_play_pots(teams: list[dict[str, Any]], bye_count: int) -> lis
             raise ValueError("Each team needs a pot for random balanced draw.")
         by_pot[int(pot)].append(team)
 
-    if sorted(by_pot.keys()) != [1, 2]:
-        raise ValueError("Bye draws use two pots: Bye and Round 1.")
+    expected = list(range(1, len(pots) + 1))
+    if sorted(by_pot.keys()) != expected:
+        labels = ", ".join(p["label"] for p in pots)
+        raise ValueError(f"Bye draws use these pots: {labels}.")
 
-    bye_bucket = list(by_pot[1])
-    play_bucket = list(by_pot[2])
-    play_count = len(teams) - bye_count
-    if len(bye_bucket) != bye_count:
-        raise ValueError(f"Bye pot must have exactly {bye_count} teams.")
-    if len(play_bucket) != play_count:
-        raise ValueError(f"Round 1 pot must have exactly {play_count} teams.")
+    seed_to_team: dict[int, dict[str, Any]] = {}
+    for pot_idx, pot in enumerate(pots, start=1):
+        bucket = list(by_pot[pot_idx])
+        if len(bucket) != pot["size"]:
+            raise ValueError(
+                f"{pot['label']} pot must have exactly {pot['size']} teams."
+            )
+        random.shuffle(bucket)
+        for seed, team in zip(pot["seeds"], bucket):
+            seed_to_team[int(seed)] = team
 
-    random.shuffle(bye_bucket)
-    random.shuffle(play_bucket)
-    return bye_bucket + play_bucket
+    return [seed_to_team[seed] for seed in range(1, roster + 1)]
 
 
 def compute_draw_seeds(
@@ -211,7 +223,6 @@ def compute_draw_seeds(
     """
     from brackets.utils.single_elim_byes import (
         is_power_of_2,
-        single_elim_bye_count,
         validate_single_elim_roster,
     )
 
@@ -242,8 +253,7 @@ def compute_draw_seeds(
 
     if mode == "random_balanced":
         if not is_gk and not is_power_of_2(n):
-            bye_count = single_elim_bye_count(n)
-            ordered = _order_bye_and_play_pots(parsed, bye_count)
+            ordered = _order_bye_and_play_pots(parsed, n)
             return _knockout_seeds_in_order(ordered)
         ordered = _order_by_pots(parsed)
         if is_gk:
