@@ -9,6 +9,18 @@
   --bf-radius: 10px;
   --bf-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
   --bf-ko-col-width: 212px;
+  --bf-ko-scale: 1;
+  --bf-ko-img: calc(2.15rem * var(--bf-ko-scale));
+  --bf-ko-font: calc(0.88rem * var(--bf-ko-scale));
+  --bf-ko-seed-font: calc(0.8rem * var(--bf-ko-scale));
+  --bf-ko-face-gap: calc(0.45rem * var(--bf-ko-scale));
+  --bf-ko-slot-pad-y: calc(0.8rem * var(--bf-ko-scale));
+  --bf-ko-slot-pad-x: calc(0.85rem * var(--bf-ko-scale));
+  --bf-ko-slot-min-h: calc(3.5rem * var(--bf-ko-scale));
+  --bf-ko-chip-pad-y: calc(0.5rem * var(--bf-ko-scale));
+  --bf-ko-chip-pad-x: calc(0.65rem * var(--bf-ko-scale));
+  --bf-ko-score-row-min-h: calc(2.85rem * var(--bf-ko-scale));
+  --bf-ko-score-name-font: calc(0.8125rem * var(--bf-ko-scale));
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--bf-text);
   background: var(--bf-bg);
@@ -212,9 +224,9 @@
 .bf-score-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  min-height: 2.85rem;
-  padding: 0.3rem 0.55rem;
+  gap: calc(0.4rem * var(--bf-ko-scale));
+  min-height: var(--bf-ko-score-row-min-h);
+  padding: calc(0.3rem * var(--bf-ko-scale)) calc(0.55rem * var(--bf-ko-scale));
 }
 
 .bf-score-row--winner {
@@ -224,10 +236,10 @@
 
 .bf-score-row__team {
   flex: 1 1 auto;
-  min-width: 6rem;
+  min-width: calc(6rem * var(--bf-ko-scale));
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--bf-ko-scale));
   overflow: hidden;
 }
 
@@ -264,7 +276,7 @@
 }
 
 .bf-score-row__name {
-  font-size: 0.8125rem;
+  font-size: var(--bf-ko-score-name-font);
   color: var(--app-muted, #64748b);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -274,19 +286,19 @@
 .bf-score-row__cols {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--bf-ko-scale));
   flex: 0 0 auto;
 }
 
 .bf-score-leg {
-  width: 1.9rem;
-  height: 1.9rem;
+  width: max(1.45rem, calc(1.9rem * var(--bf-ko-scale)));
+  height: max(1.45rem, calc(1.9rem * var(--bf-ko-scale)));
   padding: 0;
   border: 1px solid var(--bf-border, rgba(16, 24, 40, 0.15));
   border-radius: 0.25rem;
   text-align: center;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: max(0.65rem, calc(0.75rem * var(--bf-ko-scale)));
   font-weight: 600;
   background: var(--app-surface, #fff);
 }
@@ -299,25 +311,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2rem;
-  height: 1.9rem;
+  min-width: max(1.5rem, calc(2rem * var(--bf-ko-scale)));
+  height: max(1.45rem, calc(1.9rem * var(--bf-ko-scale)));
   margin-left: 0.15rem;
   padding: 0 0.2rem;
-  font-size: 0.875rem;
+  font-size: max(0.7rem, calc(0.875rem * var(--bf-ko-scale)));
   font-weight: 700;
 }
 
 .bf-score-total--input {
   box-sizing: border-box;
-  width: 2.15rem;
-  min-width: 2.15rem;
+  width: max(1.55rem, calc(2.15rem * var(--bf-ko-scale)));
+  min-width: max(1.55rem, calc(2.15rem * var(--bf-ko-scale)));
   margin-left: 0;
   padding: 0;
   border: 1px solid var(--bf-border, rgba(16, 24, 40, 0.15));
   border-radius: 0.25rem;
   text-align: center;
   font: inherit;
-  font-size: 0.875rem;
+  font-size: max(0.7rem, calc(0.875rem * var(--bf-ko-scale)));
   font-weight: 700;
   background: var(--app-surface, #fff);
   color: inherit;
@@ -342,7 +354,7 @@
   border-radius: 0;
   box-shadow: none;
   background: transparent;
-  padding: 0.35rem 0.5rem;
+  padding: calc(0.35rem * var(--bf-ko-scale)) calc(0.5rem * var(--bf-ko-scale));
 }
 
 .bf-matchup .bf-chip:hover:not(:disabled) {
@@ -401,13 +413,13 @@
 }
 
 .bf-stage-title {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--bf-ko-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--bf-muted);
-  margin: 0 0 0.35rem;
-  min-height: 2rem;
+  margin: 0 0 calc(0.35rem * var(--bf-ko-scale));
+  min-height: calc(2rem * var(--bf-ko-scale));
   width: 100%;
   box-sizing: border-box;
   display: flex;
@@ -486,13 +498,13 @@
 .bf-champion-box {
   position: relative;
   flex: 1;
-  min-height: 4.5rem;
+  min-height: calc(4.5rem * var(--bf-ko-scale));
   margin-left: 4px;
-  padding: 0.65rem 0.75rem;
-  border-radius: var(--bf-radius);
+  padding: calc(0.65rem * var(--bf-ko-scale)) calc(0.75rem * var(--bf-ko-scale));
+  border-radius: calc(var(--bf-radius) * var(--bf-ko-scale));
   border: 1px dashed var(--bf-border);
   background: rgba(var(--app-accent-rgb, 87, 130, 168), 0.04);
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--bf-ko-scale));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -653,10 +665,10 @@
 .bf-matchup {
   background: var(--bf-surface);
   border: 1px solid var(--bf-border);
-  border-radius: var(--bf-radius);
+  border-radius: calc(var(--bf-radius) * var(--bf-ko-scale));
   box-shadow: var(--bf-shadow);
   overflow: hidden;
-  min-width: 152px;
+  min-width: calc(152px * var(--bf-ko-scale));
 }
 
 .bf-next-match-control {
@@ -776,12 +788,12 @@
 }
 
 .bf-slot {
-  padding: 0.8rem 0.85rem;
+  padding: var(--bf-ko-slot-pad-y) var(--bf-ko-slot-pad-x);
   border-bottom: 1px solid var(--bf-border);
-  min-height: 3.5rem;
+  min-height: var(--bf-ko-slot-min-h);
   display: flex;
   align-items: center;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--bf-ko-scale));
   line-height: 1.25;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -799,7 +811,7 @@
 
 .bf-slot--empty {
   color: var(--bf-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--bf-ko-scale));
 }
 
 .bf-chip {
@@ -807,10 +819,10 @@
   cursor: pointer;
   user-select: none;
   border: 1px solid var(--bf-border);
-  border-radius: 8px;
-  padding: 0.5rem 0.65rem;
+  border-radius: calc(8px * var(--bf-ko-scale));
+  padding: var(--bf-ko-chip-pad-y) var(--bf-ko-chip-pad-x);
   background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
-  font-size: 0.88rem;
+  font-size: var(--bf-ko-font);
   font-weight: 500;
   text-align: left;
   color: var(--bf-text);
@@ -980,13 +992,13 @@
 
 .bf--split-knockout .bf-matchup .bf-slot {
   flex: 1 1 0;
-  min-height: 2.95rem;
-  padding: 0.35rem 0.7rem;
+  min-height: calc(2.95rem * var(--bf-ko-scale));
+  padding: calc(0.35rem * var(--bf-ko-scale)) calc(0.7rem * var(--bf-ko-scale));
 }
 
 .bf--split-knockout .bf-ko-img {
-  width: 2.35rem;
-  height: 2.35rem;
+  width: var(--bf-ko-img);
+  height: var(--bf-ko-img);
 }
 
 .bf-knockout-placeholder {
@@ -1282,7 +1294,7 @@
 .bf-chip--ko {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: var(--bf-ko-face-gap);
   text-align: left;
   justify-content: flex-start;
   width: 100%;
@@ -1292,16 +1304,16 @@
 .bf-ko-face {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: var(--bf-ko-face-gap);
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
 }
 
 .bf-ko-img {
-  width: 2.15rem;
-  height: 2.15rem;
-  border-radius: 4px;
+  width: var(--bf-ko-img);
+  height: var(--bf-ko-img);
+  border-radius: calc(4px * var(--bf-ko-scale));
   object-fit: contain;
   object-position: center;
   flex-shrink: 0;
@@ -1313,7 +1325,7 @@
   justify-content: center;
   background: var(--bf-border);
   color: var(--bf-muted);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--bf-ko-scale));
   font-weight: 600;
 }
 
@@ -1330,7 +1342,7 @@
   flex-shrink: 0;
   opacity: 0.55;
   margin-left: 0.15rem;
-  font-size: 0.8rem;
+  font-size: var(--bf-ko-seed-font);
 }
 
 .bf-champion-box .bf-chip--ko,

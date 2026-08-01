@@ -364,7 +364,25 @@ export function matchupsForStage(
 export function isStructuralByeMatchup(m: MatchupInfo): boolean {
   const a = m.contestant1 != null;
   const b = m.contestant2 != null;
-  return (a && !b) || (!a && b);
+  if (!((a && !b) || (!a && b))) return false;
+  // Later rounds often have one side filled while waiting on a feeder winner —
+  // those are not byes and must still draw connector arms.
+  if (m.source_a_matchup_id != null || m.source_b_matchup_id != null) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Density scale for knockout boxes / logos / type so large fields stay readable
+ * without looking zoomed-in. Based on opening-round field size (power-of-2 shell).
+ */
+export function knockoutBracketScale(fieldSize: number): number {
+  if (!Number.isFinite(fieldSize) || fieldSize <= 8) return 1;
+  if (fieldSize <= 16) return 0.92;
+  if (fieldSize <= 32) return 0.8;
+  if (fieldSize <= 64) return 0.72;
+  return 0.65;
 }
 
 function visibleMatchupsForStage(
@@ -683,16 +701,18 @@ export function BracketFill({
   const openingKoStage = knockoutStagesMain[0];
   const openingContestants = openingKoStage?.number_of_contestants ?? 0;
   const splitKnockoutBoard = openingContestants >= 32 && leaves >= 2;
+  const koScale = knockoutBracketScale(openingContestants || leaves * 2);
 
   const boardHeightPx = useMemo(() => {
     if (splitKnockoutBoard) {
-      // Each R32 band must fit two full team rows (not clipped).
+      // Each opening band must fit two full team rows (not clipped).
       const wingGames = Math.max(leaves / 2, 1);
-      const matchupPx = 108;
-      return Math.max(640, wingGames * matchupPx);
+      const matchupPx = Math.round(108 * koScale);
+      return Math.max(Math.round(520 * koScale), wingGames * matchupPx);
     }
-    return Math.max(640, leaves * 188);
-  }, [leaves, splitKnockoutBoard]);
+    const rowPx = Math.round(188 * koScale);
+    return Math.max(Math.round(520 * koScale), leaves * rowPx);
+  }, [leaves, splitKnockoutBoard, koScale]);
 
   const mirrorLayout = useMemo(
     () =>
@@ -750,12 +770,16 @@ export function BracketFill({
     return Math.min(2, Math.max(1, max));
   }, [knockoutStagesMain, thirdPlaceStage]);
 
-  const koColWidthPx =
-    resultsEntry.knockout === 'score'
-      ? maxKnockoutLegs >= 2
-        ? 308
-        : 268
-      : 212;
+  const koColWidthPx = Math.max(
+    148,
+    Math.round(
+      (resultsEntry.knockout === 'score'
+        ? maxKnockoutLegs >= 2
+          ? 308
+          : 268
+        : 212) * koScale,
+    ),
+  );
 
   const hasTournamentResultsEntry = useMemo(() => {
     const meta = bracketDef?.metadata;
@@ -1095,6 +1119,7 @@ export function BracketFill({
         {
           '--bf-board-h': `${boardHeightPx}px`,
           '--bf-ko-col-width': `${koColWidthPx}px`,
+          '--bf-ko-scale': String(koScale),
         } as CSSProperties
       }
     >
@@ -1393,9 +1418,12 @@ function ConnectorBetweenStages({
               treeOpts,
             );
             if (!top || !bottom) return null;
-            // Bye feeders have no Round-1 box; skip arms that would float in empty space.
-            const topBye = isStructuralByeMatchup(top);
-            const bottomBye = isStructuralByeMatchup(bottom);
+            // Only opening-round bye boxes are hidden; skip floating arms into
+            // empty space for those. Later rounds always draw both arms.
+            const topBye =
+              fromCol.stageIdx === 0 && isStructuralByeMatchup(top);
+            const bottomBye =
+              fromCol.stageIdx === 0 && isStructuralByeMatchup(bottom);
             if (topBye && bottomBye) return null;
             const y1 = fromPct(fromCol.stageIdx, top.position);
             const y2 = fromPct(fromCol.stageIdx, bottom.position);
