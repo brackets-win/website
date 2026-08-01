@@ -15,6 +15,9 @@ class Matchup(models.Model):
     winner = models.ForeignKey('bracket.BracketContestant', related_name='matchup_winner',
                                on_delete=models.SET_NULL, null=True, blank=True)
 
+    # Knockout score entry: {"legs": [[c1, c2], ...]} — one pair per leg.
+    scores = models.JSONField(null=True, blank=True)
+
     # Source tracking for contestants (enables third place matches, double elimination, etc.)
     source_a_matchup = models.ForeignKey(
         'self',

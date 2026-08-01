@@ -1074,6 +1074,11 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                 )
             if n < 2:
                 return _json_error("number_of_contestants must be at least 2", 400)
+            if structure == "SINGLE_ELIM" and n % 2 != 0:
+                return _json_error(
+                    "Single elimination team count must be even",
+                    400,
+                )
             if structure == "GROUP_KNOCKOUT" and n % 4 != 0:
                 return _json_error(
                     "For group & knockout, number_of_contestants must be a multiple of 4",
@@ -1757,10 +1762,12 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         except ValueError as e:
             return _json_error(str(e), 403)
 
-    winner_id = body.get("winner_id")
-    if winner_id is None:
-        clear_matchup_winner_and_downstream(m)
-        m.refresh_from_db()
+    has_scores = "scores" in body
+    has_winner = "winner_id" in body
+    if not has_scores and not has_winner:
+        return _json_error("winner_id or scores is required", 400)
+
+    def _after_matchup_change() -> JsonResponse:
         from brackets.utils.leaderboard_scoring import (
             on_master_bracket_changed,
             refresh_user_bracket_leaderboard_cache,
@@ -1770,12 +1777,93 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
         )
 
         if ub.is_master:
+            from brackets.utils.next_match import clear_next_match_if_matchup
+
+            clear_next_match_if_matchup(ub.bracket, m.id)
             on_master_bracket_changed(ub.bracket, materialize=False)
         elif ub.submitted_at is not None:
             refresh_user_bracket_leaderboard_cache(ub)
         if ub.is_master or ub.submitted_at is not None:
             invalidate_challenge_stats_for_user_bracket(ub)
+        if (
+            not ub.is_master
+            and ub.challenge_id is not None
+            and ub.challenge.instance_type == POLL
+            and m.winner_id is not None
+        ):
+            UserPick.objects.update_or_create(
+                matchup=m,
+                user=user,
+                defaults={"selected_contestant_id": m.winner_id},
+            )
+        m.refresh_from_db()
         return JsonResponse({"matchup": serializers.matchup_public(m)})
+
+    if has_scores:
+        from brackets.models import KnockoutStage
+        from brackets.utils.matchup_scores import (
+            aggregate_totals,
+            normalize_legs,
+            winner_id_from_totals,
+        )
+
+        ks = KnockoutStage.objects.filter(pk=m.stage_id).first()
+        expected_legs = ks.number_of_legs if ks else 1
+        if expected_legs > 2:
+            expected_legs = 2
+        scores_body = body.get("scores")
+        if scores_body is None:
+            m.scores = None
+            legs: list = []
+        elif not isinstance(scores_body, dict):
+            return _json_error("scores must be an object", 400)
+        else:
+            try:
+                legs = normalize_legs(
+                    scores_body.get("legs"), expected_legs=expected_legs
+                )
+            except ValueError as e:
+                return _json_error(str(e), 400)
+            m.scores = {"legs": legs}
+
+        total1, total2 = aggregate_totals(legs) if legs else (None, None)
+        derived = winner_id_from_totals(
+            m.contestant1_id, m.contestant2_id, total1, total2
+        )
+        # Optional explicit winner when aggregate is tied (e.g. pens).
+        if has_winner and body.get("winner_id") is not None:
+            winner_id = body.get("winner_id")
+            if m.contestant1_id != winner_id and m.contestant2_id != winner_id:
+                return _json_error(
+                    "winner_id must match contestant1 or contestant2 in this matchup",
+                    400,
+                )
+            derived = winner_id
+        elif not has_winner or body.get("winner_id") is None:
+            pass
+
+        old_winner_id = m.winner_id
+        if derived is None:
+            if old_winner_id is not None:
+                clear_matchup_winner_and_downstream(m)
+                m.refresh_from_db()
+            m.scores = {"legs": legs} if legs else None
+            m.save(update_fields=["scores"])
+            return _after_matchup_change()
+
+        if old_winner_id and old_winner_id != derived:
+            remove_team_from_knockout_path(m, old_winner_id)
+        m.winner_id = derived
+        m.save()
+        return _after_matchup_change()
+
+    winner_id = body.get("winner_id")
+    if winner_id is None:
+        m.scores = None
+        m.save(update_fields=["scores"])
+        clear_matchup_winner_and_downstream(m)
+        m.refresh_from_db()
+        return _after_matchup_change()
 
     if m.contestant1_id != winner_id and m.contestant2_id != winner_id:
         return _json_error(
@@ -1788,34 +1876,7 @@ def matchup_patch(request: HttpRequest, matchup_id: int) -> JsonResponse:
 
     m.winner = get_object_or_404(BracketContestant, pk=winner_id)
     m.save()
-    from brackets.utils.leaderboard_scoring import (
-        on_master_bracket_changed,
-        refresh_user_bracket_leaderboard_cache,
-    )
-    from brackets.utils.challenge_stats import invalidate_challenge_stats_for_user_bracket
-
-    if ub.is_master:
-        # A result on the next match means it's no longer upcoming; drop it.
-        from brackets.utils.next_match import clear_next_match_if_matchup
-
-        clear_next_match_if_matchup(ub.bracket, m.id)
-        on_master_bracket_changed(ub.bracket, materialize=False)
-    elif ub.submitted_at is not None:
-        refresh_user_bracket_leaderboard_cache(ub)
-    if ub.is_master or ub.submitted_at is not None:
-        invalidate_challenge_stats_for_user_bracket(ub)
-    if (
-        not ub.is_master
-        and ub.challenge_id is not None
-        and ub.challenge.instance_type == POLL
-    ):
-        UserPick.objects.update_or_create(
-            matchup=m,
-            user=user,
-            defaults={"selected_contestant_id": winner_id},
-        )
-    m.refresh_from_db()
-    return JsonResponse({"matchup": serializers.matchup_public(m)})
+    return _after_matchup_change()
 
 
 @require_http_methods(["GET"])
@@ -2287,6 +2348,9 @@ def admin_brackets_create(request: HttpRequest) -> JsonResponse:
 
     if n < 2:
         return _json_error("number_of_contestants must be at least 2", 400)
+
+    if effective_type == "SINGLE_ELIM" and n % 2 != 0:
+        return _json_error("Single elimination team count must be even", 400)
 
     if effective_type == "GROUP_KNOCKOUT" and n % 4 != 0:
         return _json_error(

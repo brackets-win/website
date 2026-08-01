@@ -120,10 +120,21 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
     contestants = list(
         BracketContestant.objects.filter(bracket=bracket).order_by('seed', 'id')
     )
-    if len(contestants) != ko_stages[0].number_of_contestants:
+    from brackets.utils.single_elim_byes import (
+        roster_size_from_bracket,
+        single_elim_field_size,
+    )
+
+    roster = roster_size_from_bracket(bracket) or len(contestants)
+    field_size = ko_stages[0].number_of_contestants
+    if len(contestants) != roster:
         raise ValueError(
-            f'Contestant count ({len(contestants)}) must match first knockout stage '
-            f'({ko_stages[0].number_of_contestants}).'
+            f'Contestant count ({len(contestants)}) must match roster size ({roster}).'
+        )
+    if field_size != single_elim_field_size(roster):
+        raise ValueError(
+            f'First knockout stage size ({field_size}) does not match '
+            f'field size for {roster} teams ({single_elim_field_size(roster)}).'
         )
 
     created: List[Matchup] = []
@@ -144,6 +155,7 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
             continue
 
         if idx == 0:
+            from brackets.utils.bracket_seeding import first_round_seed_pairs
             from brackets.utils.knockout_stage_seeding import (
                 first_round_pairs_for_mode,
                 rng_for_stage_draw,
@@ -151,24 +163,54 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
             )
 
             mode = seeding_mode_for_stage(stage)
-            rng = rng_for_stage_draw(
-                user_bracket.id,
-                stage.id,
-                [c.id for c in contestants],
-            )
-            for position, (c1, c2) in enumerate(
-                first_round_pairs_for_mode(contestants, mode, rng=rng),
-                start=1,
-            ):
-                created.append(
-                    Matchup.objects.create(
-                        user_bracket=user_bracket,
-                        stage=stage,
-                        position=position,
-                        contestant1=c1,
-                        contestant2=c2,
+            by_seed = {
+                int(c.seed): c
+                for c in contestants
+                if getattr(c, "seed", None) is not None
+            }
+
+            if mode == "standard" or field_size != roster:
+                # Bye-aware placement on the full field (missing seeds = byes).
+                for position, (seed_a, seed_b) in enumerate(
+                    first_round_seed_pairs(field_size),
+                    start=1,
+                ):
+                    c1 = by_seed.get(seed_a)
+                    c2 = by_seed.get(seed_b)
+                    winner = None
+                    if c1 is not None and c2 is None:
+                        winner = c1
+                    elif c2 is not None and c1 is None:
+                        winner = c2
+                    created.append(
+                        Matchup.objects.create(
+                            user_bracket=user_bracket,
+                            stage=stage,
+                            position=position,
+                            contestant1=c1,
+                            contestant2=c2,
+                            winner=winner,
+                        )
                     )
+            else:
+                rng = rng_for_stage_draw(
+                    user_bracket.id,
+                    stage.id,
+                    [c.id for c in contestants],
                 )
+                for position, (c1, c2) in enumerate(
+                    first_round_pairs_for_mode(contestants, mode, rng=rng),
+                    start=1,
+                ):
+                    created.append(
+                        Matchup.objects.create(
+                            user_bracket=user_bracket,
+                            stage=stage,
+                            position=position,
+                            contestant1=c1,
+                            contestant2=c2,
+                        )
+                    )
         else:
             for position in range(1, num_matchups + 1):
                 created.append(
@@ -178,6 +220,17 @@ def ensure_full_knockout_matchups(user_bracket: UserBracket) -> List[Matchup]:
                         position=position,
                     )
                 )
+
+    # Bye winners were set before later rounds existed — push them into R2+.
+    from brackets.utils.knockout_rebuild import rebuild_knockout_from_first_round
+
+    if any(
+        m.winner_id and (m.contestant1_id is None or m.contestant2_id is None)
+        for m in Matchup.objects.filter(
+            user_bracket=user_bracket, stage=ko_stages[0]
+        )
+    ):
+        rebuild_knockout_from_first_round(user_bracket)
 
     return created
 
@@ -280,7 +333,10 @@ def ensure_knockout_structure_for_user_bracket(user_bracket: UserBracket) -> Lis
         contestant_count = BracketContestant.objects.filter(bracket=bracket).count()
         # Allow tournament-style setup before contestants are assigned:
         # create the knockout shell so the bracket UI is immediately visible.
-        if contestant_count != first_ko.number_of_contestants:
+        from brackets.utils.single_elim_byes import roster_size_from_bracket
+
+        roster = roster_size_from_bracket(bracket) or first_ko.number_of_contestants
+        if contestant_count == 0 or contestant_count != roster:
             return ensure_knockout_matchup_shell(user_bracket)
         return ensure_full_knockout_matchups(user_bracket)
     if _bracket_has_group_stage(bracket):

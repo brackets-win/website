@@ -133,6 +133,25 @@ def bracket_groups_preview(b: Bracket) -> list[dict[str, Any]]:
 
 
 def matchup_public(m: Matchup) -> dict[str, Any]:
+    from brackets.utils.matchup_scores import scores_public
+
+    scores_out = None
+    raw_scores = m.scores if isinstance(m.scores, dict) else None
+    legs_raw = raw_scores.get("legs") if raw_scores else None
+    if isinstance(legs_raw, list) and legs_raw:
+        normalized: list[list[int | None]] = []
+        for pair in legs_raw:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                normalized.append([None, None])
+                continue
+            side: list[int | None] = []
+            for val in (pair[0], pair[1]):
+                if val is None or val == "":
+                    side.append(None)
+                else:
+                    side.append(int(val))
+            normalized.append(side)
+        scores_out = scores_public(normalized)
     return {
         "id": m.id,
         "stage_id": m.stage_id,
@@ -142,6 +161,7 @@ def matchup_public(m: Matchup) -> dict[str, Any]:
         "winner": contestant_public(m.winner) if m.winner else None,
         "source_a_matchup_id": m.source_a_matchup_id,
         "source_b_matchup_id": m.source_b_matchup_id,
+        "scores": scores_out,
     }
 
 

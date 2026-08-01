@@ -133,6 +133,13 @@ def merge_and_validate_user_bracket_metadata(
     existing: dict[str, Any] | None,
     body: dict[str, Any],
 ) -> dict[str, Any]:
+    from brackets.api.serializers import bracket_groups_preview
+    from brackets.utils.group_fixtures import (
+        group_positions_from_fixtures,
+        sanitize_group_fixtures,
+    )
+    from brackets.utils.group_stage_config import get_group_stage
+
     meta = dict(existing) if isinstance(existing, dict) else {}
     if "group_positions" in body:
         gp = body["group_positions"]
@@ -144,6 +151,30 @@ def merge_and_validate_user_bracket_metadata(
         if tp is not None and not isinstance(tp, list):
             raise ValueError("third_place_advancers must be a list")
         meta["third_place_advancers"] = tp if tp is not None else []
+    if "group_fixtures" in body:
+        preview = bracket_groups_preview(bracket)
+        fixtures = sanitize_group_fixtures(preview, body.get("group_fixtures"))
+        meta["group_fixtures"] = fixtures
+        gs = get_group_stage(bracket)
+        meta["group_positions"] = group_positions_from_fixtures(
+            preview,
+            fixtures,
+            points_per_win=gs.points_per_win if gs else 3,
+            points_per_tie=gs.points_per_tie if gs else 1,
+            points_per_loss=gs.points_per_loss if gs else 0,
+        )
+    if "group_stage_completed" in body:
+        completed = bool(body.get("group_stage_completed"))
+        if completed:
+            from brackets.utils.bracket_completeness import group_stage_picks_complete
+            from brackets.models import UserBracket
+
+            # Validate against the merged metadata on a throwaway view of picks.
+            probe = UserBracket(bracket=bracket, metadata=meta, is_master=True)
+            ok, err = group_stage_picks_complete(probe)
+            if not ok:
+                raise ValueError(err or "Finish group standings first.")
+        meta["group_stage_completed"] = completed
     meta = sanitize_group_metadata(bracket, meta)
     validate_group_metadata(bracket, meta)
     return meta

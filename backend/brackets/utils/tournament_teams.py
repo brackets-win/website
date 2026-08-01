@@ -36,11 +36,25 @@ def tournament_structure_meta(bracket: Bracket) -> dict[str, Any]:
         .order_by("order")
         .first()
     )
+    from brackets.utils.single_elim_byes import roster_size_from_bracket
+
+    roster = roster_size_from_bracket(bracket)
+    team_count = (
+        roster
+        if roster is not None
+        else (first_ko.number_of_contestants if first_ko else 0)
+    )
     return {
         "structure": "SINGLE_ELIM",
         "number_of_groups": None,
         "teams_per_group": None,
-        "team_count": first_ko.number_of_contestants if first_ko else 0,
+        "team_count": team_count,
+        "field_size": first_ko.number_of_contestants if first_ko else 0,
+        "bye_count": (
+            (first_ko.number_of_contestants - team_count)
+            if first_ko and team_count
+            else 0
+        ),
     }
 
 

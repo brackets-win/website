@@ -469,6 +469,12 @@ export type BracketContestantInfo = {
   image_url: string | null;
 };
 
+export type MatchupScores = {
+  legs: Array<[number | null, number | null]>;
+  total1: number | null;
+  total2: number | null;
+};
+
 export type MatchupInfo = {
   id: number;
   stage_id: number;
@@ -478,6 +484,12 @@ export type MatchupInfo = {
   winner: BracketContestantInfo | null;
   source_a_matchup_id: number | null;
   source_b_matchup_id: number | null;
+  scores?: MatchupScores | null;
+};
+
+export type ResultsEntryConfig = {
+  group: 'standings' | 'table' | 'fixtures';
+  knockout: 'winner' | 'score';
 };
 
 export type UserBracketSummary = {
@@ -574,6 +586,17 @@ export type BracketDetail = BracketSummary & {
 export type UserBracketPicksMetadata = {
   group_positions?: Record<string, Record<string, number | null | undefined>>;
   third_place_advancers?: number[];
+  group_fixtures?: Record<
+    string,
+    Array<{
+      id: string;
+      home_id: number;
+      away_id: number;
+      home_score: number | null;
+      away_score: number | null;
+    }>
+  >;
+  group_stage_completed?: boolean;
 };
 
 export type UserBracketDetail = UserBracketSummary & {
@@ -865,6 +888,8 @@ export type TournamentTeamsMeta = {
   structure: 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
   number_of_groups: number | null;
   teams_per_group: number | null;
+  field_size?: number;
+  bye_count?: number;
   teams: TournamentTeamRow[];
 };
 
@@ -1394,6 +1419,17 @@ export async function patchUserBracketMetadata(
       Record<string, number | null | undefined>
     >;
     third_place_advancers?: number[];
+    group_fixtures?: Record<
+      string,
+      Array<{
+        id: string;
+        home_id: number;
+        away_id: number;
+        home_score: number | null;
+        away_score: number | null;
+      }>
+    >;
+    group_stage_completed?: boolean;
   },
 ): Promise<{ user_bracket: UserBracketDetail }> {
   return apiFetch('PATCH', `user-brackets/${userBracketId}`, body);
@@ -1406,6 +1442,19 @@ export async function patchMatchupWinner(
   return apiFetch('PATCH', `matchups/${matchupId}`, {
     winner_id: winnerId,
   });
+}
+
+export async function patchMatchupScores(
+  matchupId: number,
+  legs: Array<[number | null, number | null]>,
+  winnerId?: number | null,
+): Promise<{ matchup: MatchupInfo }> {
+  const body: {
+    scores: { legs: Array<[number | null, number | null]> };
+    winner_id?: number | null;
+  } = { scores: { legs } };
+  if (winnerId !== undefined) body.winner_id = winnerId;
+  return apiFetch('PATCH', `matchups/${matchupId}`, body);
 }
 
 export async function adminListContestants(): Promise<{
@@ -1499,6 +1548,7 @@ export async function adminCreateContestant(
 export type BracketStructureType = 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
 
 export type BracketStructureConfig = {
+  results_entry?: ResultsEntryConfig;
   group_stage?: {
     number_of_groups?: number;
     matches_per_contestant?: number;
@@ -1523,6 +1573,7 @@ export type BracketStructureConfig = {
     is_random_draw?: boolean;
     seeding_mode?: 'standard' | 'reseed' | 'randomize';
     round_points?: Record<number, number>;
+    round_legs?: Record<number, number>;
     metadata?: {
       knockout_fill_method?: 'standard' | 'seeding' | 'mapping';
     };

@@ -13,8 +13,10 @@ from brackets.utils.bracket_structure_config import (
     resolved_bracket_scoring,
     resolved_group_stage_options,
     resolved_knockout_defaults,
+    resolved_knockout_round_legs,
     resolved_knockout_round_points,
 )
+from brackets.utils.results_entry import merge_results_entry_into_metadata
 from brackets.utils.third_place_structure import sync_third_place_structure
 
 VALID_STRUCTURE_TYPES = frozenset({"GROUP_KNOCKOUT", "SINGLE_ELIM"})
@@ -44,13 +46,19 @@ def create_bracket_with_structure(
         )
 
     scoring = resolved_bracket_scoring(structure_config)
+    meta = dict(metadata or {})
+    if structure_config and "results_entry" in structure_config:
+        meta = merge_results_entry_into_metadata(
+            meta, structure_config.get("results_entry")
+        )
+
     bracket = Bracket.objects.create(
         identifier=bracket_identifier,
         name=bracket_name,
         created_by=created_by,
         has_third_place_match=has_third_place,
         show_seeds=show_seeds,
-        metadata=metadata,
+        metadata=meta or None,
         randomize_seeds_per_challenge=randomize_seeds_per_challenge,
         is_reusable=is_reusable,
         **scoring,
@@ -58,12 +66,15 @@ def create_bracket_with_structure(
 
     ko_defaults = resolved_knockout_defaults(structure_config)
     ko_round_points = resolved_knockout_round_points(structure_config)
+    ko_round_legs = resolved_knockout_round_legs(structure_config)
 
     def ko_stage_kwargs(round_size: int) -> dict[str, Any]:
         kwargs = dict(ko_defaults)
         kwargs["points_per_correct_pick"] = ko_round_points.get(
             round_size, ko_defaults["points_per_correct_pick"]
         )
+        if round_size in ko_round_legs:
+            kwargs["number_of_legs"] = ko_round_legs[round_size]
         return kwargs
 
     if template_type == "GROUP_KNOCKOUT":
@@ -119,7 +130,16 @@ def create_bracket_with_structure(
             order += 1
 
     elif template_type == "SINGLE_ELIM":
-        current_contestants = number_of_contestants
+        from brackets.utils.single_elim_byes import single_elim_field_size
+
+        roster = number_of_contestants
+        field_size = single_elim_field_size(roster)
+        meta["roster_size"] = roster
+        if bracket.metadata != meta:
+            bracket.metadata = meta
+            bracket.save(update_fields=["metadata"])
+
+        current_contestants = field_size
         order = 1
 
         stage_names = {

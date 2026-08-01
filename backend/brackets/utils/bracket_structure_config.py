@@ -46,6 +46,10 @@ def parse_structure_config(raw: Any) -> dict[str, Any]:
     for key in ("points_champion", "points_third_place_winner"):
         if key in data:
             out[key] = data[key]
+    if "results_entry" in data:
+        from brackets.utils.results_entry import normalize_results_entry
+
+        out["results_entry"] = normalize_results_entry(data["results_entry"])
     return out
 
 
@@ -196,16 +200,41 @@ def resolved_bracket_scoring(config: dict[str, Any] | None) -> dict[str, int]:
     }
 
 
+def resolved_knockout_round_legs(config: dict[str, Any] | None) -> dict[int, int]:
+    """Optional per-round leg overrides, keyed by contestants entering the round."""
+    ko = (config or {}).get("knockout") or {}
+    raw = ko.get("round_legs")
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("round_legs must be an object")
+    out: dict[int, int] = {}
+    for key, value in raw.items():
+        try:
+            size = int(key)
+        except (TypeError, ValueError) as e:
+            raise ValueError("round_legs keys must be integers") from e
+        legs = _positive_int(value, f"round_legs[{key}]")
+        if legs > 2:
+            raise ValueError("number_of_legs must be 1 or 2")
+        out[size] = legs
+    return out
+
+
 def resolved_knockout_defaults(config: dict[str, Any] | None) -> dict[str, Any]:
     ko = (config or {}).get("knockout") or {}
     from brackets.utils.knockout_stage_seeding import normalize_seeding_mode
 
+    legs = (
+        _positive_int(ko["number_of_legs"], "number_of_legs")
+        if "number_of_legs" in ko
+        else 1
+    )
+    if legs > 2:
+        raise ValueError("number_of_legs must be 1 or 2")
+
     return {
-        "number_of_legs": (
-            _positive_int(ko["number_of_legs"], "number_of_legs")
-            if "number_of_legs" in ko
-            else 1
-        ),
+        "number_of_legs": legs,
         "has_extra_time": _bool_val(ko.get("has_extra_time"), True),
         "has_penalty_shootout": _bool_val(ko.get("has_penalty_shootout"), True),
         "points_per_correct_pick": (

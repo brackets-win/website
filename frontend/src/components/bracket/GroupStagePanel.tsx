@@ -11,19 +11,26 @@ import {
   type UserBracketDetail,
 } from '../../utils/api';
 
-import { ContestantAvatar } from './ContestantAvatar';
-
-const GROUP_SAVE_DEBOUNCE_MS = 0;
 import {
   contestantsQualifyingPerGroup,
   groupPositionPicking,
   placementRanksRequired,
   thirdPlaceAdvanceCount,
 } from '../../utils/groupStageConfig';
+import { ContestantAvatar } from './ContestantAvatar';
+import {
+  GroupFixturesPanel,
+  type GroupFixturesMap,
+} from './GroupFixturesPanel';
+import './GroupFixturesPanel.css';
+
+const GROUP_SAVE_DEBOUNCE_MS = 0;
 
 type Meta = {
   group_positions: Record<string, Record<string, number | null | undefined>>;
   third_place_advancers: number[];
+  group_fixtures?: GroupFixturesMap;
+  group_stage_completed?: boolean;
 };
 
 /** Rank slot keys for a group (1…ranksRequired). */
@@ -282,6 +289,10 @@ type Props = {
   scoringHighlights?: ScoringHighlights;
   busy: boolean;
   readOnly?: boolean;
+  /** How the host enters group results (tournaments). */
+  entryMode?: 'standings' | 'table' | 'fixtures';
+  /** Master standings entry: show Complete Group Stage (fills KO). */
+  showCompleteGroupStage?: boolean;
   onSaved: (userBracket?: UserBracketDetail) => void | Promise<void>;
   onError: (msg: string) => void;
   /** Optional; unused when ``lightweightSave`` is true. */
@@ -441,6 +452,8 @@ export function GroupStagePanel({
   busy,
   scoringHighlights,
   readOnly = false,
+  entryMode = 'standings',
+  showCompleteGroupStage = false,
   onSaved,
   onError,
   setBusy,
@@ -465,6 +478,10 @@ export function GroupStagePanel({
   const [tp, setTp] = useState<number[]>([]);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [activeDragId, setActiveDragId] = useState<number | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const [groupStageCompleted, setGroupStageCompleted] = useState(
+    () => initialMetadata.group_stage_completed === true,
+  );
   const gpRef = useRef(gp);
   const tpRef = useRef(tp);
   const dragPayloadRef = useRef<DragPayload | null>(null);
@@ -512,6 +529,7 @@ export function GroupStagePanel({
     );
     setGp(nextGp);
     setTp(nextTp);
+    setGroupStageCompleted(initialMetadata.group_stage_completed === true);
     gpRef.current = nextGp;
     tpRef.current = nextTp;
   }, [
@@ -1008,6 +1026,63 @@ export function GroupStagePanel({
 
   useEffect(() => endPointerDrag, [endPointerDrag]);
 
+  const standingsReady = useMemo(() => {
+    for (const g of groups) {
+      const row = gp[g.code] ?? {};
+      for (const k of positionKeys) {
+        if (row[k] == null) return false;
+      }
+    }
+    if (hasThirdPlaceRail && tp.length < thirdAdvanceCount) return false;
+    return groups.length > 0;
+  }, [
+    groups,
+    gp,
+    positionKeys,
+    hasThirdPlaceRail,
+    tp,
+    thirdAdvanceCount,
+  ]);
+
+  const completeGroupStage = useCallback(async () => {
+    if (readOnly || busy || completing || !standingsReady) return;
+    setCompleting(true);
+    onError('');
+    try {
+      await flushSave();
+      const { user_bracket: ub } = await patchUserBracketMetadata(
+        userBracketId,
+        {
+          group_positions: gpRef.current,
+          ...(hasThirdPlaceRail
+            ? { third_place_advancers: tpRef.current }
+            : {}),
+          group_stage_completed: true,
+        },
+      );
+      setGroupStageCompleted(true);
+      await onSaved(ub);
+    } catch (e) {
+      onError(
+        e instanceof ApiError
+          ? e.message
+          : 'Could not complete group stage.',
+      );
+    } finally {
+      setCompleting(false);
+    }
+  }, [
+    readOnly,
+    busy,
+    completing,
+    standingsReady,
+    flushSave,
+    userBracketId,
+    hasThirdPlaceRail,
+    onSaved,
+    onError,
+  ]);
+
   const renderThirdAdvSlot = (index: number) => {
     const id = tp[index];
     const c = id != null ? byId.get(id) : null;
@@ -1245,9 +1320,42 @@ export function GroupStagePanel({
     <div className="bf-g-grid">{groups.map((g) => renderGroupCard(g))}</div>
   );
 
+  if (entryMode === 'table' || entryMode === 'fixtures') {
+    return (
+      <div className={isWorldCup ? 'bf-g bf-g--wc' : 'bf-g'}>
+        <GroupFixturesPanel
+          userBracketId={userBracketId}
+          groups={groups}
+          groupStage={groupStage}
+          initialFixtures={initialMetadata.group_fixtures}
+          busy={busy}
+          readOnly={readOnly}
+          onSaved={onSaved}
+          onError={onError}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={isWorldCup ? 'bf-g bf-g--wc' : 'bf-g'}>
       {groupBody}
+      {showCompleteGroupStage && !readOnly ? (
+        <div className="bf-g-complete">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={busy || completing || !standingsReady}
+            onClick={() => void completeGroupStage()}
+          >
+            {completing
+              ? 'Completing…'
+              : groupStageCompleted
+                ? 'Update Knockout'
+                : 'Complete Group Stage'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
