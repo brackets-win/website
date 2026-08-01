@@ -71,6 +71,26 @@ def tournament_team_capacity(bracket: Bracket) -> int:
     return int(tournament_structure_meta(bracket)["team_count"] or 0)
 
 
+def tournament_started(bracket: Bracket) -> bool:
+    meta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    return bool(meta.get("tournament_started"))
+
+
+def start_tournament(bracket: Bracket) -> None:
+    """Lock the roster after setup; Teams tab is no longer shown."""
+    required = tournament_team_capacity(bracket)
+    if required < 2:
+        raise ValueError("This bracket has no team slots configured.")
+    if len(tournament_teams_public(bracket)) < required:
+        raise ValueError("Add every team before starting the tournament.")
+    if tournament_started(bracket):
+        return
+    meta = dict(bracket.metadata or {})
+    meta["tournament_started"] = True
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
+
+
 def tournament_teams_public(bracket: Bracket) -> list[dict[str, Any]]:
     rows = bracket.bracket_contestants.select_related("contestant").order_by(
         "seed", "id"
@@ -103,6 +123,7 @@ def tournament_teams_response(bracket: Bracket) -> dict[str, Any]:
     return {
         **meta,
         "teams": tournament_teams_public(bracket),
+        "tournament_started": tournament_started(bracket),
     }
 
 
@@ -152,6 +173,10 @@ def create_tournament_contestant(
 
 
 def _assert_roster_editable(bracket: Bracket, master: UserBracket) -> None:
+    if tournament_started(bracket):
+        raise ValueError(
+            "Teams are locked after the tournament has started."
+        )
     if master.matchup_set.filter(winner_id__isnull=False).exists():
         raise ValueError(
             "Cannot change teams after results have been recorded. "

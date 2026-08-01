@@ -322,6 +322,7 @@ export function ChallengeView({
   const teamsNeedSetup =
     challenge?.instance_type === INSTANCE_TOURNAMENT &&
     challenge.can_manage_bracket === true &&
+    challenge.tournament_started !== true &&
     challenge.teams_configured === false;
 
   useEffect(() => {
@@ -355,7 +356,16 @@ export function ChallengeView({
   function handleTeamsSaved() {
     void reload();
     setBracketRevision((n) => n + 1);
-    goToTab('bracket');
+  }
+
+  function handleTournamentStarted() {
+    void reload();
+    setBracketRevision((n) => n + 1);
+    const nextTab =
+      bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true
+        ? 'groups'
+        : 'bracket';
+    goToTab(nextTab);
   }
 
   useEffect(() => {
@@ -510,7 +520,8 @@ export function ChallengeView({
     : activeBracketId ?? challenge.user_bracket_id;
 
   const canEditResults = isTournament && challenge.can_manage_bracket === true;
-  const showTeamsTab = canEditResults;
+  const showTeamsTab =
+    canEditResults && challenge.tournament_started !== true;
   const tournamentTeamCount = challenge.tournament_team_count ?? 0;
 
   const headerSubtitle = (() => {
@@ -554,6 +565,16 @@ export function ChallengeView({
     : [];
   const hasGroupStage =
     bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true;
+
+  useEffect(() => {
+    if (!challenge) return;
+    if (challenge.tournament_started === true && tab === 'teams') {
+      navigate(
+        challengePath(challengeId, hasGroupStage ? 'groups' : 'bracket'),
+        { replace: true },
+      );
+    }
+  }, [challenge, tab, navigate, challengeId, hasGroupStage]);
 
   if (primaryBracketId == null && !isTournament) {
     return (
@@ -850,6 +871,7 @@ export function ChallengeView({
               challengeId={challengeId}
               teamCount={tournamentTeamCount}
               onSaved={handleTeamsSaved}
+              onStarted={handleTournamentStarted}
             />
           ) : (
             <p className="challenge-view__muted">Unable to load team slots.</p>

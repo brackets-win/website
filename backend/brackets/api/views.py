@@ -67,6 +67,7 @@ from brackets.utils.tournament_teams import (
     apply_tournament_teams,
     draw_and_apply_tournament_teams,
     link_name_only_tournament_teams,
+    start_tournament,
     tournament_teams_response,
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
@@ -1380,6 +1381,52 @@ def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
         apply_tournament_teams(bracket, rows, created_by=user)
     except ValueError as e:
         return _json_error(str(e), 400)
+
+    return JsonResponse(tournament_teams_response(bracket))
+
+
+@require_http_methods(["POST"])
+def challenge_teams_start(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    """Lock team setup and hide the Teams tab for this tournament."""
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if challenge.instance_type != TOURNAMENT:
+        return _json_error("Only tournaments support team setup", 400)
+    if not _can_manage_bracket(user, challenge):
+        return _json_error("Forbidden", 403)
+
+    try:
+        body = _parse_json(request) if request.body else {}
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+    if not isinstance(body, dict):
+        body = {}
+
+    bracket = challenge.bracket
+    raw = body.get("teams")
+    if isinstance(raw, list):
+        rows = [r for r in raw if isinstance(r, dict)]
+        mode = str(body.get("mode") or "").strip().lower()
+        try:
+            if mode in ("random", "random_balanced"):
+                draw_and_apply_tournament_teams(
+                    bracket, mode=mode, teams=rows, created_by=user
+                )
+            elif rows:
+                apply_tournament_teams(bracket, rows, created_by=user)
+            start_tournament(bracket)
+        except ValueError as e:
+            return _json_error(str(e), 400)
+    else:
+        try:
+            start_tournament(bracket)
+        except ValueError as e:
+            return _json_error(str(e), 400)
 
     return JsonResponse(tournament_teams_response(bracket))
 

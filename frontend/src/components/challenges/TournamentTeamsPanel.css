@@ -262,6 +262,13 @@
   gap: 0.75rem;
 }
 
+.ttp__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 .ttp__draft-backdrop {
   position: fixed;
   inset: 0;

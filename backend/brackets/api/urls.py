@@ -39,6 +39,7 @@ urlpatterns = [
     path("challenges/<int:challenge_id>", views.challenge_detail),
     path("challenges/<int:challenge_id>/teams", views.challenge_teams),
     path("challenges/<int:challenge_id>/teams/draw", views.challenge_teams_draw),
+    path("challenges/<int:challenge_id>/teams/start", views.challenge_teams_start),
     path(
         "challenges/<int:challenge_id>/team-catalog",
         views.challenge_team_catalog,

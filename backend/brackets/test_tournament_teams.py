@@ -178,3 +178,44 @@ class TournamentTeamsApiTests(TestCase):
             [cid, others[0]["id"], others[1]["id"], others[2]["id"]],
         )
 
+    def test_start_tournament_locks_teams(self):
+        ch = self._create_tournament(4)
+        self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "A"},
+                        {"name": "B"},
+                        {"name": "C"},
+                        {"name": "D"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        start = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/start",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(start.status_code, 200)
+        self.assertTrue(start.json()["tournament_started"])
+        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertTrue(detail.json()["challenge"]["tournament_started"])
+        blocked = self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "W"},
+                        {"name": "X"},
+                        {"name": "Y"},
+                        {"name": "Z"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(blocked.status_code, 400)
+

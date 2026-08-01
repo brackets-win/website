@@ -446,8 +446,10 @@ def challenge_summary(
     )
     tournament_team_count = None
     teams_configured = None
+    tournament_started_flag = None
     if c.instance_type == TOURNAMENT:
         from brackets.utils.tournament_teams import (
+            tournament_started,
             tournament_team_capacity,
             tournament_teams_public,
         )
@@ -456,6 +458,7 @@ def challenge_summary(
         required = tournament_team_count or 0
         configured = len(tournament_teams_public(c.bracket))
         teams_configured = required > 0 and configured >= required
+        tournament_started_flag = tournament_started(c.bracket)
     is_creator = user is not None and c.created_by_id == user.id
     can_join = can_add_entry
     can_edit = False
@@ -508,6 +511,7 @@ def challenge_summary(
         "master_user_bracket_id": master_user_bracket_id,
         "tournament_team_count": tournament_team_count,
         "teams_configured": teams_configured,
+        "tournament_started": tournament_started_flag,
         "leaderboard_preview": (
             leaderboard_preview
             if leaderboard_preview is not None

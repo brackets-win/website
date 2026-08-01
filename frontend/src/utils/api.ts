@@ -88,6 +88,7 @@ export type ChallengeSummary = {
   master_user_bracket_id?: number | null;
   tournament_team_count?: number | null;
   teams_configured?: boolean | null;
+  tournament_started?: boolean | null;
   leaderboard_preview?: LeaderboardPreview;
   show_live_group_results_note?: boolean;
   show_outcomes_tab?: boolean;
@@ -893,6 +894,7 @@ export type TournamentTeamsMeta = {
   field_size?: number;
   bye_count?: number;
   teams: TournamentTeamRow[];
+  tournament_started?: boolean;
 };
 
 export async function saveChallengeTeams(
@@ -920,6 +922,21 @@ export async function drawChallengeTeams(
   },
 ): Promise<TournamentTeamsMeta> {
   return apiFetch('POST', `challenges/${challengeId}/teams/draw`, body);
+}
+
+export async function startChallengeTournament(
+  challengeId: number,
+  body?: {
+    mode?: 'manual' | 'random' | 'random_balanced';
+    teams?: Array<{
+      name: string;
+      seed?: number;
+      pot?: number;
+      contestant_id?: number;
+    }>;
+  },
+): Promise<TournamentTeamsMeta> {
+  return apiFetch('POST', `challenges/${challengeId}/teams/start`, body ?? {});
 }
 
 export async function getChallengeTeamCatalog(
