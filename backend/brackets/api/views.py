@@ -66,6 +66,7 @@ from brackets.utils.sync_group_knockout import sync_first_knockout_from_group_pi
 from brackets.utils.tournament_teams import (
     apply_tournament_teams,
     draw_and_apply_tournament_teams,
+    link_name_only_tournament_teams,
     tournament_teams_response,
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
@@ -1363,6 +1364,7 @@ def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
 
     bracket = challenge.bracket
     if request.method == "GET":
+        link_name_only_tournament_teams(bracket, user)
         return JsonResponse(tournament_teams_response(bracket))
 
     try:
@@ -1375,7 +1377,7 @@ def challenge_teams(request: HttpRequest, challenge_id: int) -> JsonResponse:
         return _json_error("teams must be a list", 400)
     rows = [r for r in raw if isinstance(r, dict)]
     try:
-        apply_tournament_teams(bracket, rows)
+        apply_tournament_teams(bracket, rows, created_by=user)
     except ValueError as e:
         return _json_error(str(e), 400)
 
@@ -1410,11 +1412,90 @@ def challenge_teams_draw(request: HttpRequest, challenge_id: int) -> JsonRespons
         return _json_error("teams must be a list", 400)
     rows = [r for r in raw if isinstance(r, dict)]
     try:
-        draw_and_apply_tournament_teams(challenge.bracket, mode=mode, teams=rows)
+        draw_and_apply_tournament_teams(
+            challenge.bracket, mode=mode, teams=rows, created_by=user
+        )
     except ValueError as e:
         return _json_error(str(e), 400)
 
     return JsonResponse(tournament_teams_response(challenge.bracket))
+
+
+@require_http_methods(["GET", "POST"])
+def challenge_team_catalog(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    """Contestant catalog for tournament hosts (pick / create teams)."""
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if challenge.instance_type != TOURNAMENT:
+        return _json_error("Only tournaments support team setup", 400)
+    if not _can_manage_bracket(user, challenge):
+        return _json_error("Forbidden", 403)
+
+    if request.method == "GET":
+        qs = Contestant.objects.prefetch_related("tags").order_by("name", "id")[
+            :500
+        ]
+        all_tags = [
+            serializers.contestant_tag_public(t)
+            for t in ContestantTag.objects.order_by("name")
+        ]
+        return JsonResponse(
+            {
+                "contestants": [
+                    serializers.contestant_catalog(c, request) for c in qs
+                ],
+                "tags": all_tags,
+            }
+        )
+
+    from brackets.utils.tournament_teams import create_tournament_contestant
+
+    if _is_multipart(request):
+        post, files = _multipart_post_files(request)
+        name = (post.get("name") or "").strip()
+        photo = files.get("photo")
+        image_url = (post.get("image_url") or "").strip()
+        description = (post.get("description") or "").strip()
+        try:
+            c = create_tournament_contestant(
+                user=user,
+                name=name,
+                photo=photo,
+                image_url=image_url,
+                description=description,
+            )
+        except ValueError as e:
+            return _json_error(str(e), 400)
+        c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
+        return JsonResponse(
+            {"contestant": serializers.contestant_catalog(c, request)},
+            status=201,
+        )
+
+    try:
+        body = _parse_json(request)
+    except json.JSONDecodeError:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        c = create_tournament_contestant(
+            user=user,
+            name=str(body.get("name") or ""),
+            image_url=str(body.get("image_url") or ""),
+            description=str(body.get("description") or ""),
+        )
+    except ValueError as e:
+        return _json_error(str(e), 400)
+    c = Contestant.objects.prefetch_related("tags").get(pk=c.pk)
+    return JsonResponse(
+        {"contestant": serializers.contestant_catalog(c, request)},
+        status=201,
+    )
 
 
 @require_http_methods(["GET"])

@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
-from brackets.models import Bracket, BracketContestant, BracketStage, Matchup, UserBracket
+from brackets.models import (
+    Bracket,
+    BracketContestant,
+    BracketStage,
+    Contestant,
+    Matchup,
+    UserBracket,
+)
+from brackets.utils.contestant_images import resolve_contestant_image_url
 from brackets.utils.knockout_tree import ensure_knockout_structure_for_user_bracket
 
 
@@ -63,21 +72,27 @@ def tournament_team_capacity(bracket: Bracket) -> int:
 
 
 def tournament_teams_public(bracket: Bracket) -> list[dict[str, Any]]:
-    rows = list(
-        bracket.bracket_contestants.order_by("seed", "id").values(
-            "id", "name_override", "seed"
-        )
+    rows = bracket.bracket_contestants.select_related("contestant").order_by(
+        "seed", "id"
     )
     out: list[dict[str, Any]] = []
-    for row in rows:
-        name = (row["name_override"] or "").strip()
+    for bc in rows:
+        name = (bc.name_override or "").strip()
+        if not name and bc.contestant is not None:
+            name = (bc.contestant.name or "").strip()
         if not name:
             continue
         out.append(
             {
-                "id": row["id"],
+                "id": bc.id,
                 "name": name,
-                "seed": row["seed"],
+                "seed": bc.seed,
+                "contestant_id": bc.contestant_id,
+                "photo_url": (
+                    resolve_contestant_image_url(bc.contestant)
+                    if bc.contestant is not None
+                    else None
+                ),
             }
         )
     return out
@@ -91,25 +106,57 @@ def tournament_teams_response(bracket: Bracket) -> dict[str, Any]:
     }
 
 
-@transaction.atomic
-def apply_tournament_teams(bracket: Bracket, teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Replace the bracket roster with ad-hoc team names and rebuild the master bracket tree.
-    """
-    required = tournament_team_capacity(bracket)
-    if required < 2:
-        raise ValueError("This bracket has no team slots configured.")
+def unique_contestant_identifier(name: str) -> str:
+    base = re.sub(r"[^a-zA-Z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    if not base:
+        base = "team"
+    base = base[:50]
+    candidate = base
+    n = 2
+    while Contestant.objects.filter(identifier=candidate).exists():
+        suffix = f"-{n}"
+        candidate = f"{base[: 64 - len(suffix)]}{suffix}"
+        n += 1
+    return candidate
 
-    if len(teams) != required:
-        raise ValueError(f"Provide exactly {required} teams.")
 
-    master: UserBracket = bracket.get_master_bracket()
+def create_tournament_contestant(
+    *,
+    user,
+    name: str,
+    photo=None,
+    image_url: str = "",
+    description: str = "",
+) -> Contestant:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    if len(name) > 100:
+        raise ValueError("Team names must be 100 characters or fewer.")
+    image_url = (image_url or "").strip()
+    description = (description or "").strip()
+    for _ in range(8):
+        identifier = unique_contestant_identifier(name)
+        try:
+            return Contestant.objects.create(
+                identifier=identifier,
+                name=name,
+                description=description,
+                created_by=user,
+                photo=photo if photo else None,
+                image_url=image_url,
+            )
+        except IntegrityError:
+            continue
+    raise ValueError("Could not allocate a unique team identifier.")
+
+
+def _assert_roster_editable(bracket: Bracket, master: UserBracket) -> None:
     if master.matchup_set.filter(winner_id__isnull=False).exists():
         raise ValueError(
             "Cannot change teams after results have been recorded. "
             "Clear winners on the bracket first."
         )
-    # Group standings also count as results for GK tournaments.
     gp = (master.metadata or {}).get("group_positions") or {}
     if isinstance(gp, dict) and any(
         isinstance(v, dict) and any(x is not None for x in v.values())
@@ -120,15 +167,65 @@ def apply_tournament_teams(bracket: Bracket, teams: list[dict[str, Any]]) -> lis
             "Clear group positions first."
         )
 
-    parsed: list[tuple[str, int | None]] = []
+
+@transaction.atomic
+def apply_tournament_teams(
+    bracket: Bracket,
+    teams: list[dict[str, Any]],
+    *,
+    created_by=None,
+) -> list[dict[str, Any]]:
+    """
+    Replace the bracket roster and rebuild the master bracket tree.
+
+    Each team may include ``contestant_id`` (preferred) and/or ``name``.
+    Name-only rows create a ``Contestant`` when ``created_by`` is provided.
+    """
+    required = tournament_team_capacity(bracket)
+    if required < 2:
+        raise ValueError("This bracket has no team slots configured.")
+
+    if len(teams) != required:
+        raise ValueError(f"Provide exactly {required} teams.")
+
+    master: UserBracket = bracket.get_master_bracket()
+    _assert_roster_editable(bracket, master)
+
+    parsed: list[tuple[Contestant | None, str, int | None]] = []
+    seen_contestants: set[int] = set()
     for row in teams:
         if not isinstance(row, dict):
             raise ValueError("Each team must be an object with a name.")
+        cid_raw = row.get("contestant_id")
+        contestant: Contestant | None = None
+        if cid_raw is not None and str(cid_raw).strip() != "":
+            try:
+                cid = int(cid_raw)
+            except (TypeError, ValueError) as e:
+                raise ValueError("contestant_id must be a number.") from e
+            contestant = Contestant.objects.filter(pk=cid).first()
+            if contestant is None:
+                raise ValueError(f"Unknown contestant {cid}.")
+            if cid in seen_contestants:
+                raise ValueError("Each team can only be used once.")
+            seen_contestants.add(cid)
+
         name = str(row.get("name") or "").strip()
+        if contestant is not None:
+            name = (contestant.name or "").strip() or name
         if not name:
             raise ValueError("Each team needs a name.")
         if len(name) > 100:
             raise ValueError("Team names must be 100 characters or fewer.")
+
+        if contestant is None and created_by is not None:
+            contestant = create_tournament_contestant(
+                user=created_by, name=name
+            )
+            if contestant.id in seen_contestants:
+                raise ValueError("Each team can only be used once.")
+            seen_contestants.add(contestant.id)
+
         seed_raw = row.get("seed")
         seed: int | None
         if seed_raw is None or str(seed_raw).strip() == "":
@@ -140,18 +237,18 @@ def apply_tournament_teams(bracket: Bracket, teams: list[dict[str, Any]]) -> lis
                 raise ValueError("Seed must be a number.") from e
             if seed < 1:
                 raise ValueError("Seed must be at least 1.")
-        parsed.append((name, seed))
+        parsed.append((contestant, name, seed))
 
     bracket.bracket_contestants.all().delete()
-    for idx, (name, seed) in enumerate(parsed):
+    for idx, (contestant, name, seed) in enumerate(parsed):
         BracketContestant.objects.create(
             bracket=bracket,
-            name_override=name,
+            contestant=contestant,
+            name_override="" if contestant is not None else name,
             seed=seed if seed is not None else idx + 1,
         )
 
     Matchup.objects.filter(user_bracket=master).delete()
-    # Clear stale group standings when rebuilding roster.
     if master.metadata:
         meta = dict(master.metadata)
         meta.pop("group_positions", None)
@@ -163,12 +260,28 @@ def apply_tournament_teams(bracket: Bracket, teams: list[dict[str, Any]]) -> lis
     return tournament_teams_public(bracket)
 
 
+def link_name_only_tournament_teams(bracket: Bracket, user) -> bool:
+    """Upgrade legacy name_override-only roster rows to Contestant FKs."""
+    changed = False
+    for bc in bracket.bracket_contestants.filter(contestant__isnull=True):
+        name = (bc.name_override or "").strip()
+        if not name:
+            continue
+        contestant = create_tournament_contestant(user=user, name=name)
+        bc.contestant = contestant
+        bc.name_override = ""
+        bc.save(update_fields=["contestant", "name_override"])
+        changed = True
+    return changed
+
+
 @transaction.atomic
 def draw_and_apply_tournament_teams(
     bracket: Bracket,
     *,
     mode: str,
     teams: list[dict[str, Any]],
+    created_by=None,
 ) -> list[dict[str, Any]]:
     from brackets.utils.tournament_placement import compute_draw_seeds
 
@@ -180,4 +293,4 @@ def draw_and_apply_tournament_teams(
         number_of_groups=meta["number_of_groups"],
         teams_per_group=meta["teams_per_group"],
     )
-    return apply_tournament_teams(bracket, seeded)
+    return apply_tournament_teams(bracket, seeded, created_by=created_by)

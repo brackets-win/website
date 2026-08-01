@@ -186,7 +186,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     'standard',
   );
   const [tGroupEntry, setTGroupEntry] = useState<'standings' | 'fixtures'>(
-    'fixtures',
+    'standings',
   );
   const [tKoEntry, setTKoEntry] = useState<'winner' | 'score'>('winner');
   const [tKoLegs, setTKoLegs] = useState(1);
@@ -273,7 +273,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTStructure('SINGLE_ELIM');
     setTThird(false);
     setTFillMethod('standard');
-    setTGroupEntry('fixtures');
+    setTGroupEntry('standings');
     setTKoEntry('winner');
     setTKoLegs(1);
     setTMatchesPer(3);
@@ -1013,7 +1013,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                           }
                           disabled={busy}
                         >
-                          <option value="standings">Places</option>
+                          <option value="standings">Standings</option>
                           <option value="fixtures">Fixtures</option>
                         </select>
                       </div>

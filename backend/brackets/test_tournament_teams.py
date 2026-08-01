@@ -60,8 +60,16 @@ class TournamentTeamsApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 200)
-        names = [t["name"] for t in res.json()["teams"]]
+        payload = res.json()["teams"]
+        names = [t["name"] for t in payload]
         self.assertEqual(names, ["Alpha", "Bravo", "Charlie", "Delta"])
+        self.assertTrue(all(t.get("contestant_id") for t in payload))
+        self.assertEqual(
+            BracketContestant.objects.filter(
+                bracket_id=ch["bracket_id"], contestant__isnull=False
+            ).count(),
+            4,
+        )
         first_round = Matchup.objects.filter(
             user_bracket_id=master_id,
             stage__order=1,
@@ -122,3 +130,51 @@ class TournamentTeamsApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_team_catalog_create_and_assign(self):
+        ch = self._create_tournament(4)
+        create = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/team-catalog",
+            data=json.dumps({"name": "Lions"}),
+            content_type="application/json",
+        )
+        self.assertEqual(create.status_code, 201)
+        cid = create.json()["contestant"]["id"]
+        catalog = self.client.get(
+            f"/brackets/api/challenges/{ch['id']}/team-catalog"
+        )
+        self.assertEqual(catalog.status_code, 200)
+        self.assertTrue(
+            any(c["id"] == cid for c in catalog.json()["contestants"])
+        )
+
+        others = []
+        for name in ("Tigers", "Bears", "Sharks"):
+            r = self.client.post(
+                f"/brackets/api/challenges/{ch['id']}/team-catalog",
+                data=json.dumps({"name": name}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 201)
+            others.append(r.json()["contestant"])
+
+        res = self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"contestant_id": cid, "name": "Lions"},
+                        {"contestant_id": others[0]["id"], "name": "Tigers"},
+                        {"contestant_id": others[1]["id"], "name": "Bears"},
+                        {"contestant_id": others[2]["id"], "name": "Sharks"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(
+            [t["contestant_id"] for t in res.json()["teams"]],
+            [cid, others[0]["id"], others[1]["id"], others[2]["id"]],
+        )
+

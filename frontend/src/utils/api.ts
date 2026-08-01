@@ -97,6 +97,8 @@ export type TournamentTeamRow = {
   id?: number;
   name: string;
   seed: number | null;
+  contestant_id?: number | null;
+  photo_url?: string | null;
 };
 
 export type StreakCompetitionSummary = {
@@ -895,7 +897,13 @@ export type TournamentTeamsMeta = {
 
 export async function saveChallengeTeams(
   challengeId: number,
-  body: { teams: Array<{ name: string; seed?: number }> },
+  body: {
+    teams: Array<{
+      name: string;
+      seed?: number;
+      contestant_id?: number;
+    }>;
+  },
 ): Promise<TournamentTeamsMeta> {
   return apiFetch('PUT', `challenges/${challengeId}/teams`, body);
 }
@@ -904,10 +912,30 @@ export async function drawChallengeTeams(
   challengeId: number,
   body: {
     mode: 'random' | 'random_balanced';
-    teams: Array<{ name: string; pot?: number }>;
+    teams: Array<{
+      name: string;
+      pot?: number;
+      contestant_id?: number;
+    }>;
   },
 ): Promise<TournamentTeamsMeta> {
   return apiFetch('POST', `challenges/${challengeId}/teams/draw`, body);
+}
+
+export async function getChallengeTeamCatalog(
+  challengeId: number,
+): Promise<{
+  contestants: ContestantCatalog[];
+  tags: ContestantTagInfo[];
+}> {
+  return apiFetch('GET', `challenges/${challengeId}/team-catalog`);
+}
+
+export async function createChallengeTeamContestant(
+  challengeId: number,
+  body: FormData | { name: string; image_url?: string; description?: string },
+): Promise<{ contestant: ContestantCatalog }> {
+  return apiFetch('POST', `challenges/${challengeId}/team-catalog`, body);
 }
 
 export async function getChallengeLeaderboard(challengeId: number): Promise<{

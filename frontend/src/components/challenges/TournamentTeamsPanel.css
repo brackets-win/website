@@ -216,6 +216,24 @@
   white-space: nowrap;
 }
 
+.ttp__avatar {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  border-radius: 0.3rem;
+  object-fit: cover;
+}
+
+.ttp__avatar--ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--app-accent, #0f766e);
+}
+
 .ttp__clear {
   flex: none;
   border: none;
@@ -265,6 +283,92 @@
   border-radius: 0.6rem;
   background: var(--app-surface, #fff);
   box-shadow: 0 16px 40px rgba(16, 24, 40, 0.22);
+}
+
+.ttp__draft--picker {
+  width: min(28rem, 100%);
+  max-height: min(36rem, 90vh);
+  overflow: hidden;
+}
+
+.ttp__draft--picker .seeder-picker__list {
+  min-height: 10rem;
+  max-height: 16rem;
+}
+
+.ttp__tag-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ttp__tag-filters-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--app-muted, #64748b);
+}
+
+.ttp__tag-filters-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ttp__tag-chip {
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.15));
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-muted, #64748b);
+  cursor: pointer;
+}
+
+.ttp__tag-chip--on {
+  border-color: var(--app-accent, #0f766e);
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--app-accent, #0f766e);
+}
+
+.ttp__draft-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.ttp__draft-tab {
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.15));
+  background: transparent;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--app-muted, #64748b);
+  cursor: pointer;
+}
+
+.ttp__draft-tab--on {
+  border-color: var(--app-accent, #0f766e);
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--app-accent, #0f766e);
+}
+
+.ttp__create {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ttp__create-preview {
+  margin-top: 0.5rem;
+  width: 4rem;
+  height: 4rem;
+  object-fit: cover;
+  border-radius: 0.4rem;
+  border: 1px solid var(--app-border, rgba(16, 24, 40, 0.12));
 }
 
 .ttp__draft label {

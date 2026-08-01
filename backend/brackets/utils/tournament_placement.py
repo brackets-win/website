@@ -34,9 +34,18 @@ def _parse_named_teams(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in teams:
         if not isinstance(row, dict):
             raise ValueError("Each team must be an object with a name.")
+        cid_raw = row.get("contestant_id")
+        contestant_id: int | None = None
+        if cid_raw is not None and str(cid_raw).strip() != "":
+            try:
+                contestant_id = int(cid_raw)
+            except (TypeError, ValueError) as e:
+                raise ValueError("contestant_id must be a number.") from e
         name = str(row.get("name") or "").strip()
-        if not name:
+        if not name and contestant_id is None:
             raise ValueError("Each team needs a name.")
+        if not name:
+            name = f"Contestant {contestant_id}"
         if len(name) > 100:
             raise ValueError("Team names must be 100 characters or fewer.")
         pot_raw = row.get("pot")
@@ -50,8 +59,18 @@ def _parse_named_teams(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 raise ValueError("Pot must be a number.") from e
             if pot < 1:
                 raise ValueError("Pot must be at least 1.")
-        parsed.append({"name": name, "pot": pot})
+        entry: dict[str, Any] = {"name": name, "pot": pot}
+        if contestant_id is not None:
+            entry["contestant_id"] = contestant_id
+        parsed.append(entry)
     return parsed
+
+
+def _with_seed(team: dict[str, Any], seed: int) -> dict[str, Any]:
+    out: dict[str, Any] = {"name": team["name"], "seed": seed}
+    if team.get("contestant_id") is not None:
+        out["contestant_id"] = team["contestant_id"]
+    return out
 
 
 def _snake_group_assignment(
@@ -88,7 +107,7 @@ def _snake_group_assignment(
         for slot in range(1, teams_per_group + 1):
             team = filled[(g, slot)]
             seed = g * teams_per_group + slot
-            out.append({"name": team["name"], "seed": seed})
+            out.append(_with_seed(team, seed))
     return out
 
 
@@ -112,15 +131,12 @@ def _round_robin_group_assignment(
             raise ValueError("Uneven group fill after random draw.")
         for slot, team in enumerate(by_slot[g], start=1):
             seed = g * teams_per_group + slot
-            out.append({"name": team["name"], "seed": seed})
+            out.append(_with_seed(team, seed))
     return out
 
 
 def _knockout_seeds_in_order(ordered: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {"name": team["name"], "seed": idx + 1}
-        for idx, team in enumerate(ordered)
-    ]
+    return [_with_seed(team, idx + 1) for idx, team in enumerate(ordered)]
 
 
 def _order_by_pots(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:

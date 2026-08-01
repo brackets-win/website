@@ -2,9 +2,13 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
+  createChallengeTeamContestant,
   drawChallengeTeams,
+  getChallengeTeamCatalog,
   getChallengeTeams,
   saveChallengeTeams,
+  type ContestantCatalog,
+  type ContestantTagInfo,
   type TournamentTeamRow,
 } from '../../utils/api';
 import {
@@ -12,10 +16,18 @@ import {
   singleElimByeCount,
   singleElimPlayInCount,
 } from '../../utils/singleElimByes';
+import { ContestantAvatar } from '../bracket/ContestantAvatar';
+import '../admin/BracketSeeder.css';
 
 import './TournamentTeamsPanel.css';
 
 type PlacementMode = 'manual' | 'random' | 'random_balanced';
+
+type TeamPick = {
+  contestant_id: number;
+  name: string;
+  photo_url?: string | null;
+};
 
 type Props = {
   challengeId: number;
@@ -23,8 +35,32 @@ type Props = {
   onSaved: () => void;
 };
 
-function emptyNames(count: number): string[] {
-  return Array.from({ length: count }, () => '');
+function emptySlots(count: number): (TeamPick | null)[] {
+  return Array.from({ length: count }, () => null);
+}
+
+function pickFromRow(row: TournamentTeamRow): TeamPick | null {
+  if (row.contestant_id == null) {
+    // Legacy name-only rows — treat as unfilled for picker UX.
+    return null;
+  }
+  return {
+    contestant_id: row.contestant_id,
+    name: row.name,
+    photo_url: row.photo_url,
+  };
+}
+
+function pickFromCatalog(c: ContestantCatalog): TeamPick {
+  return {
+    contestant_id: c.id,
+    name: c.name,
+    photo_url: c.photo_url ?? c.image_url ?? null,
+  };
+}
+
+function contestantImage(c: ContestantCatalog): string | null {
+  return c.photo_url ?? c.image_url ?? null;
 }
 
 function divisorsForPots(total: number): number[] {
@@ -63,16 +99,27 @@ export function TournamentTeamsPanel({
   const [teamsPerGroup, setTeamsPerGroup] = useState<number | null>(null);
   const [capacity, setCapacity] = useState(teamCount);
 
-  const [manualNames, setManualNames] = useState<string[]>(() =>
-    emptyNames(teamCount),
+  const [manualSlots, setManualSlots] = useState<(TeamPick | null)[]>(() =>
+    emptySlots(teamCount),
   );
-  const [poolNames, setPoolNames] = useState<string[]>(() =>
-    emptyNames(teamCount),
+  const [poolSlots, setPoolSlots] = useState<(TeamPick | null)[]>(() =>
+    emptySlots(teamCount),
   );
   const [potCount, setPotCount] = useState(2);
-  const [potNames, setPotNames] = useState<string[][]>(() => [[], []]);
-  const [draftName, setDraftName] = useState('');
+  const [potSlots, setPotSlots] = useState<TeamPick[][]>(() => [[], []]);
   const [draftTarget, setDraftTarget] = useState<string | null>(null);
+
+  const [catalog, setCatalog] = useState<ContestantCatalog[]>([]);
+  const [tags, setTags] = useState<ContestantTagInfo[]>([]);
+  const [query, setQuery] = useState('');
+  const [tagIds, setTagIds] = useState<number[]>([]);
+  const [pickerTab, setPickerTab] = useState<'pick' | 'create'>('pick');
+  const [createName, setCreateName] = useState('');
+  const [createPhoto, setCreatePhoto] = useState<File | null>(null);
+  const [createPhotoPreview, setCreatePhotoPreview] = useState<string | null>(
+    null,
+  );
+  const [createBusy, setCreateBusy] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState('');
@@ -94,6 +141,50 @@ export function TournamentTeamsPanel({
     return Array.from({ length: potCount }, () => potSize);
   }, [useByePots, byeCount, playInCount, potCount, potSize]);
 
+  const assignedIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const slot of manualSlots) {
+      if (slot) ids.add(slot.contestant_id);
+    }
+    for (const slot of poolSlots) {
+      if (slot) ids.add(slot.contestant_id);
+    }
+    for (const bucket of potSlots) {
+      for (const slot of bucket) ids.add(slot.contestant_id);
+    }
+    return ids;
+  }, [manualSlots, poolSlots, potSlots]);
+
+  const available = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return catalog.filter((c) => {
+      if (assignedIds.has(c.id)) return false;
+      if (q) {
+        if (
+          !c.name.toLowerCase().includes(q) &&
+          !c.identifier.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (tagIds.length > 0 && !c.tags.some((t) => tagIds.includes(t.id))) {
+        return false;
+      }
+      return true;
+    });
+  }, [catalog, assignedIds, query, tagIds]);
+
+  const filterTags = useMemo(() => {
+    const map = new Map<number, ContestantTagInfo>();
+    for (const t of tags) map.set(t.id, t);
+    for (const c of catalog) {
+      for (const t of c.tags) map.set(t.id, t);
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [tags, catalog]);
+
   const applyMeta = useCallback(
     (meta: {
       team_count: number;
@@ -108,14 +199,14 @@ export function TournamentTeamsPanel({
       setNumberOfGroups(meta.number_of_groups);
       setTeamsPerGroup(meta.teams_per_group);
 
-      const bySeed = emptyNames(n);
+      const bySeed = emptySlots(n);
       meta.teams.forEach((row) => {
         if (row.seed != null && row.seed >= 1 && row.seed <= n) {
-          bySeed[row.seed - 1] = row.name;
+          bySeed[row.seed - 1] = pickFromRow(row);
         }
       });
-      setManualNames(bySeed);
-      setPoolNames(bySeed.map((name) => name));
+      setManualSlots(bySeed);
+      setPoolSlots(bySeed.map((slot) => (slot ? { ...slot } : null)));
 
       const seByes =
         meta.structure === 'SINGLE_ELIM' && !isPowerOf2(n)
@@ -123,11 +214,11 @@ export function TournamentTeamsPanel({
           : 0;
       if (seByes > 0) {
         setPotCount(2);
-        setPotNames([[], []]);
+        setPotSlots([[], []]);
       } else {
         const nextPotCount = defaultPotCount(n, meta.teams_per_group);
         setPotCount(nextPotCount);
-        setPotNames(Array.from({ length: nextPotCount }, () => []));
+        setPotSlots(Array.from({ length: nextPotCount }, () => []));
       }
     },
     [teamCount],
@@ -136,14 +227,19 @@ export function TournamentTeamsPanel({
   const load = useCallback(async () => {
     setLoadErr('');
     try {
-      const meta = await getChallengeTeams(challengeId);
+      const [meta, cat] = await Promise.all([
+        getChallengeTeams(challengeId),
+        getChallengeTeamCatalog(challengeId),
+      ]);
       applyMeta(meta);
+      setCatalog(cat.contestants);
+      setTags(cat.tags);
     } catch (e) {
       setLoadErr(
         e instanceof ApiError ? e.message : 'Unable to load teams.',
       );
-      setManualNames(emptyNames(teamCount));
-      setPoolNames(emptyNames(teamCount));
+      setManualSlots(emptySlots(teamCount));
+      setPoolSlots(emptySlots(teamCount));
     }
   }, [applyMeta, challengeId, teamCount]);
 
@@ -159,94 +255,187 @@ export function TournamentTeamsPanel({
     if (!potOptions.includes(potCount) && potOptions.length > 0) {
       const next = defaultPotCount(capacity, teamsPerGroup);
       setPotCount(next);
-      setPotNames(Array.from({ length: next }, () => []));
+      setPotSlots(Array.from({ length: next }, () => []));
     }
   }, [potOptions, potCount, capacity, teamsPerGroup, useByePots]);
 
   useEffect(() => {
-    setPotNames((prev) => {
-      const next = Array.from({ length: potCount }, (_, i) => {
+    setPotSlots((prev) => {
+      return Array.from({ length: potCount }, (_, i) => {
         const cap = potCapacities[i] ?? potSize;
         return (prev[i] ?? []).slice(0, cap);
       });
-      return next;
     });
   }, [potCount, potSize, potCapacities]);
 
+  useEffect(() => {
+    return () => {
+      if (createPhotoPreview) URL.revokeObjectURL(createPhotoPreview);
+    };
+  }, [createPhotoPreview]);
+
   function openDraft(target: string) {
     setDraftTarget(target);
-    setDraftName('');
+    setQuery('');
+    setTagIds([]);
+    setPickerTab('pick');
+    setCreateName('');
+    setCreatePhoto(null);
+    if (createPhotoPreview) URL.revokeObjectURL(createPhotoPreview);
+    setCreatePhotoPreview(null);
   }
 
   function closeDraft() {
     setDraftTarget(null);
-    setDraftName('');
+    setQuery('');
+    setTagIds([]);
+    setPickerTab('pick');
+    setCreateName('');
+    setCreatePhoto(null);
+    if (createPhotoPreview) URL.revokeObjectURL(createPhotoPreview);
+    setCreatePhotoPreview(null);
   }
 
-  function commitDraft() {
-    const name = draftName.trim();
-    if (!name || !draftTarget) return;
+  function commitPick(pick: TeamPick) {
+    if (!draftTarget) return;
 
     if (draftTarget.startsWith('manual:')) {
       const idx = parseInt(draftTarget.slice('manual:'.length), 10);
-      setManualNames((prev) =>
-        prev.map((n, i) => (i === idx ? name : n)),
+      setManualSlots((prev) =>
+        prev.map((slot, i) => (i === idx ? pick : slot)),
       );
     } else if (draftTarget.startsWith('pool:')) {
       const idx = parseInt(draftTarget.slice('pool:'.length), 10);
-      setPoolNames((prev) => prev.map((n, i) => (i === idx ? name : n)));
+      setPoolSlots((prev) =>
+        prev.map((slot, i) => (i === idx ? pick : slot)),
+      );
     } else if (draftTarget.startsWith('pot:')) {
       const potIdx = parseInt(draftTarget.slice('pot:'.length), 10);
       const cap = potCapacities[potIdx] ?? potSize;
-      setPotNames((prev) =>
+      setPotSlots((prev) =>
         prev.map((bucket, i) => {
           if (i !== potIdx) return bucket;
           if (bucket.length >= cap) return bucket;
-          return [...bucket, name];
+          return [...bucket, pick];
         }),
       );
     }
     closeDraft();
   }
 
+  async function handleCreateTeam() {
+    const name = createName.trim();
+    if (!name) return;
+    setCreateBusy(true);
+    setSaveErr('');
+    try {
+      const fd = new FormData();
+      fd.append('name', name);
+      if (createPhoto) fd.append('photo', createPhoto);
+      const { contestant } = await createChallengeTeamContestant(
+        challengeId,
+        fd,
+      );
+      setCatalog((prev) => {
+        if (prev.some((c) => c.id === contestant.id)) return prev;
+        return [...prev, contestant].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+      });
+      commitPick(pickFromCatalog(contestant));
+    } catch (err) {
+      setSaveErr(
+        err instanceof ApiError ? err.message : 'Could not create team.',
+      );
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
   function clearManual(idx: number) {
-    setManualNames((prev) => prev.map((n, i) => (i === idx ? '' : n)));
+    setManualSlots((prev) => prev.map((slot, i) => (i === idx ? null : slot)));
   }
 
   function reorderManual(fromIdx: number, toIdx: number) {
     if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
-    setManualNames((prev) => {
+    setManualSlots((prev) => {
       if (fromIdx >= prev.length || toIdx >= prev.length) return prev;
       const next = [...prev];
       const [item] = next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, item ?? '');
+      next.splice(toIdx, 0, item ?? null);
       return next;
     });
   }
 
   function clearPool(idx: number) {
-    setPoolNames((prev) => prev.map((n, i) => (i === idx ? '' : n)));
+    setPoolSlots((prev) => prev.map((slot, i) => (i === idx ? null : slot)));
   }
 
   function removeFromPot(potIdx: number, teamIdx: number) {
-    setPotNames((prev) =>
+    setPotSlots((prev) =>
       prev.map((bucket, i) =>
         i === potIdx ? bucket.filter((_, j) => j !== teamIdx) : bucket,
       ),
     );
   }
 
+  function renderFilled(
+    pick: TeamPick,
+    label: string | null,
+    onClear: () => void,
+    dragProps?: {
+      dragHandle?: boolean;
+      onDragStart?: (e: React.DragEvent) => void;
+    },
+  ) {
+    return (
+      <div className="ttp__filled">
+        {dragProps?.dragHandle ? (
+          <span
+            className="ttp__drag"
+            draggable={!busy}
+            aria-label="Drag to reorder seed"
+            title="Drag to reorder"
+            onDragStart={dragProps.onDragStart}
+          >
+            <span className="ttp__drag-bar" aria-hidden />
+            <span className="ttp__drag-bar" aria-hidden />
+            <span className="ttp__drag-bar" aria-hidden />
+          </span>
+        ) : null}
+        {label ? <span className="ttp__slot-label">{label}</span> : null}
+        <ContestantAvatar
+          displayName={pick.name}
+          imageUrl={pick.photo_url ?? null}
+          className="ttp__avatar"
+          placeholderClassName="ttp__avatar ttp__avatar--ph"
+        />
+        <span className="ttp__filled-name">{pick.name}</span>
+        <button
+          type="button"
+          className="ttp__clear"
+          onClick={onClear}
+          disabled={busy}
+          aria-label={`Remove ${pick.name}`}
+        >
+          ×
+        </button>
+      </div>
+    );
+  }
+
   async function handleSaveManual(e: React.FormEvent) {
     e.preventDefault();
     setSaveErr('');
-    const teams = manualNames.map((name, idx) => ({
-      name: name.trim(),
-      seed: idx + 1,
-    }));
-    if (teams.some((t) => !t.name)) {
-      setSaveErr('Add a name for every slot.');
+    if (manualSlots.some((slot) => !slot)) {
+      setSaveErr('Add a team for every slot.');
       return;
     }
+    const teams = manualSlots.map((slot, idx) => ({
+      name: slot!.name,
+      contestant_id: slot!.contestant_id,
+      seed: idx + 1,
+    }));
     setBusy(true);
     try {
       const meta = await saveChallengeTeams(challengeId, { teams });
@@ -261,18 +450,33 @@ export function TournamentTeamsPanel({
 
   async function handleDraw() {
     setSaveErr('');
-    let teams: Array<{ name: string; pot?: number }>;
+    let teams: Array<{
+      name: string;
+      pot?: number;
+      contestant_id: number;
+    }>;
     if (mode === 'random') {
-      teams = poolNames.map((name) => ({ name: name.trim() }));
-      if (teams.some((t) => !t.name)) {
-        setSaveErr('Add a name for every team before drawing.');
+      if (poolSlots.some((slot) => !slot)) {
+        setSaveErr('Add a team for every slot before drawing.');
         return;
       }
+      teams = poolSlots.map((slot) => ({
+        name: slot!.name,
+        contestant_id: slot!.contestant_id,
+      }));
     } else {
-      const flat: Array<{ name: string; pot: number }> = [];
-      potNames.forEach((bucket, potIdx) => {
-        bucket.forEach((name) => {
-          flat.push({ name: name.trim(), pot: potIdx + 1 });
+      const flat: Array<{
+        name: string;
+        pot: number;
+        contestant_id: number;
+      }> = [];
+      potSlots.forEach((bucket, potIdx) => {
+        bucket.forEach((slot) => {
+          flat.push({
+            name: slot.name,
+            contestant_id: slot.contestant_id,
+            pot: potIdx + 1,
+          });
         });
       });
       if (flat.length !== capacity) {
@@ -281,10 +485,6 @@ export function TournamentTeamsPanel({
             ? `Fill both pots (${byeCount} bye, ${playInCount} round 1) before drawing.`
             : `Fill every pot (${potSize} teams each) before drawing.`,
         );
-        return;
-      }
-      if (flat.some((t) => !t.name)) {
-        setSaveErr('Every pot team needs a name.');
         return;
       }
       teams = flat;
@@ -377,23 +577,12 @@ export function TournamentTeamsPanel({
                   <ul className="ttp__slots">
                     {g.seeds.map((seed) => {
                       const idx = seed - 1;
-                      const name = manualNames[idx] ?? '';
+                      const pick = manualSlots[idx] ?? null;
+                      const label = `${g.code}${((seed - 1) % (teamsPerGroup ?? 1)) + 1}`;
                       return (
                         <li key={seed}>
-                          {name ? (
-                            <div className="ttp__filled">
-                              <span className="ttp__slot-label">{`${g.code}${((seed - 1) % (teamsPerGroup ?? 1)) + 1}`}</span>
-                              <span className="ttp__filled-name">{name}</span>
-                              <button
-                                type="button"
-                                className="ttp__clear"
-                                onClick={() => clearManual(idx)}
-                                disabled={busy}
-                                aria-label={`Remove ${name}`}
-                              >
-                                ×
-                              </button>
-                            </div>
+                          {pick ? (
+                            renderFilled(pick, label, () => clearManual(idx))
                           ) : (
                             <button
                               type="button"
@@ -401,7 +590,7 @@ export function TournamentTeamsPanel({
                               onClick={() => openDraft(`manual:${idx}`)}
                               disabled={busy}
                             >
-                              <span className="ttp__slot-label">{`${g.code}${((seed - 1) % (teamsPerGroup ?? 1)) + 1}`}</span>
+                              <span className="ttp__slot-label">{label}</span>
                               <span className="ttp__plus" aria-hidden>
                                 +
                               </span>
@@ -417,7 +606,7 @@ export function TournamentTeamsPanel({
             </div>
           ) : (
             <ul className="ttp__slots ttp__slots--seeds">
-              {manualNames.map((name, idx) => (
+              {manualSlots.map((pick, idx) => (
                 <Fragment key={idx}>
                   {byeCount > 0 && idx === byeCount ? (
                     <li className="ttp__seed-divider" aria-hidden>
@@ -442,34 +631,19 @@ export function TournamentTeamsPanel({
                       reorderManual(fromIdx, idx);
                     }}
                   >
-                    {name ? (
-                      <div className="ttp__filled">
-                        <span
-                          className="ttp__drag"
-                          draggable={!busy}
-                          aria-label="Drag to reorder seed"
-                          title="Drag to reorder"
-                          onDragStart={(e) => {
+                    {pick ? (
+                      renderFilled(
+                        pick,
+                        String(idx + 1),
+                        () => clearManual(idx),
+                        {
+                          dragHandle: true,
+                          onDragStart: (e) => {
                             e.dataTransfer.setData('text/plain', String(idx));
                             e.dataTransfer.effectAllowed = 'move';
-                          }}
-                        >
-                          <span className="ttp__drag-bar" aria-hidden />
-                          <span className="ttp__drag-bar" aria-hidden />
-                          <span className="ttp__drag-bar" aria-hidden />
-                        </span>
-                        <span className="ttp__slot-label">{idx + 1}</span>
-                        <span className="ttp__filled-name">{name}</span>
-                        <button
-                          type="button"
-                          className="ttp__clear"
-                          onClick={() => clearManual(idx)}
-                          disabled={busy}
-                          aria-label={`Remove ${name}`}
-                        >
-                          ×
-                        </button>
-                      </div>
+                          },
+                        },
+                      )
                     ) : (
                       <button
                         type="button"
@@ -503,22 +677,10 @@ export function TournamentTeamsPanel({
       {mode === 'random' ? (
         <div className="ttp__draw-block">
           <ul className="ttp__slots ttp__slots--flat">
-            {poolNames.map((name, idx) => (
+            {poolSlots.map((pick, idx) => (
               <li key={idx}>
-                {name ? (
-                  <div className="ttp__filled">
-                    <span className="ttp__slot-label">{idx + 1}</span>
-                    <span className="ttp__filled-name">{name}</span>
-                    <button
-                      type="button"
-                      className="ttp__clear"
-                      onClick={() => clearPool(idx)}
-                      disabled={busy}
-                      aria-label={`Remove ${name}`}
-                    >
-                      ×
-                    </button>
-                  </div>
+                {pick ? (
+                  renderFilled(pick, String(idx + 1), () => clearPool(idx))
                 ) : (
                   <button
                     type="button"
@@ -554,7 +716,7 @@ export function TournamentTeamsPanel({
       {mode === 'random_balanced' ? (
         <div className="ttp__draw-block">
           <div className="ttp__pots">
-            {potNames.map((bucket, potIdx) => {
+            {potSlots.map((bucket, potIdx) => {
               const cap = potCapacities[potIdx] ?? potSize;
               const title = useByePots
                 ? potIdx === 0
@@ -562,49 +724,40 @@ export function TournamentTeamsPanel({
                   : 'Round 1'
                 : `Pot ${potIdx + 1}`;
               return (
-              <div key={potIdx} className="ttp__box">
-                <h3 className="ttp__box-title">
-                  {title}
-                  <span className="ttp__box-cap">
-                    {bucket.length}/{cap}
-                  </span>
-                </h3>
-                <ul className="ttp__slots">
-                  {bucket.map((name, teamIdx) => (
-                    <li key={`${name}-${teamIdx}`}>
-                      <div className="ttp__filled">
-                        <span className="ttp__filled-name">{name}</span>
+                <div key={potIdx} className="ttp__box">
+                  <h3 className="ttp__box-title">
+                    {title}
+                    <span className="ttp__box-cap">
+                      {bucket.length}/{cap}
+                    </span>
+                  </h3>
+                  <ul className="ttp__slots">
+                    {bucket.map((pick, teamIdx) => (
+                      <li key={`${pick.contestant_id}-${teamIdx}`}>
+                        {renderFilled(pick, null, () =>
+                          removeFromPot(potIdx, teamIdx),
+                        )}
+                      </li>
+                    ))}
+                    {Array.from({
+                      length: Math.max(0, cap - bucket.length),
+                    }).map((_, emptyIdx) => (
+                      <li key={`empty-${emptyIdx}`}>
                         <button
                           type="button"
-                          className="ttp__clear"
-                          onClick={() => removeFromPot(potIdx, teamIdx)}
+                          className="ttp__empty"
+                          onClick={() => openDraft(`pot:${potIdx}`)}
                           disabled={busy}
-                          aria-label={`Remove ${name}`}
                         >
-                          ×
+                          <span className="ttp__plus" aria-hidden>
+                            +
+                          </span>
+                          <span>Add Team</span>
                         </button>
-                      </div>
-                    </li>
-                  ))}
-                  {Array.from({
-                    length: Math.max(0, cap - bucket.length),
-                  }).map((_, emptyIdx) => (
-                    <li key={`empty-${emptyIdx}`}>
-                      <button
-                        type="button"
-                        className="ttp__empty"
-                        onClick={() => openDraft(`pot:${potIdx}`)}
-                        disabled={busy}
-                      >
-                        <span className="ttp__plus" aria-hidden>
-                          +
-                        </span>
-                        <span>Add Team</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               );
             })}
           </div>
@@ -632,29 +785,165 @@ export function TournamentTeamsPanel({
       ) : null}
 
       {draftTarget ? (
-        <div className="ttp__draft-backdrop" role="presentation">
+        <div
+          className="ttp__draft-backdrop"
+          role="presentation"
+          onClick={closeDraft}
+        >
           <div
-            className="ttp__draft"
+            className="ttp__draft ttp__draft--picker"
             role="dialog"
             aria-modal="true"
             aria-label="Add team"
+            onClick={(e) => e.stopPropagation()}
           >
-            <label htmlFor="ttp-draft-name">Team Name</label>
-            <input
-              id="ttp-draft-name"
-              className="input"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-              maxLength={100}
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  commitDraft();
+            <div className="ttp__draft-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pickerTab === 'pick'}
+                className={
+                  pickerTab === 'pick'
+                    ? 'ttp__draft-tab ttp__draft-tab--on'
+                    : 'ttp__draft-tab'
                 }
-                if (e.key === 'Escape') closeDraft();
-              }}
-            />
+                onClick={() => setPickerTab('pick')}
+              >
+                Pick
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pickerTab === 'create'}
+                className={
+                  pickerTab === 'create'
+                    ? 'ttp__draft-tab ttp__draft-tab--on'
+                    : 'ttp__draft-tab'
+                }
+                onClick={() => setPickerTab('create')}
+              >
+                Create
+              </button>
+            </div>
+
+            {pickerTab === 'pick' ? (
+              <>
+                <input
+                  type="search"
+                  className="input"
+                  placeholder="Search by name…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoFocus
+                />
+                {filterTags.length > 0 ? (
+                  <div className="ttp__tag-filters" role="group" aria-label="Tags">
+                    <span className="ttp__tag-filters-label">Tags</span>
+                    <div className="ttp__tag-filters-list">
+                      {filterTags.map((t) => {
+                        const on = tagIds.includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className={
+                              on
+                                ? 'ttp__tag-chip ttp__tag-chip--on'
+                                : 'ttp__tag-chip'
+                            }
+                            aria-pressed={on}
+                            onClick={() =>
+                              setTagIds((prev) =>
+                                prev.includes(t.id)
+                                  ? prev.filter((id) => id !== t.id)
+                                  : [...prev, t.id],
+                              )
+                            }
+                          >
+                            {t.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="seeder-picker__list">
+                  {available.length === 0 ? (
+                    <p className="field__hint">No matching teams.</p>
+                  ) : (
+                    available.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="seeder-picker__item"
+                        onClick={() => commitPick(pickFromCatalog(c))}
+                      >
+                        <ContestantAvatar
+                          displayName={c.name}
+                          imageUrl={contestantImage(c)}
+                          className="seeder-picker__avatar"
+                          placeholderClassName="seeder-picker__avatar seeder-picker__avatar--ph"
+                        />
+                        <span className="seeder-picker__name">{c.name}</span>
+                        {c.tags.length > 0 ? (
+                          <span className="seeder-picker__item-tags">
+                            {c.tags.map((t) => t.name).join(', ')}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="ttp__create">
+                <div className="field">
+                  <label htmlFor="ttp-create-name">Name</label>
+                  <input
+                    id="ttp-create-name"
+                    className="input"
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    maxLength={100}
+                    autoFocus
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="ttp-create-photo">Photo</label>
+                  <input
+                    id="ttp-create-photo"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      if (createPhotoPreview) {
+                        URL.revokeObjectURL(createPhotoPreview);
+                      }
+                      setCreatePhoto(file);
+                      setCreatePhotoPreview(
+                        file ? URL.createObjectURL(file) : null,
+                      );
+                    }}
+                  />
+                  {createPhotoPreview ? (
+                    <img
+                      className="ttp__create-preview"
+                      src={createPhotoPreview}
+                      alt=""
+                    />
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={createBusy || !createName.trim()}
+                  onClick={() => void handleCreateTeam()}
+                >
+                  {createBusy ? 'Creating…' : 'Create Team'}
+                </button>
+              </div>
+            )}
+
             <div className="ttp__draft-actions">
               <button
                 type="button"
@@ -662,14 +951,6 @@ export function TournamentTeamsPanel({
                 onClick={closeDraft}
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={commitDraft}
-                disabled={!draftName.trim()}
-              >
-                Add Team
               </button>
             </div>
           </div>
