@@ -363,11 +363,7 @@ export function ChallengeView({
   function handleTournamentStarted() {
     void reload();
     setBracketRevision((n) => n + 1);
-    const nextTab =
-      bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true
-        ? 'groups'
-        : 'bracket';
-    goToTab(nextTab);
+    goToTab('bracket');
   }
 
   useEffect(() => {
@@ -415,13 +411,12 @@ export function ChallengeView({
   useEffect(() => {
     if (!challenge) return;
     if (challenge.tournament_started === true && tab === 'teams') {
-      const nextTab =
-        bracketDef?.stages.some((stage) => stage.stage_type === 'GROUP') === true
-          ? 'groups'
-          : 'bracket';
-      navigate(challengePath(challengeId, nextTab), { replace: true });
+      navigate(challengePath(challengeId, 'bracket'), { replace: true });
     }
-  }, [challenge, tab, navigate, challengeId, bracketDef]);
+    if (tab === 'groups') {
+      navigate(challengePath(challengeId, 'bracket'), { replace: true });
+    }
+  }, [challenge, tab, navigate, challengeId]);
 
   async function handleAddEntry(e: React.FormEvent) {
     e.preventDefault();
@@ -760,19 +755,6 @@ export function ChallengeView({
             Teams
           </button>
         ) : null}
-        {hasGroupStage && primaryBracketId != null ? (
-          <button
-            type="button"
-            className={
-              tab === 'groups'
-                ? 'challenge-view__tab challenge-view__tab--active'
-                : 'challenge-view__tab'
-            }
-            onClick={() => goToTab('groups')}
-          >
-            Groups
-          </button>
-        ) : null}
         {primaryBracketId != null ? (
           <button
             type="button"
@@ -945,25 +927,6 @@ export function ChallengeView({
         </section>
       ) : null}
 
-      {!viewingPlayer &&
-      tab === 'groups' &&
-      primaryBracketId != null &&
-      hasGroupStage ? (
-        <BracketFill
-          key={`${primaryBracketId}-${bracketRevision}-groups`}
-          userBracketId={primaryBracketId}
-          initialBracketDef={bracketDef}
-          readOnly={isTournament ? !canEditResults : false}
-          allowMasterEdit={canEditResults}
-          allowMasterView={isTournament}
-          deferLeaderboardScoring={false}
-          showScoringHighlights={showOwnScoring}
-          showSubmit={false}
-          lockedPhase="groups"
-          onSubmitted={handleSubmitted}
-        />
-      ) : null}
-
       {!viewingPlayer && tab === 'bracket' && primaryBracketId != null ? (
         <BracketFill
           key={`${primaryBracketId}-${bracketRevision}`}
@@ -975,7 +938,6 @@ export function ChallengeView({
           deferLeaderboardScoring={false}
           showScoringHighlights={showOwnScoring}
           showSubmit={isBracketChallenge && !isTournament}
-          lockedPhase={hasGroupStage ? 'knockout' : undefined}
           onSubmitted={handleSubmitted}
         />
       ) : null}
