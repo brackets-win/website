@@ -2344,20 +2344,29 @@ function MatchupScoreRow({
   onClear?: () => void;
 }) {
   if (!contestant) {
+    const singleLeg = legs.length === 1;
     return (
       <div className="bf-slot bf-slot--empty bf-score-row">
         <span className="bf-score-row__name">{emptyLabel}</span>
         <div className="bf-score-row__cols" aria-hidden>
-          {legs.map((_, i) => (
-            <span key={i} className="bf-score-leg">
-              —
-            </span>
-          ))}
-          <span className="bf-score-total">—</span>
+          {singleLeg ? (
+            <span className="bf-score-total">—</span>
+          ) : (
+            <>
+              {legs.map((_, i) => (
+                <span key={i} className="bf-score-leg">
+                  —
+                </span>
+              ))}
+              <span className="bf-score-total">—</span>
+            </>
+          )}
         </div>
       </div>
     );
   }
+
+  const singleLeg = legs.length === 1;
 
   return (
     <div
@@ -2406,16 +2415,15 @@ function MatchupScoreRow({
         ) : null}
       </div>
       <div className="bf-score-row__cols">
-        {legs.map((pair, legIdx) => (
+        {singleLeg ? (
           <input
-            key={legIdx}
-            className="bf-score-leg"
+            className="bf-score-total bf-score-total--input"
             inputMode="numeric"
             maxLength={2}
-            value={pair[side] ?? ''}
+            value={legs[0]?.[side] ?? ''}
             disabled={busy || readOnly}
-            aria-label={`Leg ${legIdx + 1} score for ${contestant.display_name}`}
-            onChange={(e) => onChange(legIdx, side, e.target.value)}
+            aria-label={`Score for ${contestant.display_name}`}
+            onChange={(e) => onChange(0, side, e.target.value)}
             onBlur={onBlurCommit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -2424,10 +2432,32 @@ function MatchupScoreRow({
               }
             }}
           />
-        ))}
-        <span className="bf-score-total" aria-label="Total">
-          {total == null ? '—' : total}
-        </span>
+        ) : (
+          <>
+            {legs.map((pair, legIdx) => (
+              <input
+                key={legIdx}
+                className="bf-score-leg"
+                inputMode="numeric"
+                maxLength={2}
+                value={pair[side] ?? ''}
+                disabled={busy || readOnly}
+                aria-label={`Leg ${legIdx + 1} score for ${contestant.display_name}`}
+                onChange={(e) => onChange(legIdx, side, e.target.value)}
+                onBlur={onBlurCommit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+              />
+            ))}
+            <span className="bf-score-total" aria-label="Total">
+              {total == null ? '—' : total}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );
