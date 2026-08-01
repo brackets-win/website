@@ -6,6 +6,7 @@ import './admin-shared.css';
 const KNOCKOUT_FILL_OPTIONS = [
   { value: 'standard', label: 'Standard' },
   { value: 'seeding', label: 'Seeding' },
+  { value: 'randomize', label: 'Randomize' },
   { value: 'mapping', label: 'Mapping' },
 ] as const;
 

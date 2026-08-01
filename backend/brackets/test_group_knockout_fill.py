@@ -9,8 +9,10 @@ from brackets.data.fwc26.r32_tree_slots import (
 from brackets.utils.bracket_seeding import first_round_seed_pairs
 from brackets.utils.group_knockout_fill import (
     MAPPING,
+    RANDOMIZE,
     SEEDING,
     STANDARD,
+    build_randomize_mapping,
     get_knockout_fill_method,
     load_knockout_mapping,
 )
@@ -96,6 +98,18 @@ class KnockoutFillMethodTests(TestCase):
             STANDARD,
         )
 
+    def test_explicit_randomize_beats_stored_mapping(self):
+        """Frozen randomize draw keeps fill method randomize, not mapping."""
+        stage = _Stage(
+            metadata={
+                "knockout_fill_method": RANDOMIZE,
+                "group_knockout_mapping": {
+                    "1": {"team_a": "A1", "team_b": "C2"},
+                },
+            }
+        )
+        self.assertEqual(get_knockout_fill_method(stage), RANDOMIZE)
+
 
 class KnockoutMappingLoadTests(TestCase):
     def test_standard_four_groups(self):
@@ -129,6 +143,41 @@ class KnockoutMappingLoadTests(TestCase):
         pairs = first_round_seed_pairs(16)
         self.assertEqual(len(mapping), len(pairs))
         self.assertEqual(mapping[0][1], "A1")
+
+    def test_randomize_without_draw_returns_empty(self):
+        stage = _Stage(metadata={"knockout_fill_method": RANDOMIZE})
+        bracket = _Bracket()
+        self.assertEqual(
+            load_knockout_mapping(bracket, stage, num_groups=4),
+            [],
+        )
+
+    def test_randomize_uses_persisted_draw(self):
+        stage = _Stage(
+            metadata={
+                "knockout_fill_method": RANDOMIZE,
+                "group_knockout_mapping": {
+                    "1": {"team_a": "D1", "team_b": "A2"},
+                    "2": {"team_a": "B1", "team_b": "C2"},
+                },
+            }
+        )
+        bracket = _Bracket()
+        self.assertEqual(
+            load_knockout_mapping(bracket, stage),
+            [(1, "D1", "A2"), (2, "B1", "C2")],
+        )
+
+    def test_build_randomize_mapping_covers_all_qualifiers(self):
+        import random
+
+        mapping = build_randomize_mapping(4, rng=random.Random(0))
+        codes = {c for _, a, b in mapping for c in (a, b)}
+        self.assertEqual(
+            codes,
+            {"A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2"},
+        )
+        self.assertEqual(len(mapping), 4)
 
     def test_mapping_from_metadata(self):
         stage = _Stage(

@@ -182,12 +182,12 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     'SINGLE_ELIM',
   );
   const [tThird, setTThird] = useState(false);
-  const [tFillMethod, setTFillMethod] = useState<'standard' | 'seeding'>(
+  const [tFillMethod, setTFillMethod] = useState<'standard' | 'randomize'>(
     'standard',
   );
-  const [tGroupEntry, setTGroupEntry] = useState<
-    'standings' | 'table' | 'fixtures'
-  >('table');
+  const [tGroupEntry, setTGroupEntry] = useState<'standings' | 'fixtures'>(
+    'fixtures',
+  );
   const [tKoEntry, setTKoEntry] = useState<'winner' | 'score'>('winner');
   const [tKoLegs, setTKoLegs] = useState(1);
   const [tMatchesPer, setTMatchesPer] = useState(3);
@@ -273,7 +273,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setTStructure('SINGLE_ELIM');
     setTThird(false);
     setTFillMethod('standard');
-    setTGroupEntry('standings');
+    setTGroupEntry('fixtures');
     setTKoEntry('winner');
     setTKoLegs(1);
     setTMatchesPer(3);
@@ -991,13 +991,13 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                           value={tFillMethod}
                           onChange={(e) =>
                             setTFillMethod(
-                              e.target.value as 'standard' | 'seeding',
+                              e.target.value as 'standard' | 'randomize',
                             )
                           }
                           disabled={busy}
                         >
                           <option value="standard">Standard</option>
-                          <option value="seeding">Seeding</option>
+                          <option value="randomize">Randomize</option>
                         </select>
                       </div>
                       <div className="field">
@@ -1008,20 +1008,16 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                           value={tGroupEntry}
                           onChange={(e) =>
                             setTGroupEntry(
-                              e.target.value as
-                                | 'standings'
-                                | 'table'
-                                | 'fixtures',
+                              e.target.value as 'standings' | 'fixtures',
                             )
                           }
                           disabled={busy}
                         >
-                          <option value="standings">Standings</option>
-                          <option value="table">Table</option>
+                          <option value="standings">Places</option>
+                          <option value="fixtures">Fixtures</option>
                         </select>
                       </div>
-                      {tGroupEntry === 'table' ||
-                      tGroupEntry === 'fixtures' ? (
+                      {tGroupEntry === 'fixtures' ? (
                         <div className="field">
                           <label htmlFor="t-matches-per">
                             Matches Per Team
