@@ -915,6 +915,7 @@ export function ChallengeView({
           readOnly={isTournament ? !canEditResults : false}
           allowMasterEdit={canEditResults}
           allowMasterView={isTournament}
+          deferLeaderboardScoring={false}
           showScoringHighlights={showOwnScoring}
           showSubmit={false}
           lockedPhase="groups"
@@ -930,6 +931,7 @@ export function ChallengeView({
           readOnly={isTournament ? !canEditResults : false}
           allowMasterEdit={canEditResults}
           allowMasterView={isTournament}
+          deferLeaderboardScoring={false}
           showScoringHighlights={showOwnScoring}
           showSubmit={isBracketChallenge && !isTournament}
           lockedPhase={hasGroupStage ? 'knockout' : undefined}

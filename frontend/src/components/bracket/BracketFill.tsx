@@ -244,7 +244,7 @@ function MatchupContestantFace({
   showSeed: boolean;
 }) {
   return (
-    <>
+    <span className="bf-ko-face">
       <ContestantAvatar
         displayName={contestant.display_name}
         imageUrl={contestant.image_url}
@@ -255,7 +255,7 @@ function MatchupContestantFace({
       {showSeed && contestant.seed != null ? (
         <span className="bf-ko-seed">#{contestant.seed}</span>
       ) : null}
-    </>
+    </span>
   );
 }
 
@@ -386,6 +386,12 @@ type Props = {
   showNextMatchControl?: boolean;
   /** Admin master fill only: Set Odds modal for weighted outcomes. */
   showOutcomeWeightsControl?: boolean;
+  /**
+   * When editing master results for prediction challenges, defer leaderboard
+   * recompute until Apply. Tournaments have no challenge leaderboard — pass false.
+   * Defaults to true whenever ``allowMasterEdit`` is set.
+   */
+  deferLeaderboardScoring?: boolean;
   showSubmit?: boolean;
   showScoringHighlights?: boolean;
   /** Load via staff admin endpoint (bypasses peer-privacy on public GET). */
@@ -404,6 +410,7 @@ export function BracketFill({
   showGroupResultsModeControl = false,
   showNextMatchControl = false,
   showOutcomeWeightsControl = false,
+  deferLeaderboardScoring: deferLeaderboardScoringProp,
   showSubmit = false,
   showScoringHighlights = false,
   adminAccess = false,
@@ -685,7 +692,8 @@ export function BracketFill({
       !(allowMasterEdit && detail.is_master));
 
   const deferLeaderboardScoring =
-    allowMasterEdit && detail?.is_master === true;
+    (deferLeaderboardScoringProp ?? allowMasterEdit) &&
+    detail?.is_master === true;
 
   // Never lock the whole board on a pick save — chips stay clickable.
   const uiBusy = locked;
@@ -709,6 +717,26 @@ export function BracketFill({
       knockout: knockout === 'score' ? 'score' : 'winner',
     };
   }, [bracketDef?.metadata]);
+
+  const maxKnockoutLegs = useMemo(() => {
+    let max = 1;
+    for (const s of knockoutStagesMain) {
+      const n = s.knockout?.number_of_legs ?? 1;
+      if (n > max) max = n;
+    }
+    if (thirdPlaceStage) {
+      const n = thirdPlaceStage.knockout?.number_of_legs ?? 1;
+      if (n > max) max = n;
+    }
+    return Math.min(2, Math.max(1, max));
+  }, [knockoutStagesMain, thirdPlaceStage]);
+
+  const koColWidthPx =
+    resultsEntry.knockout === 'score'
+      ? maxKnockoutLegs >= 2
+        ? 340
+        : 280
+      : 210;
 
   const hasTournamentResultsEntry = useMemo(() => {
     const meta = bracketDef?.metadata;
@@ -1034,10 +1062,20 @@ export function BracketFill({
       }}
     >
     <section
-      className={mirrorLayout ? 'bf bf--split-knockout' : 'bf'}
+      className={[
+        'bf',
+        mirrorLayout ? 'bf--split-knockout' : '',
+        resultsEntry.knockout === 'score' ? 'bf--score-entry' : '',
+        resultsEntry.knockout === 'score' && maxKnockoutLegs >= 2
+          ? 'bf--two-legs'
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={
         {
           '--bf-board-h': `${boardHeightPx}px`,
+          '--bf-ko-col-width': `${koColWidthPx}px`,
         } as CSSProperties
       }
     >
