@@ -673,6 +673,19 @@ export function ChallengeView({
             Teams
           </button>
         ) : null}
+        {hasGroupStage && primaryBracketId != null ? (
+          <button
+            type="button"
+            className={
+              tab === 'groups'
+                ? 'challenge-view__tab challenge-view__tab--active'
+                : 'challenge-view__tab'
+            }
+            onClick={() => goToTab('groups')}
+          >
+            Groups
+          </button>
+        ) : null}
         {primaryBracketId != null ? (
           <button
             type="button"
@@ -844,6 +857,24 @@ export function ChallengeView({
         </section>
       ) : null}
 
+      {!viewingPlayer &&
+      tab === 'groups' &&
+      primaryBracketId != null &&
+      hasGroupStage ? (
+        <BracketFill
+          key={`${primaryBracketId}-${bracketRevision}-groups`}
+          userBracketId={primaryBracketId}
+          initialBracketDef={bracketDef}
+          readOnly={isTournament ? !canEditResults : false}
+          allowMasterEdit={canEditResults}
+          allowMasterView={isTournament}
+          showScoringHighlights={showOwnScoring}
+          showSubmit={false}
+          lockedPhase="groups"
+          onSubmitted={handleSubmitted}
+        />
+      ) : null}
+
       {!viewingPlayer && tab === 'bracket' && primaryBracketId != null ? (
         <BracketFill
           key={`${primaryBracketId}-${bracketRevision}`}
@@ -854,6 +885,7 @@ export function ChallengeView({
           allowMasterView={isTournament}
           showScoringHighlights={showOwnScoring}
           showSubmit={isBracketChallenge && !isTournament}
+          lockedPhase={hasGroupStage ? 'knockout' : undefined}
           onSubmitted={handleSubmitted}
         />
       ) : null}

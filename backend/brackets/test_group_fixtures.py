@@ -16,6 +16,43 @@ class GroupFixturesTests(SimpleTestCase):
         )
         self.assertEqual(len(fixtures), 6)
 
+    def test_four_team_match_order(self):
+        fixtures = generate_round_robin(
+            [10, 20, 30, 40],
+            matches_per_contestant=3,
+            group_code="A",
+        )
+        self.assertEqual(
+            [(f["home_id"], f["away_id"]) for f in fixtures],
+            [
+                (10, 30),  # 1v3
+                (20, 40),  # 2v4
+                (10, 20),  # 1v2
+                (30, 40),  # 3v4
+                (40, 10),  # 4v1
+                (30, 20),  # 3v2
+            ],
+        )
+
+    def test_home_and_away_reverses_same_order(self):
+        fixtures = generate_round_robin(
+            [10, 20, 30, 40],
+            matches_per_contestant=6,
+            group_code="B",
+        )
+        self.assertEqual(len(fixtures), 12)
+        self.assertEqual(
+            [(f["home_id"], f["away_id"]) for f in fixtures[6:]],
+            [
+                (30, 10),  # 3v1
+                (40, 20),  # 4v2
+                (20, 10),  # 2v1
+                (40, 30),  # 4v3
+                (10, 40),  # 1v4
+                (20, 30),  # 2v3
+            ],
+        )
+
     def test_home_and_away_count(self):
         fixtures = generate_round_robin(
             [1, 2, 3, 4],

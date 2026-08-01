@@ -384,6 +384,8 @@ type Props = {
   showScoringHighlights?: boolean;
   /** Load via staff admin endpoint (bypasses peer-privacy on public GET). */
   adminAccess?: boolean;
+  /** Pin to one section and hide the in-fill Groups/Knockout tabs. */
+  lockedPhase?: 'groups' | 'knockout';
   onSubmitted?: () => void;
 };
 
@@ -399,6 +401,7 @@ export function BracketFill({
   showSubmit = false,
   showScoringHighlights = false,
   adminAccess = false,
+  lockedPhase,
   onSubmitted,
 }: Props) {
   const [detail, setDetail] = useState<UserBracketDetail | null>(null);
@@ -614,11 +617,15 @@ export function BracketFill({
   ]);
 
   useEffect(() => {
+    if (lockedPhase) {
+      setPhase(lockedPhase);
+      return;
+    }
     if (!hasGroupUi) return;
     if (phaseInitForUb.current === userBracketId) return;
     phaseInitForUb.current = userBracketId;
     setPhase('groups');
-  }, [hasGroupUi, userBracketId]);
+  }, [hasGroupUi, userBracketId, lockedPhase]);
 
   const stages = useMemo(() => {
     if (!bracketDef) return [];
@@ -1055,7 +1062,7 @@ export function BracketFill({
           !detail.is_master &&
           (detail.submitted_at != null || !detail.can_edit);
         const showToolbar =
-          (hasGroupUi && firstGroupStage) ||
+          (hasGroupUi && firstGroupStage && !lockedPhase) ||
           (showSubmit && !locked) ||
           showPointsBadge ||
           showGroupResultsMode ||
@@ -1066,7 +1073,7 @@ export function BracketFill({
         return (
           <div className="bf-toolbar-stack">
             <div className="bf-toolbar">
-              {hasGroupUi && firstGroupStage ? (
+              {hasGroupUi && firstGroupStage && !lockedPhase ? (
                 <div
                   className="bf-tabs"
                   role="tablist"
@@ -1177,7 +1184,40 @@ export function BracketFill({
         );
       })()}
 
-      {hasGroupUi && firstGroupStage ? (
+      {lockedPhase === 'groups' && hasGroupUi && firstGroupStage ? (
+        <GroupStagePanel
+          userBracketId={userBracketId}
+          groups={groupsPreview}
+          groupStage={firstGroupStage}
+          isWorldCup={isWorldCup}
+          firstKnockoutContestants={
+            knockoutStagesMain[0]?.number_of_contestants
+          }
+          initialMetadata={{
+            group_positions: meta.group_positions ?? {},
+            third_place_advancers: meta.third_place_advancers ?? [],
+            group_fixtures: meta.group_fixtures,
+            group_stage_completed: meta.group_stage_completed === true,
+          }}
+          scoringHighlights={
+            showScoringHighlights ? detail.scoring_highlights : undefined
+          }
+          busy={uiBusy}
+          readOnly={locked}
+          entryMode={resultsEntry.group}
+          showCompleteGroupStage={
+            hasTournamentResultsEntry &&
+            detail?.is_master === true &&
+            resultsEntry.group === 'standings'
+          }
+          onSaved={handleGroupSaved}
+          onError={(msg) => setError(msg || null)}
+          saveDebounceMs={deferLeaderboardScoring ? 600 : 200}
+          lightweightSave
+        />
+      ) : lockedPhase === 'knockout' || !hasGroupUi || !firstGroupStage ? (
+        knockoutBoard
+      ) : (
         <div className="bf-phase-viewport" data-phase={phase} aria-live="polite">
           <div className="bf-phase-track" data-active={phase}>
             <div
@@ -1223,8 +1263,6 @@ export function BracketFill({
             </div>
           </div>
         </div>
-      ) : (
-        knockoutBoard
       )}
 
       {outcomeWeightsOpen && bracketDef && detail ? (

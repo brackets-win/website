@@ -19,8 +19,13 @@ def generate_round_robin(
     """
     Build fixtures for one group.
 
+    Team order is placement order (Teams tab / seeds), not live standings.
+
     - ``matches_per_contestant == n - 1`` → single round-robin
     - ``matches_per_contestant == 2 * (n - 1)`` → home and away
+
+    Groups of 4 use matchdays: 1v3, 2v4, 1v2, 3v4, 4v1, 3v2; the second
+    half (home & away) reverses each pairing in the same order.
     """
     n = len(team_ids)
     if n < 2:
@@ -33,33 +38,51 @@ def generate_round_robin(
             f"{double} (home & away) for a group of {n}."
         )
     double_rr = matches_per_contestant == double
+    pairs = _round_robin_pairs(n)
     fixtures: list[dict[str, Any]] = []
     idx = 0
-    for i in range(n):
-        for j in range(i + 1, n):
-            a, b = team_ids[i], team_ids[j]
+    for home_i, away_i in pairs:
+        fixtures.append(
+            {
+                "id": f"{group_code}-{idx}",
+                "home_id": team_ids[home_i],
+                "away_id": team_ids[away_i],
+                "home_score": None,
+                "away_score": None,
+            }
+        )
+        idx += 1
+    if double_rr:
+        for home_i, away_i in pairs:
             fixtures.append(
                 {
                     "id": f"{group_code}-{idx}",
-                    "home_id": a,
-                    "away_id": b,
+                    "home_id": team_ids[away_i],
+                    "away_id": team_ids[home_i],
                     "home_score": None,
                     "away_score": None,
                 }
             )
             idx += 1
-            if double_rr:
-                fixtures.append(
-                    {
-                        "id": f"{group_code}-{idx}",
-                        "home_id": b,
-                        "away_id": a,
-                        "home_score": None,
-                        "away_score": None,
-                    }
-                )
-                idx += 1
     return fixtures
+
+
+def _round_robin_pairs(n: int) -> list[tuple[int, int]]:
+    """
+    Return first-leg (home_index, away_index) pairs in display order.
+
+    Indices are 0-based into the placement-ordered team list.
+    """
+    if n == 4:
+        # 1v3, 2v4, 1v2, 3v4, 4v1, 3v2
+        return [(0, 2), (1, 3), (0, 1), (2, 3), (3, 0), (2, 1)]
+
+    # Generic single RR: each unordered pair once (stable order).
+    pairs: list[tuple[int, int]] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            pairs.append((i, j))
+    return pairs
 
 
 def ensure_group_fixtures(

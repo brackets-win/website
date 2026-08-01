@@ -31,6 +31,27 @@ type StandingRow = {
   pts: number;
 };
 
+function roundRobinPairs(n: number): Array<[number, number]> {
+  if (n === 4) {
+    // Placement order: 1v3, 2v4, 1v2, 3v4, 4v1, 3v2
+    return [
+      [0, 2],
+      [1, 3],
+      [0, 1],
+      [2, 3],
+      [3, 0],
+      [2, 1],
+    ];
+  }
+  const pairs: Array<[number, number]> = [];
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      pairs.push([i, j]);
+    }
+  }
+  return pairs;
+}
+
 function generateRoundRobin(
   teamIds: number[],
   matchesPerContestant: number,
@@ -39,32 +60,30 @@ function generateRoundRobin(
   const n = teamIds.length;
   if (n < 2) return [];
   const double = 2 * (n - 1);
-  // Values below home&away count use single RR; >= double uses home and away.
   const useDouble = matchesPerContestant >= double;
+  const pairs = roundRobinPairs(n);
   const out: GroupFixture[] = [];
   let idx = 0;
-  for (let i = 0; i < n; i += 1) {
-    for (let j = i + 1; j < n; j += 1) {
-      const a = teamIds[i]!;
-      const b = teamIds[j]!;
+  for (const [homeI, awayI] of pairs) {
+    out.push({
+      id: `${groupCode}-${idx}`,
+      home_id: teamIds[homeI]!,
+      away_id: teamIds[awayI]!,
+      home_score: null,
+      away_score: null,
+    });
+    idx += 1;
+  }
+  if (useDouble) {
+    for (const [homeI, awayI] of pairs) {
       out.push({
         id: `${groupCode}-${idx}`,
-        home_id: a,
-        away_id: b,
+        home_id: teamIds[awayI]!,
+        away_id: teamIds[homeI]!,
         home_score: null,
         away_score: null,
       });
       idx += 1;
-      if (useDouble) {
-        out.push({
-          id: `${groupCode}-${idx}`,
-          home_id: b,
-          away_id: a,
-          home_score: null,
-          away_score: null,
-        });
-        idx += 1;
-      }
     }
   }
   return out;

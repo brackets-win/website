@@ -1,5 +1,6 @@
 export const CHALLENGE_TABS = [
   'bracket',
+  'groups',
   'teams',
   'official',
   'leaderboard',

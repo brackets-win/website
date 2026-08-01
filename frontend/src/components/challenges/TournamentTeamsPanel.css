@@ -4,6 +4,12 @@
   gap: 1rem;
 }
 
+.ttp .challenge-view__teams-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 .ttp__mode {
   display: flex;
   flex-wrap: wrap;
@@ -40,7 +46,7 @@
 .ttp__groups,
 .ttp__pots {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: 0.75rem;
 }
 
@@ -211,9 +217,8 @@
   min-width: 0;
   font-size: 0.875rem;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .ttp__avatar {
@@ -255,12 +260,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.ttp__hint {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--app-muted, #64748b);
 }
 
 .ttp__draft-backdrop {

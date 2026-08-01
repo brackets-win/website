@@ -277,7 +277,6 @@ export function TournamentTeamsPanel({
   function openDraft(target: string) {
     setDraftTarget(target);
     setQuery('');
-    setTagIds([]);
     setPickerTab('pick');
     setCreateName('');
     setCreatePhoto(null);
@@ -288,7 +287,6 @@ export function TournamentTeamsPanel({
   function closeDraft() {
     setDraftTarget(null);
     setQuery('');
-    setTagIds([]);
     setPickerTab('pick');
     setCreateName('');
     setCreatePhoto(null);
@@ -775,13 +773,6 @@ export function TournamentTeamsPanel({
             {busy ? 'Drawing…' : 'Draw'}
           </button>
         </div>
-      ) : null}
-
-      {structure === 'GROUP_KNOCKOUT' ? (
-        <p className="ttp__hint">
-          After the draw, set group finish order on the Bracket tab. Knockout
-          slots fill from the group → knockout method chosen at create.
-        </p>
       ) : null}
 
       {draftTarget ? (
