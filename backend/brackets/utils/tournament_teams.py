@@ -178,14 +178,17 @@ def is_structural_bye_matchup(matchup) -> bool:
 
     These are auto-created when the roster is smaller than the bracket shell and
     must not count as recorded results (they block redraw / start otherwise).
+
+    One-sided slots without a winner (e.g. group→KO waiting on the other half)
+    are not byes.
     """
     c1 = matchup.contestant1_id
     c2 = matchup.contestant2_id
     w = matchup.winner_id
     if c1 is not None and c2 is None:
-        return w is None or w == c1
+        return w == c1
     if c2 is not None and c1 is None:
-        return w is None or w == c2
+        return w == c2
     return False
 
 

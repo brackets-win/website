@@ -370,7 +370,10 @@ export function isStructuralByeMatchup(m: MatchupInfo): boolean {
   if (m.source_a_matchup_id != null || m.source_b_matchup_id != null) {
     return false;
   }
-  return true;
+  const lone = m.contestant1 ?? m.contestant2;
+  // True single-elim bye: already auto-advanced. A one-sided slot waiting on a
+  // group/feeder team (no winner yet) must still show as a real matchup box.
+  return m.winner != null && lone != null && m.winner.id === lone.id;
 }
 
 /**
