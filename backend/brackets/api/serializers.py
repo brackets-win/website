@@ -30,6 +30,8 @@ from brackets.utils.challenge_types import (
 )
 from brackets.utils.contestant_images import resolve_contestant_image_url
 
+_UNSET: Any = object()
+
 
 def contestant_public(bc: BracketContestant) -> dict[str, Any]:
     name = bc.name_override or (
@@ -410,6 +412,7 @@ def challenge_summary(
     request=None,
     leaderboard_preview: dict[str, Any] | None = None,
     show_outcomes_tab: bool | None = None,
+    tournament_final: Any = _UNSET,
 ) -> dict[str, Any]:
     passed = deadline_passed(c) if c.instance_type == CHALLENGE else False
     ub = user_bracket
@@ -534,6 +537,15 @@ def challenge_summary(
                 else False
             )
         ),
+        "tournament_final": (
+            tournament_final
+            if tournament_final is not _UNSET
+            else (
+                _tournament_final_for_challenge(c)
+                if c.instance_type == TOURNAMENT
+                else None
+            )
+        ),
     }
 
 
@@ -583,6 +595,12 @@ def _show_outcomes_tab_for_challenge(c) -> bool:
     from brackets.utils.challenge_outcomes import show_outcomes_tab_for_challenge
 
     return show_outcomes_tab_for_challenge(c)
+
+
+def _tournament_final_for_challenge(c: BracketChallenge) -> dict[str, Any] | None:
+    from brackets.utils.tournament_final_summary import load_tournament_finals
+
+    return load_tournament_finals([c]).get(c.id)
 
 
 def streak_display(streak_signed: int) -> str:

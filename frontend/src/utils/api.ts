@@ -56,6 +56,24 @@ export type LeaderboardPreview = {
   gap_before_viewer?: boolean;
 };
 
+export type TournamentFinalContestant = {
+  id: number;
+  display_name: string;
+  image_url?: string | null;
+};
+
+export type TournamentFinalSummary = {
+  knockout_entry: 'winner' | 'score' | string;
+  contestant1: TournamentFinalContestant;
+  contestant2: TournamentFinalContestant;
+  winner_id: number;
+  scores?: {
+    legs?: Array<[number | null, number | null] | number[]>;
+    total1: number | null;
+    total2: number | null;
+  } | null;
+};
+
 export type ChallengeSummary = {
   id: number;
   name: string;
@@ -89,6 +107,7 @@ export type ChallengeSummary = {
   tournament_team_count?: number | null;
   teams_configured?: boolean | null;
   tournament_started?: boolean | null;
+  tournament_final?: TournamentFinalSummary | null;
   leaderboard_preview?: LeaderboardPreview;
   show_live_group_results_note?: boolean;
   show_outcomes_tab?: boolean;

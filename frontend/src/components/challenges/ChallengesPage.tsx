@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Trophy } from 'lucide-react';
+
 import {
   ApiError,
   createChallenge,
@@ -16,7 +18,9 @@ import {
   type LeaderboardPreviewEntry,
   type StreakChallengeSummary,
   type StreakCompetitionSummary,
+  type TournamentFinalSummary,
 } from '../../utils/api';
+import { ContestantAvatar } from '../bracket/ContestantAvatar';
 import {
   getHomeSnapshot,
   invalidateHome,
@@ -104,6 +108,77 @@ function ChallengeCardLeaderboard({ preview }: { preview: LeaderboardPreview }) 
         </li>
       ) : null}
     </ol>
+  );
+}
+
+function FinalTrophyMark() {
+  return (
+    <Trophy
+      className="challenge-card__final-trophy"
+      size={16}
+      strokeWidth={2}
+      aria-hidden
+    />
+  );
+}
+
+function TournamentCardFinal({ final }: { final: TournamentFinalSummary }) {
+  const champion =
+    final.winner_id === final.contestant1.id
+      ? final.contestant1
+      : final.winner_id === final.contestant2.id
+        ? final.contestant2
+        : null;
+  if (!champion) return null;
+
+  const scoreMode =
+    final.knockout_entry === 'score' &&
+    final.scores != null &&
+    final.scores.total1 != null &&
+    final.scores.total2 != null;
+
+  if (!scoreMode) {
+    return (
+      <div
+        className="challenge-card__final"
+        aria-label={`Champion ${champion.display_name}`}
+      >
+        <FinalTrophyMark />
+        <ContestantAvatar
+          displayName={champion.display_name}
+          imageUrl={champion.image_url}
+          className="challenge-card__final-crest"
+          placeholderClassName="challenge-card__final-crest challenge-card__final-crest--ph"
+        />
+      </div>
+    );
+  }
+
+  const leftWins = final.winner_id === final.contestant1.id;
+  const rightWins = final.winner_id === final.contestant2.id;
+  return (
+    <div
+      className="challenge-card__final challenge-card__final--score"
+      aria-label={`Final ${final.contestant1.display_name} ${final.scores!.total1}–${final.scores!.total2} ${final.contestant2.display_name}`}
+    >
+      {leftWins ? <FinalTrophyMark /> : null}
+      <ContestantAvatar
+        displayName={final.contestant1.display_name}
+        imageUrl={final.contestant1.image_url}
+        className="challenge-card__final-crest"
+        placeholderClassName="challenge-card__final-crest challenge-card__final-crest--ph"
+      />
+      <span className="challenge-card__final-score">
+        {final.scores!.total1}–{final.scores!.total2}
+      </span>
+      <ContestantAvatar
+        displayName={final.contestant2.display_name}
+        imageUrl={final.contestant2.image_url}
+        className="challenge-card__final-crest"
+        placeholderClassName="challenge-card__final-crest challenge-card__final-crest--ph"
+      />
+      {rightWins ? <FinalTrophyMark /> : null}
+    </div>
   );
 }
 
@@ -618,7 +693,10 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                     <span className="challenge-card__badge">Private</span>
                   ) : null}
                 </div>
-                {hasLeaderboardPreview(c.leaderboard_preview) ? (
+                {c.instance_type === INSTANCE_TOURNAMENT &&
+                c.tournament_final ? (
+                  <TournamentCardFinal final={c.tournament_final} />
+                ) : hasLeaderboardPreview(c.leaderboard_preview) ? (
                   <ChallengeCardLeaderboard preview={c.leaderboard_preview!} />
                 ) : null}
               </div>

@@ -59,14 +59,17 @@ def scoring_contexts_for_brackets(
 class ChallengeSummaryBootstrap:
     """One query batch per expensive summary field across many challenges."""
 
-    __slots__ = ("_master_ids", "_outcomes_tabs", "_previews")
+    __slots__ = ("_master_ids", "_outcomes_tabs", "_previews", "_tournament_finals")
 
     def __init__(self, challenges: list[BracketChallenge], user=None) -> None:
+        from brackets.utils.tournament_final_summary import load_tournament_finals
+
         bracket_ids = {c.bracket_id for c in challenges}
         self._master_ids = master_user_bracket_ids_for_brackets(bracket_ids)
         brackets_by_id = {c.bracket_id: c.bracket for c in challenges}
         scoring_contexts = scoring_contexts_for_brackets(brackets_by_id)
         self._previews = bracket_challenge_leaderboard_previews(challenges, user)
+        self._tournament_finals = load_tournament_finals(challenges)
         self._outcomes_tabs: dict[int, bool] = {}
         for challenge in challenges:
             if challenge.instance_type != CHALLENGE:
@@ -93,3 +96,8 @@ class ChallengeSummaryBootstrap:
 
     def show_outcomes_tab(self, challenge: BracketChallenge) -> bool:
         return self._outcomes_tabs.get(challenge.id, False)
+
+    def tournament_final(
+        self, challenge: BracketChallenge
+    ) -> dict[str, Any] | None:
+        return self._tournament_finals.get(challenge.id)

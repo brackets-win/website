@@ -342,6 +342,7 @@ def _challenge_summary_for_user(
         request=request,
         leaderboard_preview=bootstrap.leaderboard_preview(challenge),
         show_outcomes_tab=bootstrap.show_outcomes_tab(challenge),
+        tournament_final=bootstrap.tournament_final(challenge),
     )
 
 
@@ -1227,6 +1228,7 @@ def challenges_list_create(request: HttpRequest) -> JsonResponse:
                     request=request,
                     leaderboard_preview=bootstrap.leaderboard_preview(c),
                     show_outcomes_tab=bootstrap.show_outcomes_tab(c),
+                    tournament_final=bootstrap.tournament_final(c),
                 )
             )
         except Exception:
@@ -1286,6 +1288,7 @@ def challenges_public_list(request: HttpRequest) -> JsonResponse:
                 request=request,
                 leaderboard_preview=bootstrap.leaderboard_preview(c),
                 show_outcomes_tab=bootstrap.show_outcomes_tab(c),
+                tournament_final=bootstrap.tournament_final(c),
             )
         )
     return JsonResponse({"challenges": rows})
