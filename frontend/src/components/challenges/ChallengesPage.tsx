@@ -51,6 +51,28 @@ import {
 import { ActivityTypeIcon } from './ActivityTypeIcons';
 import './ChallengesPage.css';
 
+/** Group & Knockout team counts supported in create form. */
+const GROUP_KNOCKOUT_TEAM_SIZES = [8, 12, 16, 24, 32] as const;
+
+type GroupTeamSize = 3 | 4;
+
+/** Locked group sizes for the create-tournament UI (for now). */
+function allowedGroupTeamSizes(teamCount: number): GroupTeamSize[] {
+  if (teamCount === 12 || teamCount === 24) return [3];
+  if (
+    teamCount === 8 ||
+    teamCount === 16 ||
+    teamCount === 32
+  ) {
+    return [4];
+  }
+  return [4];
+}
+
+function defaultGroupTeamSize(teamCount: number): GroupTeamSize {
+  return allowedGroupTeamSizes(teamCount)[0] ?? 4;
+}
+
 function ChallengeThumb({ url, name }: { url: string | null | undefined; name: string }) {
   if (url) {
     return <img className="challenge-thumb" src={url} alt="" />;
@@ -257,6 +279,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
 
   const [tName, setTName] = useState('');
   const [tSize, setTSize] = useState(8);
+  const [tGroupSize, setTGroupSize] = useState<GroupTeamSize>(4);
   const [tStructure, setTStructure] = useState<'SINGLE_ELIM' | 'GROUP_KNOCKOUT'>(
     'SINGLE_ELIM',
   );
@@ -349,10 +372,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
       knockoutRounds({
         structureKind: tStructure,
         numContestants: tSize,
-        numGroups: tStructure === 'GROUP_KNOCKOUT' ? tSize / 4 : null,
+        numGroups:
+          tStructure === 'GROUP_KNOCKOUT' ? tSize / tGroupSize : null,
         qualifyPerGroup: 2,
       }),
-    [tStructure, tSize],
+    [tStructure, tSize, tGroupSize],
   );
 
   function resetForms() {
@@ -363,6 +387,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
     setBcMaxEntries('1');
     setTName('');
     setTSize(8);
+    setTGroupSize(4);
     setTStructure('SINGLE_ELIM');
     setTThird(false);
     setTShowSeeds(true);
@@ -550,17 +575,29 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
       setFormErr('Single elimination needs an even team count.');
       return;
     }
-    if (structure === 'GROUP_KNOCKOUT' && size % 4 !== 0) {
-      setFormErr('Group & Knockout needs a team count divisible by 4.');
-      return;
+    if (structure === 'GROUP_KNOCKOUT') {
+      if (!GROUP_KNOCKOUT_TEAM_SIZES.includes(size as (typeof GROUP_KNOCKOUT_TEAM_SIZES)[number])) {
+        setFormErr('Choose a supported Group & Knockout team count.');
+        return;
+      }
+      if (size % tGroupSize !== 0) {
+        setFormErr('Team count must divide evenly into groups.');
+        return;
+      }
+      if (!allowedGroupTeamSizes(size).includes(tGroupSize)) {
+        setFormErr('That group size is not available for this team count.');
+        return;
+      }
     }
     setBusy(true);
     try {
-      const numberOfGroups = size / 4;
+      const numberOfGroups =
+        structure === 'GROUP_KNOCKOUT' ? size / tGroupSize : size / 4;
       const roundLegs: Record<string, number> = {};
       for (const round of tKnockoutRounds) {
         roundLegs[String(round.size)] = tKoRoundLegs[round.size] === 2 ? 2 : 1;
       }
+      const onceEach = tGroupSize - 1;
       let { challenge } = await createChallenge({
         name,
         instance_type: INSTANCE_TOURNAMENT,
@@ -583,7 +620,7 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                     number_of_groups: numberOfGroups,
                     contestants_qualifying_per_group: 2,
                     matches_per_contestant:
-                      tGroupEntry === 'standings' ? 3 : tMatchesPer,
+                      tGroupEntry === 'standings' ? onceEach : tMatchesPer,
                   },
                   knockout: {
                     number_of_legs: 1,
@@ -1090,8 +1127,16 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                           | 'GROUP_KNOCKOUT';
                         setTStructure(next);
                         setTShowSeeds(next === 'SINGLE_ELIM');
-                        if (next === 'GROUP_KNOCKOUT' && tSize < 8) {
-                          setTSize(8);
+                        if (next === 'GROUP_KNOCKOUT') {
+                          const nextSize = (
+                            GROUP_KNOCKOUT_TEAM_SIZES as readonly number[]
+                          ).includes(tSize)
+                            ? tSize
+                            : 8;
+                          const nextGroup = defaultGroupTeamSize(nextSize);
+                          setTSize(nextSize);
+                          setTGroupSize(nextGroup);
+                          setTMatchesPer(nextGroup - 1);
                         }
                       }}
                       disabled={busy}
@@ -1106,11 +1151,19 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       id="t-size"
                       className="select"
                       value={tSize}
-                      onChange={(e) => setTSize(parseInt(e.target.value, 10))}
+                      onChange={(e) => {
+                        const next = parseInt(e.target.value, 10);
+                        setTSize(next);
+                        if (tStructure === 'GROUP_KNOCKOUT') {
+                          const nextGroup = defaultGroupTeamSize(next);
+                          setTGroupSize(nextGroup);
+                          setTMatchesPer(nextGroup - 1);
+                        }
+                      }}
                       disabled={busy}
                     >
                       {(tStructure === 'GROUP_KNOCKOUT'
-                        ? [8, 16, 32]
+                        ? [...GROUP_KNOCKOUT_TEAM_SIZES]
                         : evenTeamSizes(4, 64)
                       ).map((n) => (
                         <option key={n} value={n}>
@@ -1119,6 +1172,28 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                       ))}
                     </select>
                   </div>
+                  {tStructure === 'GROUP_KNOCKOUT' ? (
+                    <div className="field">
+                      <label htmlFor="t-group-size">Teams Per Group</label>
+                      <select
+                        id="t-group-size"
+                        className="select"
+                        value={tGroupSize}
+                        onChange={(e) => {
+                          const next = parseInt(e.target.value, 10) as GroupTeamSize;
+                          setTGroupSize(next);
+                          setTMatchesPer(next - 1);
+                        }}
+                        disabled={busy || allowedGroupTeamSizes(tSize).length <= 1}
+                      >
+                        {allowedGroupTeamSizes(tSize).map((n) => (
+                          <option key={n} value={n}>
+                            {n} ({tSize / n} groups)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   {tStructure === 'GROUP_KNOCKOUT' ? (
                     <>
                       <div className="field">
@@ -1169,9 +1244,11 @@ export function ChallengesPage({ currentUser: _currentUser }: { currentUser: Api
                             }
                             disabled={busy}
                           >
-                            {[3, 6].map((n) => (
+                            {[tGroupSize - 1, 2 * (tGroupSize - 1)].map((n) => (
                               <option key={n} value={n}>
-                                {n === 3 ? '3 (Once Each)' : '6 (Home & Away)'}
+                                {n === tGroupSize - 1
+                                  ? `${n} (Once Each)`
+                                  : `${n} (Home & Away)`}
                               </option>
                             ))}
                           </select>
