@@ -26,6 +26,8 @@ def generate_round_robin(
 
     Groups of 4 use matchdays: 1v3, 2v4, 1v2, 3v4, 4v1, 3v2; the second
     half (home & away) reverses each pairing in the same order.
+
+    Groups of 3 use: 1v3, 3v2, 2v1; home & away reverses that order.
     """
     n = len(team_ids)
     if n < 2:
@@ -73,6 +75,9 @@ def _round_robin_pairs(n: int) -> list[tuple[int, int]]:
 
     Indices are 0-based into the placement-ordered team list.
     """
+    if n == 3:
+        # 1v3, 3v2, 2v1
+        return [(0, 2), (2, 1), (1, 0)]
     if n == 4:
         # 1v3, 2v4, 1v2, 3v4, 4v1, 3v2
         return [(0, 2), (1, 3), (0, 1), (2, 3), (3, 0), (2, 1)]
