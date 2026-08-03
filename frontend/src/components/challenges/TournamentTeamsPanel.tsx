@@ -154,9 +154,15 @@ export function TournamentTeamsPanel({
   );
   const [createBusy, setCreateBusy] = useState(false);
 
-  const [busy, setBusy] = useState(false);
+  /** Which primary action is in flight — keeps Draw/Start labels independent. */
+  const [actionBusy, setActionBusy] = useState<'save' | 'draw' | 'start' | null>(
+    null,
+  );
+  /** True after a successful Save or Draw until the roster is edited again. */
+  const [rosterCommitted, setRosterCommitted] = useState(false);
   const [loadErr, setLoadErr] = useState('');
   const [saveErr, setSaveErr] = useState('');
+  const busy = actionBusy !== null;
 
   const potOptions = useMemo(() => divisorsForPots(capacity), [capacity]);
   const byeCount = useMemo(
@@ -230,13 +236,16 @@ export function TournamentTeamsPanel({
   }, [tags, catalog]);
 
   const applyMeta = useCallback(
-    (meta: {
-      team_count: number;
-      structure: 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
-      number_of_groups: number | null;
-      teams_per_group: number | null;
-      teams: TournamentTeamRow[];
-    }) => {
+    (
+      meta: {
+        team_count: number;
+        structure: 'SINGLE_ELIM' | 'GROUP_KNOCKOUT';
+        number_of_groups: number | null;
+        teams_per_group: number | null;
+        teams: TournamentTeamRow[];
+      },
+      options?: { preservePots?: boolean },
+    ) => {
       const n = meta.team_count || teamCount;
       setCapacity(n);
       setStructure(meta.structure);
@@ -253,27 +262,33 @@ export function TournamentTeamsPanel({
       setManualSlots(bySeed);
       setPoolSlots(bySeed.map((slot) => (slot ? { ...slot } : null)));
 
-      const seByes =
-        meta.structure === 'SINGLE_ELIM' && !isPowerOf2(n)
-          ? singleElimByeCount(n)
-          : 0;
-      if (seByes > 0) {
-        const pots = singleElimByeDrawPots(n);
-        const caps = pots.map((p) => p.size);
-        setPotCount(Math.max(pots.length, 1));
-        setPotSlots(distributeToPots(picks, pots.length, caps));
-      } else {
-        const nextPotCount = defaultPotCount(n, meta.teams_per_group);
-        const cap = nextPotCount > 0 ? n / nextPotCount : 0;
-        setPotCount(nextPotCount);
-        setPotSlots(
-          distributeToPots(
-            picks,
-            nextPotCount,
-            Array.from({ length: nextPotCount }, () => cap),
-          ),
-        );
+      // Draw assigns group seeds — never rebuild pots from that seed order
+      // (that mixes tiers and can change pot count via defaultPotCount).
+      if (!options?.preservePots) {
+        const seByes =
+          meta.structure === 'SINGLE_ELIM' && !isPowerOf2(n)
+            ? singleElimByeCount(n)
+            : 0;
+        if (seByes > 0) {
+          const pots = singleElimByeDrawPots(n);
+          const caps = pots.map((p) => p.size);
+          setPotCount(Math.max(pots.length, 1));
+          setPotSlots(distributeToPots(picks, pots.length, caps));
+        } else {
+          const nextPotCount = defaultPotCount(n, meta.teams_per_group);
+          const cap = nextPotCount > 0 ? n / nextPotCount : 0;
+          setPotCount(nextPotCount);
+          setPotSlots(
+            distributeToPots(
+              picks,
+              nextPotCount,
+              Array.from({ length: nextPotCount }, () => cap),
+            ),
+          );
+        }
       }
+
+      setRosterCommitted(picks.length === n);
     },
     [teamCount],
   );
@@ -365,10 +380,17 @@ export function TournamentTeamsPanel({
     setPotSlots(potsFromPicks(picks));
   }
 
+  function markRosterDirty() {
+    setRosterCommitted(false);
+  }
+
   function switchMode(next: PlacementMode) {
     if (next === mode) return;
-    // Keep one shared roster across modes so an empty view can’t wipe teams.
-    syncAllModes(picksForSwitch());
+    // After Save/Draw, keep each view's own layout (group seeds vs pots).
+    // Syncing from pot order would overwrite the draw.
+    if (!rosterCommitted) {
+      syncAllModes(picksForSwitch());
+    }
     setMode(next);
   }
 
@@ -400,6 +422,7 @@ export function TournamentTeamsPanel({
 
   function commitPick(pick: TeamPick) {
     if (!draftTarget) return;
+    markRosterDirty();
 
     if (draftTarget.startsWith('manual:')) {
       const idx = parseInt(draftTarget.slice('manual:'.length), 10);
@@ -455,11 +478,13 @@ export function TournamentTeamsPanel({
   }
 
   function clearManual(idx: number) {
+    markRosterDirty();
     setManualSlots((prev) => prev.map((slot, i) => (i === idx ? null : slot)));
   }
 
   function reorderManual(fromIdx: number, toIdx: number) {
     if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
+    markRosterDirty();
     setManualSlots((prev) => {
       if (fromIdx >= prev.length || toIdx >= prev.length) return prev;
       const next = [...prev];
@@ -470,10 +495,12 @@ export function TournamentTeamsPanel({
   }
 
   function clearPool(idx: number) {
+    markRosterDirty();
     setPoolSlots((prev) => prev.map((slot, i) => (i === idx ? null : slot)));
   }
 
   function removeFromPot(potIdx: number, teamIdx: number) {
+    markRosterDirty();
     setPotSlots((prev) =>
       prev.map((bucket, i) =>
         i === potIdx ? bucket.filter((_, j) => j !== teamIdx) : bucket,
@@ -538,70 +565,45 @@ export function TournamentTeamsPanel({
       contestant_id: slot!.contestant_id,
       seed: idx + 1,
     }));
-    setBusy(true);
+    setActionBusy('save');
     try {
       const meta = await saveChallengeTeams(challengeId, { teams });
       applyMeta(meta);
+      setRosterCommitted(true);
       onSaved();
     } catch (err) {
       setSaveErr(err instanceof ApiError ? err.message : 'Could not save teams.');
     } finally {
-      setBusy(false);
+      setActionBusy(null);
     }
   }
 
   async function handleStartTournament() {
     setSaveErr('');
+    if (!rosterCommitted) {
+      setSaveErr(
+        mode === 'manual'
+          ? 'Save teams before starting the tournament.'
+          : 'Draw teams before starting the tournament.',
+      );
+      return;
+    }
     if (!allSlotsFilled) {
       setSaveErr('Add a team for every slot before starting.');
       return;
     }
-    setBusy(true);
+    setActionBusy('start');
     try {
-      let body: Parameters<typeof startChallengeTournament>[1];
-      if (mode === 'manual') {
-        body = {
-          mode: 'manual',
-          teams: manualSlots.map((slot, idx) => ({
-            name: slot!.name,
-            contestant_id: slot!.contestant_id,
-            seed: idx + 1,
-          })),
-        };
-      } else if (mode === 'random') {
-        body = {
-          mode: 'random',
-          teams: poolSlots.map((slot) => ({
-            name: slot!.name,
-            contestant_id: slot!.contestant_id,
-          })),
-        };
-      } else {
-        const flat: Array<{
-          name: string;
-          pot: number;
-          contestant_id: number;
-        }> = [];
-        potSlots.forEach((bucket, potIdx) => {
-          bucket.forEach((slot) => {
-            flat.push({
-              name: slot.name,
-              contestant_id: slot.contestant_id,
-              pot: potIdx + 1,
-            });
-          });
-        });
-        body = { mode: 'random_balanced', teams: flat };
-      }
-      const meta = await startChallengeTournament(challengeId, body);
-      applyMeta(meta);
+      // Lock only — do not re-draw or re-save. Draw/Save already wrote the roster.
+      const meta = await startChallengeTournament(challengeId);
+      applyMeta(meta, { preservePots: mode === 'random_balanced' });
       onStarted();
     } catch (err) {
       setSaveErr(
         err instanceof ApiError ? err.message : 'Could not start tournament.',
       );
     } finally {
-      setBusy(false);
+      setActionBusy(null);
     }
   }
 
@@ -646,18 +648,20 @@ export function TournamentTeamsPanel({
       }
       teams = flat;
     }
-    setBusy(true);
+    setActionBusy('draw');
     try {
       const meta = await drawChallengeTeams(challengeId, {
         mode: mode === 'random' ? 'random' : 'random_balanced',
         teams,
       });
-      applyMeta(meta);
+      // Keep the user's pots intact — draw only assigns group/bracket seeds.
+      applyMeta(meta, { preservePots: mode === 'random_balanced' });
+      setRosterCommitted(true);
       onSaved();
     } catch (err) {
       setSaveErr(err instanceof ApiError ? err.message : 'Could not draw teams.');
     } finally {
-      setBusy(false);
+      setActionBusy(null);
     }
   }
 
@@ -709,7 +713,10 @@ export function TournamentTeamsPanel({
             id="ttp-pots"
             className="select"
             value={potCount}
-            onChange={(e) => setPotCount(parseInt(e.target.value, 10))}
+            onChange={(e) => {
+              markRosterDirty();
+              setPotCount(parseInt(e.target.value, 10));
+            }}
             disabled={busy || potOptions.length === 0}
           >
             {potOptions.map((n) => (
@@ -826,16 +833,20 @@ export function TournamentTeamsPanel({
             </div>
           ) : null}
           <div className="ttp__actions">
-            <button type="submit" className="btn btn--primary" disabled={busy}>
-              {busy ? 'Saving…' : 'Save Teams'}
+            <button
+              type="submit"
+              className="btn btn--outline"
+              disabled={busy}
+            >
+              {actionBusy === 'save' ? 'Saving…' : 'Save Teams'}
             </button>
             <button
               type="button"
               className="btn btn--primary"
-              disabled={busy || !allSlotsFilled}
+              disabled={busy || !rosterCommitted || !allSlotsFilled}
               onClick={() => void handleStartTournament()}
             >
-              {busy ? 'Starting…' : 'Start Tournament'}
+              {actionBusy === 'start' ? 'Starting…' : 'Start Tournament'}
             </button>
           </div>
         </form>
@@ -843,7 +854,14 @@ export function TournamentTeamsPanel({
 
       {mode === 'random' ? (
         <div className="ttp__draw-block">
-          <ul className="ttp__slots ttp__slots--flat">
+          <ul
+            className="ttp__slots ttp__slots--flat"
+            style={
+              {
+                '--ttp-flat-rows': Math.min(16, Math.max(capacity, 1)),
+              } as React.CSSProperties
+            }
+          >
             {poolSlots.map((pick, idx) => (
               <li key={idx}>
                 {pick ? (
@@ -872,19 +890,19 @@ export function TournamentTeamsPanel({
           <div className="ttp__actions">
             <button
               type="button"
-              className="btn btn--primary"
+              className="btn btn--outline"
               disabled={busy || !allSlotsFilled}
               onClick={() => void handleDraw()}
             >
-              {busy ? 'Drawing…' : 'Draw'}
+              {actionBusy === 'draw' ? 'Drawing…' : 'Draw'}
             </button>
             <button
               type="button"
               className="btn btn--primary"
-              disabled={busy || !allSlotsFilled}
+              disabled={busy || !rosterCommitted || !allSlotsFilled}
               onClick={() => void handleStartTournament()}
             >
-              {busy ? 'Starting…' : 'Start Tournament'}
+              {actionBusy === 'start' ? 'Starting…' : 'Start Tournament'}
             </button>
           </div>
         </div>
@@ -944,19 +962,19 @@ export function TournamentTeamsPanel({
           <div className="ttp__actions">
             <button
               type="button"
-              className="btn btn--primary"
+              className="btn btn--outline"
               disabled={busy || !allSlotsFilled}
               onClick={() => void handleDraw()}
             >
-              {busy ? 'Drawing…' : 'Draw'}
+              {actionBusy === 'draw' ? 'Drawing…' : 'Draw'}
             </button>
             <button
               type="button"
               className="btn btn--primary"
-              disabled={busy || !allSlotsFilled}
+              disabled={busy || !rosterCommitted || !allSlotsFilled}
               onClick={() => void handleStartTournament()}
             >
-              {busy ? 'Starting…' : 'Start Tournament'}
+              {actionBusy === 'start' ? 'Starting…' : 'Start Tournament'}
             </button>
           </div>
         </div>
