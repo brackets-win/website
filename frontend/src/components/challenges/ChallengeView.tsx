@@ -13,6 +13,7 @@ import {
   getChallengeOutcomes,
   getChallengeStats,
   joinChallenge,
+  redrawChallengeTournament,
   type ApiUser,
   type BracketDetail,
   type BracketStageInfo,
@@ -153,6 +154,9 @@ export function ChallengeView({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState('');
+  const [redrawOpen, setRedrawOpen] = useState(false);
+  const [redrawBusy, setRedrawBusy] = useState(false);
+  const [redrawErr, setRedrawErr] = useState('');
   const [maxEntriesDraft, setMaxEntriesDraft] = useState('1');
   const [maxEntriesBusy, setMaxEntriesBusy] = useState(false);
   const [maxEntriesErr, setMaxEntriesErr] = useState('');
@@ -613,10 +617,32 @@ export function ChallengeView({
       navigate('/');
     } catch (err) {
       setDeleteErr(
-        err instanceof ApiError ? err.message : 'Could not delete challenge.',
+        err instanceof ApiError
+          ? err.message
+          : challenge?.instance_type === INSTANCE_TOURNAMENT
+            ? 'Could not delete tournament.'
+            : 'Could not delete challenge.',
       );
     } finally {
       setDeleteBusy(false);
+    }
+  }
+
+  async function handleRedrawTournament() {
+    setRedrawBusy(true);
+    setRedrawErr('');
+    try {
+      await redrawChallengeTournament(challengeId);
+      setRedrawOpen(false);
+      await reload();
+      setBracketRevision((n) => n + 1);
+      goToTab('teams');
+    } catch (err) {
+      setRedrawErr(
+        err instanceof ApiError ? err.message : 'Could not unlock redraw.',
+      );
+    } finally {
+      setRedrawBusy(false);
     }
   }
 
@@ -1337,12 +1363,44 @@ export function ChallengeView({
               </button>
             </form>
           ) : null}
+          {(challenge.is_creator || challenge.can_manage_bracket) &&
+          isTournament &&
+          challenge.tournament_started === true ? (
+            <div className="challenge-view__danger">
+              <h2 className="challenge-view__danger-title">Redraw</h2>
+              <p className="challenge-view__muted">
+                Unlock the Teams tab to draw again. Only available when no
+                results have been entered.
+              </p>
+              {redrawErr ? (
+                <div className="alert alert--error" role="status">
+                  {redrawErr}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn--outline"
+                disabled={
+                  redrawBusy || challenge.tournament_can_redraw !== true
+                }
+                onClick={() => {
+                  setRedrawErr('');
+                  setRedrawOpen(true);
+                }}
+              >
+                Redraw
+              </button>
+            </div>
+          ) : null}
           {challenge.is_creator ? (
             <div className="challenge-view__danger">
-              <h2 className="challenge-view__danger-title">Delete Challenge</h2>
+              <h2 className="challenge-view__danger-title">
+                {isTournament ? 'Delete Tournament' : 'Delete Challenge'}
+              </h2>
               <p className="challenge-view__muted">
-                Permanently remove this challenge and all entries. This cannot be
-                undone.
+                {isTournament
+                  ? 'Permanently remove this tournament and all entries. This cannot be undone.'
+                  : 'Permanently remove this challenge and all entries. This cannot be undone.'}
               </p>
               {deleteErr ? (
                 <div className="alert alert--error" role="status">
@@ -1357,7 +1415,7 @@ export function ChallengeView({
                   setDeleteOpen(true);
                 }}
               >
-                Delete Challenge
+                {isTournament ? 'Delete Tournament' : 'Delete Challenge'}
               </button>
             </div>
           ) : null}
@@ -1366,16 +1424,33 @@ export function ChallengeView({
 
       <DeleteConfirmDialog
         open={deleteOpen}
-        title="Delete Challenge?"
+        title={isTournament ? 'Delete Tournament?' : 'Delete Challenge?'}
         label={challenge?.name ?? ''}
         intro={
           challenge
-            ? `“${challenge.name}” will be permanently removed along with all player entries.`
+            ? isTournament
+              ? `“${challenge.name}” will be permanently removed along with all entries.`
+              : `“${challenge.name}” will be permanently removed along with all player entries.`
             : undefined
         }
         busy={deleteBusy}
         onCancel={() => setDeleteOpen(false)}
         onConfirm={() => void handleDeleteChallenge()}
+        confirmLabel={isTournament ? 'Delete Tournament' : 'Delete'}
+      />
+
+      <DeleteConfirmDialog
+        open={redrawOpen}
+        title="Redraw Tournament?"
+        label={challenge?.name ?? ''}
+        intro="This unlocks the Teams tab so you can draw again. Current group or bracket placement will be replaced when you draw."
+        confirmWord="redraw"
+        confirmLabel="Redraw"
+        busyLabel="Unlocking…"
+        confirmButtonClass="btn--primary"
+        busy={redrawBusy}
+        onCancel={() => setRedrawOpen(false)}
+        onConfirm={() => void handleRedrawTournament()}
       />
     </div>
   );

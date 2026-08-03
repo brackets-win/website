@@ -69,6 +69,7 @@ from brackets.utils.tournament_teams import (
     link_name_only_tournament_teams,
     start_tournament,
     tournament_teams_response,
+    unlock_tournament_for_redraw,
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import (
@@ -1529,6 +1530,29 @@ def challenge_teams_start(request: HttpRequest, challenge_id: int) -> JsonRespon
             return _json_error(str(e), 400)
 
     return JsonResponse(tournament_teams_response(bracket))
+
+
+@require_http_methods(["POST"])
+def challenge_teams_redraw(request: HttpRequest, challenge_id: int) -> JsonResponse:
+    """Unlock team setup so the host can draw again (only with zero results)."""
+    user = _require_user(request)
+    if user is None:
+        return _json_error("Authentication required", 401)
+
+    challenge = get_object_or_404(
+        BracketChallenge.objects.select_related("bracket"), pk=challenge_id
+    )
+    if challenge.instance_type != TOURNAMENT:
+        return _json_error("Only tournaments support team setup", 400)
+    if not _can_manage_bracket(user, challenge):
+        return _json_error("Forbidden", 403)
+
+    try:
+        unlock_tournament_for_redraw(challenge.bracket)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+    return JsonResponse(tournament_teams_response(challenge.bracket))
 
 
 @require_http_methods(["POST"])

@@ -91,6 +91,69 @@ def start_tournament(bracket: Bracket) -> None:
     bracket.save(update_fields=["metadata"])
 
 
+def _group_positions_have_values(meta: dict[str, Any]) -> bool:
+    gp = meta.get("group_positions") or {}
+    if not isinstance(gp, dict):
+        return False
+    return any(
+        isinstance(v, dict) and any(x is not None for x in v.values())
+        for v in gp.values()
+    )
+
+
+def _group_fixtures_have_scores(meta: dict[str, Any]) -> bool:
+    fixtures = meta.get("group_fixtures") or {}
+    if not isinstance(fixtures, dict):
+        return False
+    for rows in fixtures.values():
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("home_score") is not None or row.get("away_score") is not None:
+                return True
+    return False
+
+
+def tournament_has_recorded_results(bracket: Bracket) -> bool:
+    """
+    True when any non-bye knockout winner, group standing, or fixture score exists.
+
+    Structural bye auto-winners do not count.
+    """
+    master: UserBracket = bracket.get_master_bracket()
+    for m in master.matchup_set.filter(winner_id__isnull=False).iterator():
+        if not is_structural_bye_matchup(m):
+            return True
+    meta = master.metadata if isinstance(master.metadata, dict) else {}
+    if _group_positions_have_values(meta):
+        return True
+    if _group_fixtures_have_scores(meta):
+        return True
+    return False
+
+
+def tournament_can_redraw(bracket: Bracket) -> bool:
+    return tournament_started(bracket) and not tournament_has_recorded_results(
+        bracket
+    )
+
+
+def unlock_tournament_for_redraw(bracket: Bracket) -> None:
+    """Clear the started lock so the host can open Teams and draw again."""
+    if not tournament_started(bracket):
+        raise ValueError("Tournament has not started yet.")
+    if tournament_has_recorded_results(bracket):
+        raise ValueError(
+            "Cannot redraw after results have been recorded."
+        )
+    meta = dict(bracket.metadata or {})
+    meta.pop("tournament_started", None)
+    bracket.metadata = meta or None
+    bracket.save(update_fields=["metadata"])
+
+
 def tournament_teams_public(bracket: Bracket) -> list[dict[str, Any]]:
     rows = bracket.bracket_contestants.select_related("contestant").order_by(
         "seed", "id"
@@ -124,6 +187,7 @@ def tournament_teams_response(bracket: Bracket) -> dict[str, Any]:
         **meta,
         "teams": tournament_teams_public(bracket),
         "tournament_started": tournament_started(bracket),
+        "tournament_can_redraw": tournament_can_redraw(bracket),
     }
 
 
@@ -192,25 +256,15 @@ def is_structural_bye_matchup(matchup) -> bool:
     return False
 
 
-def _assert_roster_editable(bracket: Bracket, master: UserBracket) -> None:
+def _assert_roster_editable(bracket: Bracket, _master: UserBracket) -> None:
     if tournament_started(bracket):
         raise ValueError(
             "Teams are locked after the tournament has started."
         )
-    for m in master.matchup_set.filter(winner_id__isnull=False).iterator():
-        if not is_structural_bye_matchup(m):
-            raise ValueError(
-                "Cannot change teams after results have been recorded. "
-                "Clear winners on the bracket first."
-            )
-    gp = (master.metadata or {}).get("group_positions") or {}
-    if isinstance(gp, dict) and any(
-        isinstance(v, dict) and any(x is not None for x in v.values())
-        for v in gp.values()
-    ):
+    if tournament_has_recorded_results(bracket):
         raise ValueError(
-            "Cannot change teams after group standings have been recorded. "
-            "Clear group positions first."
+            "Cannot change teams after results have been recorded. "
+            "Clear results on the bracket first."
         )
 
 

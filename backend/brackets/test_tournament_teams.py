@@ -239,3 +239,108 @@ class TournamentTeamsApiTests(TestCase):
         self.assertEqual(start.status_code, 200, start.content)
         self.assertTrue(start.json()["tournament_started"])
 
+    def test_redraw_unlocks_when_no_results(self):
+        ch = self._create_tournament(4)
+        self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "A"},
+                        {"name": "B"},
+                        {"name": "C"},
+                        {"name": "D"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/start",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertTrue(detail.json()["challenge"]["tournament_can_redraw"])
+
+        redraw = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/redraw",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(redraw.status_code, 200, redraw.content)
+        self.assertFalse(redraw.json()["tournament_started"])
+        self.assertFalse(redraw.json()["tournament_can_redraw"])
+
+        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertFalse(detail.json()["challenge"]["tournament_started"])
+        self.assertFalse(detail.json()["challenge"]["tournament_can_redraw"])
+
+        # Roster editable again after unlock.
+        resave = self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "W"},
+                        {"name": "X"},
+                        {"name": "Y"},
+                        {"name": "Z"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(resave.status_code, 200, resave.content)
+
+    def test_redraw_blocked_after_results(self):
+        ch = self._create_tournament(4)
+        self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "A"},
+                        {"name": "B"},
+                        {"name": "C"},
+                        {"name": "D"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/start",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        from brackets.models import Bracket, Matchup
+
+        bracket = Bracket.objects.get(pk=ch["bracket_id"])
+        master = bracket.get_master_bracket()
+        m = (
+            Matchup.objects.filter(
+                user_bracket=master,
+                contestant1_id__isnull=False,
+                contestant2_id__isnull=False,
+            )
+            .order_by("id")
+            .first()
+        )
+        self.assertIsNotNone(m)
+        m.winner_id = m.contestant1_id
+        m.save(update_fields=["winner_id"])
+
+        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertFalse(detail.json()["challenge"]["tournament_can_redraw"])
+
+        redraw = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/redraw",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(redraw.status_code, 400)
+        still = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertTrue(still.json()["challenge"]["tournament_started"])
+        self.assertFalse(still.json()["challenge"]["tournament_can_redraw"])
+

@@ -453,8 +453,10 @@ def challenge_summary(
     tournament_team_count = None
     teams_configured = None
     tournament_started_flag = None
+    tournament_can_redraw_flag = None
     if c.instance_type == TOURNAMENT:
         from brackets.utils.tournament_teams import (
+            tournament_can_redraw,
             tournament_started,
             tournament_team_capacity,
             tournament_teams_public,
@@ -465,6 +467,7 @@ def challenge_summary(
         configured = len(tournament_teams_public(c.bracket))
         teams_configured = required > 0 and configured >= required
         tournament_started_flag = tournament_started(c.bracket)
+        tournament_can_redraw_flag = tournament_can_redraw(c.bracket)
     is_creator = user is not None and c.created_by_id == user.id
     can_join = can_add_entry
     can_edit = False
@@ -518,6 +521,7 @@ def challenge_summary(
         "tournament_team_count": tournament_team_count,
         "teams_configured": teams_configured,
         "tournament_started": tournament_started_flag,
+        "tournament_can_redraw": tournament_can_redraw_flag,
         "leaderboard_preview": (
             leaderboard_preview
             if leaderboard_preview is not None
