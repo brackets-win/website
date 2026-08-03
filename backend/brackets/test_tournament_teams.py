@@ -248,11 +248,16 @@ class TournamentTeamsApiTests(TestCase):
             {"name": "P2A", "pot": 2},
             {"name": "P2B", "pot": 2},
         ]
-        draw = self.client.post(
-            f"/brackets/api/challenges/{ch['id']}/teams/draw",
-            data=json.dumps({"mode": "random_balanced", "teams": teams}),
-            content_type="application/json",
-        )
+        # Deterministic first draw (leave pot order as submitted).
+        with mock.patch(
+            "brackets.utils.tournament_placement.random.shuffle",
+            side_effect=lambda x: None,
+        ):
+            draw = self.client.post(
+                f"/brackets/api/challenges/{ch['id']}/teams/draw",
+                data=json.dumps({"mode": "random_balanced", "teams": teams}),
+                content_type="application/json",
+            )
         self.assertEqual(draw.status_code, 200, draw.content)
         first_seeds = {
             t["name"]: t["seed"] for t in draw.json()["teams"]
@@ -269,7 +274,7 @@ class TournamentTeamsApiTests(TestCase):
         detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
         self.assertTrue(detail.json()["challenge"]["tournament_can_redraw"])
 
-        # Force a different shuffle on redraw.
+        # Different deterministic shuffle on redraw.
         with mock.patch(
             "brackets.utils.tournament_placement.random.shuffle",
             side_effect=lambda x: x.reverse(),
