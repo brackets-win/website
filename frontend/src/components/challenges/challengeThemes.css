@@ -103,6 +103,17 @@
   border-color: var(--activity-btn-hover);
 }
 
+.challenge-theme .btn--outline {
+  color: var(--activity-btn);
+  border-color: var(--activity-btn);
+}
+
+.challenge-theme .btn--outline:hover:not(:disabled) {
+  color: var(--activity-btn-hover);
+  background: var(--activity-accent-bg);
+  border-color: var(--activity-btn-hover);
+}
+
 .challenge-theme .btn--secondary:hover:not(:disabled) {
   border-color: var(--activity-btn);
   color: var(--activity-btn);
