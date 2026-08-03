@@ -67,9 +67,9 @@ from brackets.utils.tournament_teams import (
     apply_tournament_teams,
     draw_and_apply_tournament_teams,
     link_name_only_tournament_teams,
+    redraw_tournament,
     start_tournament,
     tournament_teams_response,
-    unlock_tournament_for_redraw,
 )
 from brackets.utils.bracket_completeness import user_bracket_is_complete
 from brackets.utils.challenge_deadline import (
@@ -1534,7 +1534,7 @@ def challenge_teams_start(request: HttpRequest, challenge_id: int) -> JsonRespon
 
 @require_http_methods(["POST"])
 def challenge_teams_redraw(request: HttpRequest, challenge_id: int) -> JsonResponse:
-    """Unlock team setup so the host can draw again (only with zero results)."""
+    """Reshuffle group/bracket seeds from the saved pot/pool draw."""
     user = _require_user(request)
     if user is None:
         return _json_error("Authentication required", 401)
@@ -1548,7 +1548,7 @@ def challenge_teams_redraw(request: HttpRequest, challenge_id: int) -> JsonRespo
         return _json_error("Forbidden", 403)
 
     try:
-        unlock_tournament_for_redraw(challenge.bracket)
+        redraw_tournament(challenge.bracket, created_by=user)
     except ValueError as e:
         return _json_error(str(e), 400)
 

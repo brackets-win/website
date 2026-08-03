@@ -1,6 +1,7 @@
 """Tournament host team roster API."""
 
 import json
+from unittest import mock
 
 from django.test import Client, TestCase
 
@@ -239,7 +240,73 @@ class TournamentTeamsApiTests(TestCase):
         self.assertEqual(start.status_code, 200, start.content)
         self.assertTrue(start.json()["tournament_started"])
 
-    def test_redraw_unlocks_when_no_results(self):
+    def test_redraw_reshuffles_from_saved_pots(self):
+        ch = self._create_tournament(4)
+        teams = [
+            {"name": "P1A", "pot": 1},
+            {"name": "P1B", "pot": 1},
+            {"name": "P2A", "pot": 2},
+            {"name": "P2B", "pot": 2},
+        ]
+        draw = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/draw",
+            data=json.dumps({"mode": "random_balanced", "teams": teams}),
+            content_type="application/json",
+        )
+        self.assertEqual(draw.status_code, 200, draw.content)
+        first_seeds = {
+            t["name"]: t["seed"] for t in draw.json()["teams"]
+        }
+
+        start = self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/start",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(start.status_code, 200, start.content)
+        self.assertTrue(start.json()["tournament_started"])
+
+        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
+        self.assertTrue(detail.json()["challenge"]["tournament_can_redraw"])
+
+        # Force a different shuffle on redraw.
+        with mock.patch(
+            "brackets.utils.tournament_placement.random.shuffle",
+            side_effect=lambda x: x.reverse(),
+        ):
+            redraw = self.client.post(
+                f"/brackets/api/challenges/{ch['id']}/teams/redraw",
+                data=json.dumps({}),
+                content_type="application/json",
+            )
+        self.assertEqual(redraw.status_code, 200, redraw.content)
+        self.assertTrue(redraw.json()["tournament_started"])
+        self.assertTrue(redraw.json()["tournament_can_redraw"])
+        second_seeds = {
+            t["name"]: t["seed"] for t in redraw.json()["teams"]
+        }
+        self.assertEqual(set(second_seeds), set(first_seeds))
+        # Same roster, new placement from same pots.
+        self.assertNotEqual(second_seeds, first_seeds)
+
+        # Still locked — cannot manually replace teams.
+        blocked = self.client.put(
+            f"/brackets/api/challenges/{ch['id']}/teams",
+            data=json.dumps(
+                {
+                    "teams": [
+                        {"name": "W"},
+                        {"name": "X"},
+                        {"name": "Y"},
+                        {"name": "Z"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(blocked.status_code, 400)
+
+    def test_redraw_blocked_without_draw_config(self):
         ch = self._create_tournament(4)
         self.client.put(
             f"/brackets/api/challenges/{ch['id']}/teams",
@@ -261,52 +328,25 @@ class TournamentTeamsApiTests(TestCase):
             content_type="application/json",
         )
         detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
-        self.assertTrue(detail.json()["challenge"]["tournament_can_redraw"])
-
+        self.assertFalse(detail.json()["challenge"]["tournament_can_redraw"])
         redraw = self.client.post(
             f"/brackets/api/challenges/{ch['id']}/teams/redraw",
             data=json.dumps({}),
             content_type="application/json",
         )
-        self.assertEqual(redraw.status_code, 200, redraw.content)
-        self.assertFalse(redraw.json()["tournament_started"])
-        self.assertFalse(redraw.json()["tournament_can_redraw"])
-
-        detail = self.client.get(f"/brackets/api/challenges/{ch['id']}")
-        self.assertFalse(detail.json()["challenge"]["tournament_started"])
-        self.assertFalse(detail.json()["challenge"]["tournament_can_redraw"])
-
-        # Roster editable again after unlock.
-        resave = self.client.put(
-            f"/brackets/api/challenges/{ch['id']}/teams",
-            data=json.dumps(
-                {
-                    "teams": [
-                        {"name": "W"},
-                        {"name": "X"},
-                        {"name": "Y"},
-                        {"name": "Z"},
-                    ]
-                }
-            ),
-            content_type="application/json",
-        )
-        self.assertEqual(resave.status_code, 200, resave.content)
+        self.assertEqual(redraw.status_code, 400)
 
     def test_redraw_blocked_after_results(self):
         ch = self._create_tournament(4)
-        self.client.put(
-            f"/brackets/api/challenges/{ch['id']}/teams",
-            data=json.dumps(
-                {
-                    "teams": [
-                        {"name": "A"},
-                        {"name": "B"},
-                        {"name": "C"},
-                        {"name": "D"},
-                    ]
-                }
-            ),
+        teams = [
+            {"name": "P1A", "pot": 1},
+            {"name": "P1B", "pot": 1},
+            {"name": "P2A", "pot": 2},
+            {"name": "P2B", "pot": 2},
+        ]
+        self.client.post(
+            f"/brackets/api/challenges/{ch['id']}/teams/draw",
+            data=json.dumps({"mode": "random_balanced", "teams": teams}),
             content_type="application/json",
         )
         self.client.post(

@@ -135,23 +135,87 @@ def tournament_has_recorded_results(bracket: Bracket) -> bool:
 
 
 def tournament_can_redraw(bracket: Bracket) -> bool:
-    return tournament_started(bracket) and not tournament_has_recorded_results(
-        bracket
-    )
+    if not tournament_started(bracket):
+        return False
+    if tournament_has_recorded_results(bracket):
+        return False
+    return saved_tournament_draw(bracket) is not None
 
 
-def unlock_tournament_for_redraw(bracket: Bracket) -> None:
-    """Clear the started lock so the host can open Teams and draw again."""
+def saved_tournament_draw(bracket: Bracket) -> dict[str, Any] | None:
+    """Return persisted draw roster ({mode, teams}) used for redraw, if any."""
+    meta = bracket.metadata if isinstance(bracket.metadata, dict) else {}
+    raw = meta.get("tournament_draw")
+    if not isinstance(raw, dict):
+        return None
+    mode = str(raw.get("mode") or "").strip().lower()
+    teams = raw.get("teams")
+    if mode not in ("random", "random_balanced"):
+        return None
+    if not isinstance(teams, list) or not teams:
+        return None
+    return {"mode": mode, "teams": teams}
+
+
+def save_tournament_draw(
+    bracket: Bracket,
+    *,
+    mode: str,
+    teams: list[dict[str, Any]],
+) -> None:
+    """Persist pot/pool roster so Redraw can reshuffle without losing pots."""
+    rows: list[dict[str, Any]] = []
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+        row: dict[str, Any] = {}
+        cid = team.get("contestant_id")
+        if cid is not None and str(cid).strip() != "":
+            try:
+                row["contestant_id"] = int(cid)
+            except (TypeError, ValueError):
+                continue
+        name = str(team.get("name") or "").strip()
+        if name:
+            row["name"] = name
+        pot_raw = team.get("pot")
+        if pot_raw is not None and str(pot_raw).strip() != "":
+            try:
+                row["pot"] = int(pot_raw)
+            except (TypeError, ValueError):
+                pass
+        if "contestant_id" not in row and "name" not in row:
+            continue
+        rows.append(row)
+    if not rows:
+        raise ValueError("No teams to save for redraw.")
+    meta = dict(bracket.metadata or {})
+    meta["tournament_draw"] = {"mode": mode, "teams": rows}
+    bracket.metadata = meta
+    bracket.save(update_fields=["metadata"])
+
+
+def redraw_tournament(bracket: Bracket, *, created_by=None) -> list[dict[str, Any]]:
+    """
+    Reshuffle placement from the saved draw roster (same pots).
+
+    Does not unlock the Teams tab or change pot membership — only reassigns
+    group/bracket seeds. Blocked once any results exist.
+    """
     if not tournament_started(bracket):
         raise ValueError("Tournament has not started yet.")
     if tournament_has_recorded_results(bracket):
-        raise ValueError(
-            "Cannot redraw after results have been recorded."
-        )
-    meta = dict(bracket.metadata or {})
-    meta.pop("tournament_started", None)
-    bracket.metadata = meta or None
-    bracket.save(update_fields=["metadata"])
+        raise ValueError("Cannot redraw after results have been recorded.")
+    cfg = saved_tournament_draw(bracket)
+    if cfg is None:
+        raise ValueError("No draw to redraw from. Draw teams before starting.")
+    return draw_and_apply_tournament_teams(
+        bracket,
+        mode=cfg["mode"],
+        teams=cfg["teams"],
+        created_by=created_by,
+        allow_while_started=True,
+    )
 
 
 def tournament_teams_public(bracket: Bracket) -> list[dict[str, Any]]:
@@ -274,12 +338,16 @@ def apply_tournament_teams(
     teams: list[dict[str, Any]],
     *,
     created_by=None,
+    allow_while_started: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Replace the bracket roster and rebuild the master bracket tree.
 
     Each team may include ``contestant_id`` (preferred) and/or ``name``.
     Name-only rows create a ``Contestant`` when ``created_by`` is provided.
+
+    ``allow_while_started`` is for Redraw only: reassign seeds while the
+    tournament stays locked, provided no results exist.
     """
     required = tournament_team_capacity(bracket)
     if required < 2:
@@ -289,7 +357,14 @@ def apply_tournament_teams(
         raise ValueError(f"Provide exactly {required} teams.")
 
     master: UserBracket = bracket.get_master_bracket()
-    _assert_roster_editable(bracket, master)
+    if allow_while_started:
+        if tournament_has_recorded_results(bracket):
+            raise ValueError(
+                "Cannot change teams after results have been recorded. "
+                "Clear results on the bracket first."
+            )
+    else:
+        _assert_roster_editable(bracket, master)
 
     parsed: list[tuple[Contestant | None, str, int | None]] = []
     seen_contestants: set[int] = set()
@@ -353,6 +428,7 @@ def apply_tournament_teams(
         meta = dict(master.metadata)
         meta.pop("group_positions", None)
         meta.pop("third_place_advancers", None)
+        meta.pop("group_fixtures", None)
         master.metadata = meta or None
         master.save(update_fields=["metadata"])
 
@@ -382,6 +458,7 @@ def draw_and_apply_tournament_teams(
     mode: str,
     teams: list[dict[str, Any]],
     created_by=None,
+    allow_while_started: bool = False,
 ) -> list[dict[str, Any]]:
     from brackets.utils.tournament_placement import compute_draw_seeds
 
@@ -393,4 +470,11 @@ def draw_and_apply_tournament_teams(
         number_of_groups=meta["number_of_groups"],
         teams_per_group=meta["teams_per_group"],
     )
-    return apply_tournament_teams(bracket, seeded, created_by=created_by)
+    # Persist pots/pool before apply so Redraw can reuse them after start.
+    save_tournament_draw(bracket, mode=mode, teams=teams)
+    return apply_tournament_teams(
+        bracket,
+        seeded,
+        created_by=created_by,
+        allow_while_started=allow_while_started,
+    )

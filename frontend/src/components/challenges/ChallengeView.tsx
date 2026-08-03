@@ -636,10 +636,9 @@ export function ChallengeView({
       setRedrawOpen(false);
       await reload();
       setBracketRevision((n) => n + 1);
-      goToTab('teams');
     } catch (err) {
       setRedrawErr(
-        err instanceof ApiError ? err.message : 'Could not unlock redraw.',
+        err instanceof ApiError ? err.message : 'Could not redraw tournament.',
       );
     } finally {
       setRedrawBusy(false);
@@ -1369,8 +1368,8 @@ export function ChallengeView({
             <div className="challenge-view__danger">
               <h2 className="challenge-view__danger-title">Redraw</h2>
               <p className="challenge-view__muted">
-                Unlock the Teams tab to draw again. Only available when no
-                results have been entered.
+                Shuffle teams into new groups from the same pots. Only available
+                when no results have been entered.
               </p>
               {redrawErr ? (
                 <div className="alert alert--error" role="status">
@@ -1443,10 +1442,10 @@ export function ChallengeView({
         open={redrawOpen}
         title="Redraw Tournament?"
         label={challenge?.name ?? ''}
-        intro="This unlocks the Teams tab so you can draw again. Current group or bracket placement will be replaced when you draw."
+        intro="This keeps the same pots and reshuffles teams into new groups. Current group placement will be replaced."
         confirmWord="redraw"
         confirmLabel="Redraw"
-        busyLabel="Unlocking…"
+        busyLabel="Redrawing…"
         confirmButtonClass="btn--primary"
         busy={redrawBusy}
         onCancel={() => setRedrawOpen(false)}
