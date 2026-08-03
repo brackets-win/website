@@ -93,6 +93,7 @@ NATION_FLAG_CODES: dict[str, str] = {
     "portugal": "pt",
     "qatar": "qa",
     "romania": "ro",
+    "russia": "ru",
     "saudi-arabia": "sa",
     "scotland": "gb-sct",
     "senegal": "sn",
