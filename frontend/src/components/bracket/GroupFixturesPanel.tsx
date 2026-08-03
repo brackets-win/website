@@ -32,6 +32,14 @@ type StandingRow = {
 };
 
 function roundRobinPairs(n: number): Array<[number, number]> {
+  if (n === 3) {
+    // Placement order: 1v3, 3v2, 2v1
+    return [
+      [0, 2],
+      [2, 1],
+      [1, 0],
+    ];
+  }
   if (n === 4) {
     // Placement order: 1v3, 2v4, 1v2, 3v4, 4v1, 3v2
     return [
