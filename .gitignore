@@ -38,6 +38,12 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Cache / temp files
+*.swp
+*.swo
+*.tmp
+.wrangler/cache/
+
 # Local detached dev servers (npm run dev:up)
 .dev/
 
