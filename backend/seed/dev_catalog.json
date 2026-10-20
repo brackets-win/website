@@ -1482,6 +1482,69 @@
   }
 },
 {
+  "model": "bracket.contestant",
+  "pk": 98,
+  "fields": {
+    "identifier": "sevilla",
+    "name": "Sevilla",
+    "image_url": "",
+    "photo": "",
+    "description": "",
+    "metadata": {
+      "thesportsdb_team_id": "133735"
+    },
+    "created_by": [
+      "system"
+    ],
+    "tags": [
+      2,
+      3
+    ]
+  }
+},
+{
+  "model": "bracket.contestant",
+  "pk": 99,
+  "fields": {
+    "identifier": "valencia",
+    "name": "Valencia",
+    "image_url": "",
+    "photo": "",
+    "description": "",
+    "metadata": {
+      "thesportsdb_team_id": "133725"
+    },
+    "created_by": [
+      "system"
+    ],
+    "tags": [
+      2,
+      3
+    ]
+  }
+},
+{
+  "model": "bracket.contestant",
+  "pk": 100,
+  "fields": {
+    "identifier": "villarreal",
+    "name": "Villarreal",
+    "image_url": "",
+    "photo": "",
+    "description": "",
+    "metadata": {
+      "thesportsdb_team_id": "133740"
+    },
+    "created_by": [
+      "system"
+    ],
+    "tags": [
+      2,
+      3
+    ]
+  }
+},
+{
   "model": "bracket.brackettemplate",
   "pk": 1,
   "fields": {
